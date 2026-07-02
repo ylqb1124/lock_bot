@@ -718,7 +718,7 @@ avgLoadAndRender().then(() => {
 function renderStats() {
   const effectiveIdx = Math.max(0, nowIdx - 1);
 
-  // --- XPU平均/峰值利用率、显存平均利用率（仅 node 系列，排除 bdc） ---
+  // --- XPU/显存平均/峰值利用率（仅 node 系列，排除 bdc） ---
   const SLOT_10AM = 120;
   const getValidUtilNodes = (metricKey, hasDataKey) =>
     nodes.filter(node => node[hasDataKey] && Array.isArray(node[metricKey]));
@@ -750,8 +750,9 @@ function renderStats() {
   const avgXpu = computeClusterAvg(xpuNodes, 'avgUtil', SLOT_10AM);
   const peakXpu = computeSeriesPeak(avgTodayXpuMA.length ? avgTodayXpuMA : computeMA(xpuNodes, avgWindow).xpu);
   const avgMem = computeClusterAvg(memNodes, 'avgMemUtil', SLOT_10AM);
+  const peakMem = computeSeriesPeak(avgTodayMemMA.length ? avgTodayMemMA : computeMA(memNodes, avgWindow).mem);
   const avgXpuStr = avgXpu != null && peakXpu != null ? avgXpu.toFixed(1) + '%/' + peakXpu.toFixed(1) + '%' : '--/--';
-  const avgMemStr = avgMem != null ? avgMem.toFixed(1) + '%' : '--';
+  const avgMemStr = avgMem != null && peakMem != null ? avgMem.toFixed(1) + '%/' + peakMem.toFixed(1) + '%' : '--/--';
 
   let busyNodes = 0, freeNodes = 0, busyCards = 0, freeCards = 0;
   let lockedNodes = 0, lockedCards = 0;
@@ -773,12 +774,12 @@ function renderStats() {
   }
   const totalCards = nodes.length * 8;
 
-  // 第一行：总节点、总卡数、XPU平均利用率、显存平均利用率
+  // 第一行：总节点、总卡数、XPU平均/峰值利用率、显存平均/峰值利用率
   document.getElementById('stats-row-1').innerHTML =
     '<div class="stat-card total"><div class="label">总节点</div><div class="value total">' + nodes.length + '</div></div>' +
     '<div class="stat-card total"><div class="label">总卡数</div><div class="value total">' + totalCards + '</div></div>' +
     '<div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">' + avgXpuStr + '</div><span class="tip-icon">?</span><div class="tip-popup">平均利用率：当日10:00至今，所有node节点XPU平均利用率；峰值利用率：当日24小时内，所有node节点XPU平均利用率的最高值</div></div>' +
-    '<div class="stat-card mem-avg"><div class="label">显存平均利用率</div><div class="value mem-avg pct">' + avgMemStr + '</div><span class="tip-icon">?</span><div class="tip-popup">当日10:00至今，所有node节点显存平均利用率</div></div>';
+    '<div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">' + avgMemStr + '</div><span class="tip-icon">?</span><div class="tip-popup">平均利用率：当日10:00至今，所有node节点显存平均利用率；峰值利用率：当日24小时内，所有node节点显存平均利用率的最高值</div></div>';
 
   // 第二行：LOCKED节点、BUSY节点、LOCKED卡数、BUSY卡数
   document.getElementById('stats-row-2').innerHTML =
