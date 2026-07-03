@@ -384,16 +384,16 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="all-summary">
         <div class="section-head">
           <h3>全集群趋势筛选</h3>
-          <div class="section-note">按 begin ～ end 看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
+          <div class="section-note">按开始～结束看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
         </div>
 
         <div class="avg-filter-bar" aria-label="全部视图筛选控件占位">
           <div class="avg-date-control">
-            <label for="prototype-begin-date">begin</label>
+            <label for="prototype-begin-date">开始</label>
             <input id="prototype-begin-date" type="date" value="2026-06-24">
           </div>
           <div class="avg-date-control">
-            <label for="prototype-end-date">end</label>
+            <label for="prototype-end-date">结束</label>
             <input id="prototype-end-date" type="date" value="2026-07-01">
           </div>
           <div class="avg-window-toggles" aria-label="移动平均窗口">
@@ -473,7 +473,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="investment-compare">
         <div class="section-head">
           <h3>投入效果判断</h3>
-          <div class="section-note">把 begin ～ end 的今日/昨日曲线、均值和峰值转成管理层讨论语言</div>
+          <div class="section-note">把开始～结束的今日/昨日曲线、均值和峰值转成管理层讨论语言</div>
         </div>
         <div class="compare-grid">
           <article class="compare-card">
@@ -614,8 +614,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <div class="team-kpi-value">71% / 87%</div>
               </article>
               <article class="team-kpi good">
-                <div class="team-kpi-label">锁定显存均值</div>
-                <div class="team-kpi-value">64%</div>
+                <div class="team-kpi-label">锁定显存均值/峰值</div>
+                <div class="team-kpi-value">64% / 67%</div>
               </article>
             </div>
           </div>
@@ -758,7 +758,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <th>锁定卡数</th>
                 <th>BUSY卡数</th>
                 <th>XPU利用率/峰值利用率</th>
-                <th>显存利用率</th>
+                <th>显存利用率/峰值利用率</th>
               </tr>
             </thead>
             <tbody>
@@ -769,7 +769,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">96 卡</td>
                 <td class="mono">72 卡</td>
                 <td class="mono">46% / 62%</td>
-                <td class="mono">38%</td>
+                <td class="mono">38% / 52%</td>
               </tr>
               <tr>
                 <td>团队 B</td>
@@ -778,7 +778,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">112 卡</td>
                 <td class="mono">104 卡</td>
                 <td class="mono">71% / 87%</td>
-                <td class="mono">64%</td>
+                <td class="mono">64% / 67%</td>
               </tr>
               <tr>
                 <td>团队 C</td>
@@ -787,7 +787,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">72 卡</td>
                 <td class="mono">21 卡</td>
                 <td class="mono">18% / 31%</td>
-                <td class="mono">9%</td>
+                <td class="mono">9% / 18%</td>
               </tr>
               <tr>
                 <td>团队 D</td>
@@ -796,7 +796,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">28 卡</td>
                 <td class="mono">18 卡</td>
                 <td class="mono">29% / 45%</td>
-                <td class="mono">22%</td>
+                <td class="mono">22% / 36%</td>
               </tr>
             </tbody>
           </table>

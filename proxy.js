@@ -17,7 +17,7 @@ const path = require('path');
 let config = {
   proxy: { port: 8900, bind: '0.0.0.0' },
   backend: {
-    lockbot: { host: '10.206.192.17', port: 8875 },
+    lockbot: { host: '10.48.184.184', port: 8000 },
     monquery: { host: 'api.mt.noah.baidu.com', port: 8557 },
   },
 };

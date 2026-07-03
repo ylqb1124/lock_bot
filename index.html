@@ -44,6 +44,9 @@
       <div class="legend-item"><span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:rgba(220,38,38,.2);border:1px solid rgba(220,38,38,.35)"></span><span>Lock Bot 锁记录</span></div>
       <div class="legend-item"><span style="width:1px;height:14px;background:#dc2626;display:inline-block;"></span><span>当前时间</span></div>
     </div>
+    <div class="personal-search" id="personal-search" style="display:none">
+      <input class="search-input" id="search" placeholder="搜索节点...">
+    </div>
     <span id="status-mini" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px;"></span>
   </div>
 
@@ -54,7 +57,6 @@
       <span class="status-btn" data-status="FREE">FREE</span>
       <span class="status-btn" data-status="PARTIAL">PARTIAL</span>
       <span class="status-btn" data-status="BUSY">BUSY</span>
-      <input class="search-input" id="search" placeholder="搜索节点...">
       <label>排序：</label>
       <span class="status-btn" data-sort="util-desc">XPU利用率 ↓</span>
       <span class="status-btn" data-sort="mem-desc">显存 ↓</span>
@@ -76,7 +78,10 @@
     </div>
     <div class="charts-row" id="avg-charts-row">
       <div class="chart-panel">
-        <div class="chart-panel-title">XPU利用率趋势</div>
+        <div class="chart-panel-head">
+          <div class="chart-panel-title">XPU利用率趋势</div>
+          <button class="avg-mean-toggle active" id="avg-mean-toggle" type="button" aria-pressed="true">今日均值</button>
+        </div>
         <div class="chart-wrap" id="avg-xpu-chart-wrap"><canvas id="avg-xpu-chart"></canvas></div>
       </div>
       <div class="chart-panel">
@@ -134,6 +139,7 @@ let viewType = 'all';  // 'all' | 'personal'
 let avgWindow = 2;
 let avgTodayXpuMA = [], avgTodayMemMA = [];
 let avgYestXpuMA = null, avgYestMemMA = null;
+let avgShowTodayMean = true;
 let avgTodayNodes = [], avgYestNodes = [];
 let avgCutoffSlot = 287;
 let avgRefreshTimer = null;
@@ -659,6 +665,7 @@ document.getElementById('type-toggles').addEventListener('click', (e) => {
   if (type === 'all') {
     document.getElementById('personal-view').style.display = 'none';
     document.getElementById('legend-items').style.display = 'none';
+    document.getElementById('personal-search').style.display = 'none';
     document.getElementById('average-view').style.display = 'block';
     // Always refresh average data on switch
     avgLoadAndRender().then(() => {
@@ -668,6 +675,7 @@ document.getElementById('type-toggles').addEventListener('click', (e) => {
   } else {
     document.getElementById('personal-view').style.display = 'block';
     document.getElementById('legend-items').style.display = 'flex';
+    document.getElementById('personal-search').style.display = 'block';
     document.getElementById('average-view').style.display = 'none';
     // Always refresh personal view data on switch
     loadAllData().then(status => renderStatusBar(status));
@@ -692,6 +700,14 @@ document.getElementById('avg-window-toggles').addEventListener('click', (e) => {
     renderStats();
     renderStatusBar({ lockBot: { ok: true }, monquery: { ok: true, phase: 'complete' }, lastUpdated: Date.now() });
   }
+});
+
+const avgMeanToggle = document.getElementById('avg-mean-toggle');
+avgMeanToggle.addEventListener('click', () => {
+  avgShowTodayMean = !avgShowTodayMean;
+  avgMeanToggle.classList.toggle('active', avgShowTodayMean);
+  avgMeanToggle.setAttribute('aria-pressed', String(avgShowTodayMean));
+  avgDrawAllCharts();
 });
 
 // Date picker change
@@ -774,12 +790,15 @@ function renderStats() {
   }
   const totalCards = nodes.length * 8;
 
+  const xpuTip = '<div>平均利用率：当日10:00至今，所有node节点XPU平均利用率</div><div>峰值利用率：当日24小时内，所有node节点XPU平均利用率的最高值</div>';
+  const memTip = '<div>平均利用率：当日10:00至今，所有node节点显存平均利用率</div><div>峰值利用率：当日24小时内，所有node节点显存平均利用率的最高值</div>';
+
   // 第一行：总节点、总卡数、XPU平均/峰值利用率、显存平均/峰值利用率
   document.getElementById('stats-row-1').innerHTML =
     '<div class="stat-card total"><div class="label">总节点</div><div class="value total">' + nodes.length + '</div></div>' +
     '<div class="stat-card total"><div class="label">总卡数</div><div class="value total">' + totalCards + '</div></div>' +
-    '<div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">' + avgXpuStr + '</div><span class="tip-icon">?</span><div class="tip-popup">平均利用率：当日10:00至今，所有node节点XPU平均利用率；峰值利用率：当日24小时内，所有node节点XPU平均利用率的最高值</div></div>' +
-    '<div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">' + avgMemStr + '</div><span class="tip-icon">?</span><div class="tip-popup">平均利用率：当日10:00至今，所有node节点显存平均利用率；峰值利用率：当日24小时内，所有node节点显存平均利用率的最高值</div></div>';
+    '<div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">' + avgXpuStr + '</div><span class="tip-icon">?</span><div class="tip-popup">' + xpuTip + '</div></div>' +
+    '<div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">' + avgMemStr + '</div><span class="tip-icon">?</span><div class="tip-popup">' + memTip + '</div></div>';
 
   // 第二行：LOCKED节点、BUSY节点、LOCKED卡数、BUSY卡数
   document.getElementById('stats-row-2').innerHTML =
@@ -872,7 +891,7 @@ function _peakSlotOf(arr, endInclusive) {
   return peak && peak.value >= 1e-6 ? peak : null;
 }
 
-function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yTicks, cutoffSlot, todayAvgColor, yestAvgColor) {
+function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yTicks, cutoffSlot, todayAvgColor, yestAvgColor, showTodayMean = true) {
   const canvas = document.getElementById(canvasId);
   const wrap = canvas.parentElement;
   const { w, h } = avgSetupHiDPI(canvas, wrap);
@@ -995,7 +1014,7 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
     }
     ctx.restore();
   };
-  _drawAvgLine(todayMean, todayAvgColor, null, false);
+  if (showTodayMean) _drawAvgLine(todayMean, todayAvgColor, null, false);
 
   const _drawPeak = (peak, peakColor, labelOffset) => {
     if (!peak) return;
@@ -1025,7 +1044,8 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
   _drawPeak(todayPeak, color, 0);
 
   // 把均值和峰值挂到 canvas 元素上供后续 hover tooltip 扩展使用
-  canvas._avgtodayMean = todayMean;
+  canvas._avgshowTodayMean = showTodayMean;
+  canvas._avgtodayMean = showTodayMean ? todayMean : null;
   canvas._avgyestMean  = yestMean;
   canvas._avgtodayPeak = todayPeak;
   canvas._avgyestPeak  = yestPeak;
@@ -1035,9 +1055,9 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
   // ---- 图例（坐标轴区域左上角） ----
   const lx = AVG_MARGIN.left + 8, ly = AVG_MARGIN.top + 6;
   const items = [
-    { color, dash: false, label: '今日' },
-    { color: todayAvgColor, dash: false, label: '今日均值' }
+    { color, dash: false, label: '今日' }
   ];
+  if (showTodayMean) items.push({ color: todayAvgColor, dash: false, label: '今日均值' });
   if (yestData) items.push({ color: ghostColor, dash: true, label: '昨日' });
   items.push({ color, star: true, label: '峰值' });
   const lw = yestData ? 104 : 78, lh = 12 + items.length * 14;
@@ -1080,10 +1100,10 @@ function avgDrawAllCharts() {
   if (!avgTodayXpuMA.length) return;
   avgDrawChart('avg-xpu-chart', avgTodayXpuMA, avgYestXpuMA,
                '#7c3aed', 'rgba(124,58,237,0.45)', 35, XPU_TICKS, avgCutoffSlot,
-               '#dc2626', '#dc2626');
+               '#dc2626', '#dc2626', avgShowTodayMean);
   avgDrawChart('avg-mem-chart', avgTodayMemMA, avgYestMemMA,
                '#ea580c', 'rgba(234,88,12,0.45)', 70, MEM_TICKS, avgCutoffSlot,
-               '#dc2626', '#dc2626');
+               '#dc2626', '#dc2626', avgShowTodayMean);
 }
 
 function avgRestoreSnapshot(canvas) {
