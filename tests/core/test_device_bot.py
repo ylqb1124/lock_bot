@@ -598,6 +598,88 @@ def test_slock_duration_exceeded_no_state_pollution(bot):
     assert "❌" in reply3["message"]["body"][0]["content"]
 
 
+def test_expired_same_user_device_lock_records_old_occupancy_and_starts_fresh(bot):
+    old_start = int(time.time()) - 7200
+    bot.state.bot_state["test"][0]["status"] = "exclusive"
+    bot.state.bot_state["test"][0]["current_users"] = [
+        {"user_id": "user1", "start_time": old_start, "duration": 3600, "is_notified": False}
+    ]
+    records = []
+    bot._on_occupancy_end = lambda *args: records.append(args)
+
+    reply = bot.lock("user1", "lock test dev0 1h")
+
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+    assert records == [("test", "user1", old_start, old_start + 3600, "exclusive")]
+    user_info = bot.state.bot_state["test"][0]["current_users"][0]
+    assert bot.state.bot_state["test"][0]["status"] == "exclusive"
+    assert user_info["duration"] == 3600
+    assert user_info["start_time"] > old_start
+
+
+def test_active_same_user_device_lock_still_extends(bot):
+    start = int(time.time())
+    bot.state.bot_state["test"][0]["status"] = "exclusive"
+    bot.state.bot_state["test"][0]["current_users"] = [
+        {"user_id": "user1", "start_time": start, "duration": 1800, "is_notified": False}
+    ]
+    records = []
+    bot._on_occupancy_end = lambda *args: records.append(args)
+
+    reply = bot.lock("user1", "lock test dev0 30m")
+
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+    assert records == []
+    user_info = bot.state.bot_state["test"][0]["current_users"][0]
+    assert user_info["start_time"] == start
+    assert user_info["duration"] == 3600
+
+
+def test_expired_multi_card_relock_dedupes_occupancy_and_starts_fresh(bot):
+    old_start = int(time.time()) - 7200
+    for dev_id in [0, 1]:
+        bot.state.bot_state["test"][dev_id]["status"] = "exclusive"
+        bot.state.bot_state["test"][dev_id]["current_users"] = [
+            {"user_id": "user1", "start_time": old_start, "duration": 3600, "is_notified": False}
+        ]
+    records = []
+    bot._on_occupancy_end = lambda *args: records.append(args)
+
+    reply = bot.lock("user1", "lock test dev0-1 1h")
+
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+    assert records == [("test", "user1", old_start, old_start + 3600, "exclusive")]
+    for dev_id in [0, 1]:
+        user_info = bot.state.bot_state["test"][dev_id]["current_users"][0]
+        assert bot.state.bot_state["test"][dev_id]["status"] == "exclusive"
+        assert user_info["duration"] == 3600
+        assert user_info["start_time"] > old_start
+
+
+def test_expired_same_user_device_slock_records_old_occupancy_and_preserves_active_users(bot):
+    old_start = int(time.time()) - 7200
+    active_start = int(time.time())
+    bot.state.bot_state["test"][1]["status"] = "shared"
+    bot.state.bot_state["test"][1]["current_users"] = [
+        {"user_id": "user1", "start_time": old_start, "duration": 3600, "is_notified": False},
+        {"user_id": "user2", "start_time": active_start, "duration": 3600, "is_notified": False},
+    ]
+    records = []
+    bot._on_occupancy_end = lambda *args: records.append(args)
+
+    reply = bot.slock("user1", "slock test dev1 30m")
+
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+    assert records == [("test", "user1", old_start, old_start + 3600, "shared")]
+    users = {user_info["user_id"]: user_info for user_info in bot.state.bot_state["test"][1]["current_users"]}
+    assert bot.state.bot_state["test"][1]["status"] == "shared"
+    assert set(users) == {"user1", "user2"}
+    assert users["user1"]["duration"] == 1800
+    assert users["user1"]["start_time"] > old_start
+    assert users["user2"]["start_time"] == active_start
+    assert users["user2"]["duration"] == 3600
+
+
 def test_io_log_to_file(bot):
     """Test io log to file."""
     log_to_file("user1", "lock", "test", [0, 1], 3600, config=bot.config)

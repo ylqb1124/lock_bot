@@ -10,7 +10,7 @@ from importlib.metadata import version as _pkg_version
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
 from lockbot.core.platforms.infoflow import InfoflowAdapter
-from lockbot.core.utils import format_duration
+from lockbot.core.utils import format_duration, remaining_duration
 
 
 def _get_version():
@@ -111,6 +111,32 @@ class BaseLockBot:
             duration = user_info.get("duration", 0)
             end = start + duration
             self._on_occupancy_end(node_key, user_info["user_id"], start, end, lock_mode)
+
+    def _cleanup_expired_current_users(self, node_key: str, resource: dict, seen: set | None = None) -> bool:
+        if resource["status"] == "idle":
+            return False
+
+        changed = False
+        remaining_users = []
+        for user_info in resource["current_users"]:
+            if remaining_duration(user_info["start_time"], user_info["duration"]) > 0:
+                remaining_users.append(user_info)
+                continue
+
+            if seen is None:
+                self._record_occupancy_end(node_key, user_info, resource["status"])
+            else:
+                dedup_key = (node_key, user_info["user_id"])
+                if dedup_key not in seen:
+                    seen.add(dedup_key)
+                    self._record_occupancy_end(node_key, user_info, resource["status"])
+            changed = True
+
+        if changed:
+            resource["current_users"] = remaining_users
+            if not remaining_users:
+                resource["status"] = "idle"
+        return changed
 
     def _save_and_notify(self) -> None:
         """Persist bot state to disk and wake the scheduler (if wired).
