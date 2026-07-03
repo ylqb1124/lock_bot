@@ -6,6 +6,7 @@
 <title>XPU 资源监控下一版原型 - 全部 / 个人 / 团队价值视图</title>
 <style>
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -88,8 +89,11 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .section { margin-bottom: 30px; }
 .section:last-child { margin-bottom: 0; }
 .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.section-head.compact { margin-bottom: 8px; }
 .section h3 { margin: 0; font-size: 18px; }
 .section-note { color: #6b7280; font-size: 13px; }
+.collapse-toggle { border: 1px solid #9ca3af; background: #fff; color: #111827; padding: 6px 10px; font: 700 12px/1 inherit; cursor: pointer; }
+.collapse-toggle:hover { background: #f9fafb; }
 .background-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
 .panel {
   border: 1px solid #9ca3af;
@@ -153,25 +157,23 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .metric-rule { border-top: 1px dashed #9ca3af; padding-top: 8px; font-size: 12px; color: #4b5563; }
 .manager-use { margin-top: auto; border-left: 4px solid #111827; padding-left: 8px; font-size: 13px; color: #111827; }
 .prototype-main { display: grid; grid-template-columns: 280px 1fr; gap: 14px; }
+.team-layout { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.team-control-panel { border: 1px solid #9ca3af; padding: 10px 12px; background: #fafafa; }
+.team-kpi-block { display: grid; gap: 8px; }
 .side-panel { border: 1px solid #9ca3af; padding: 12px; background: #fafafa; }
 .filter-block { border: 1px dashed #9ca3af; background: #fff; padding: 10px; margin-bottom: 10px; }
+.team-control-panel .filter-block { margin-bottom: 0; }
+.team-control-panel .team-filter-stack { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
 .filter-label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
 .filter-row { height: 26px; border: 1px solid #d1d5db; background: #f9fafb; margin-bottom: 6px; }
-.rank-row { display: grid; grid-template-columns: 1fr 54px; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
-.rank-row:last-child { border-bottom: none; }
-.rank-row.active { margin: 0 -6px; padding: 8px 6px; border: 1px solid #111827; background: #fff; font-weight: 700; box-shadow: 3px 3px 0 #e5e7eb; }
-.rank-score { text-align: right; font-family: "SF Mono", Consolas, monospace; }
 .team-filter-stack { display: grid; gap: 8px; margin-top: 8px; }
 .team-filter-line { display: flex; justify-content: space-between; gap: 10px; border: 1px solid #d1d5db; background: #f9fafb; padding: 7px 9px; font-size: 12px; color: #4b5563; }
 .team-filter-line strong { color: #111827; }
-.team-kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+.team-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .team-kpi { border: 1px solid #111827; background: #fff; padding: 12px; min-height: 112px; box-shadow: 4px 4px 0 #e5e7eb; }
 .team-kpi-label { color: #6b7280; font-size: 12px; margin-bottom: 8px; }
 .team-kpi-value { font: 700 24px/1 "SF Mono", Consolas, monospace; color: #111827; }
-.team-kpi-sub { margin-top: 8px; color: #4b5563; font-size: 12px; }
-.team-kpi.warn .team-kpi-value { color: #dc2626; }
 .team-kpi.good .team-kpi-value { color: #16a34a; }
-.team-kpi.focus { background: #eef2ff; }
 .team-hero-chart { position: relative; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 12px; background: linear-gradient(135deg, #fff 0%, #fff 58%, #f8fafc 58%, #f8fafc 100%); padding: 16px 16px 10px; }
 .team-action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
 .team-action-card { border: 1px dashed #6b7280; background: #fafafa; padding: 12px; }
@@ -292,7 +294,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
   .team-kpi-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 980px) {
-  .background-grid, .prototype-main, .chart-grid, .assumption-grid, .compare-grid, .team-node-grid, .team-action-grid { grid-template-columns: 1fr; }
+  .background-grid, .prototype-main, .chart-grid, .assumption-grid, .compare-grid, .team-node-grid, .team-action-grid, .team-control-panel { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .avg-filter-bar { align-items: flex-start; }
   .decision-grid { grid-template-columns: repeat(2, 1fr); }
@@ -340,8 +342,9 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="background">
         <div class="section-head">
           <h3>背景</h3>
+          <button class="collapse-toggle" type="button" data-collapse-target="background-content" aria-expanded="false">展开背景说明</button>
         </div>
-        <div class="background-grid">
+        <div class="background-grid" id="background-content" hidden>
           <div class="panel">
             <p class="panel-title">为什么「全部」和「团队」都要做原型</p>
             <ul class="problem-list">
@@ -360,7 +363,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <div class="stat-card total"><div class="label">总节点</div><div class="value total">48</div></div>
             <div class="stat-card total"><div class="label">总卡数</div><div class="value total">384</div></div>
             <div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">5.6%/12.5%</div></div>
-            <div class="stat-card mem-avg"><div class="label">显存平均利用率</div><div class="value mem-avg pct">33.4%</div></div>
+            <div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">34.1%/33.1%</div></div>
           </div>
           <div class="stats-bar-row">
             <div class="stat-card locked"><div class="label">LOCKED 节点</div><div class="value locked">46</div></div>
@@ -576,68 +579,46 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       </div>
 
       <div class="view-pane" data-view-pane="team" hidden>
-      <section class="section" id="team-summary">
-        <div class="section-head">
-          <h3>团队资源归因和分配</h3>
-          <div class="section-note">全部看整体投入效果，团队看团队是否申请合理、使用充分、峰值真实</div>
-        </div>
-        <div class="team-kpi-grid" aria-label="团队视图关键指标">
-          <article class="team-kpi focus">
-            <div class="team-kpi-label">当前团队</div>
-            <div class="team-kpi-value">团队 B</div>
-            <div class="team-kpi-sub">算法训练 · 14 人持锁</div>
-          </article>
-          <article class="team-kpi">
-            <div class="team-kpi-label">今日锁定机器</div>
-            <div class="team-kpi-value">14 台</div>
-            <div class="team-kpi-sub">峰值 16 台，整机锁占 62%</div>
-          </article>
-          <article class="team-kpi">
-            <div class="team-kpi-label">今日锁定卡数</div>
-            <div class="team-kpi-value">112 卡</div>
-            <div class="team-kpi-sub">单卡锁 43 卡，碎片率 18%</div>
-          </article>
-          <article class="team-kpi good">
-            <div class="team-kpi-label">锁定 XPU 均值</div>
-            <div class="team-kpi-value">71%</div>
-            <div class="team-kpi-sub">高于全集群均值 18pct</div>
-          </article>
-          <article class="team-kpi good">
-            <div class="team-kpi-label">锁定显存均值</div>
-            <div class="team-kpi-value">64%</div>
-            <div class="team-kpi-sub">模型训练特征明显</div>
-          </article>
-          <article class="team-kpi warn">
-            <div class="team-kpi-label">低利用锁定</div>
-            <div class="team-kpi-value">2 台</div>
-            <div class="team-kpi-sub">建议先看 node27 / node36</div>
-          </article>
-        </div>
-      </section>
-
       <section class="section" id="team-body">
         <div class="section-head">
           <h3>团队视图主体</h3>
-          <div class="section-note">左侧选团队和口径，右侧把“申请量”和“使用质量”放到同一时间轴</div>
+          <div class="section-note">先选择日期和团队，再查看团队今日资源使用情况</div>
         </div>
-        <div class="prototype-main">
-          <aside class="side-panel">
+        <div class="team-layout">
+          <div class="team-control-panel">
             <div class="filter-block">
-              <div class="filter-label">团队筛选</div>
+              <div class="filter-label">筛选条件</div>
               <div class="team-filter-stack">
                 <div class="team-filter-line"><span>日期</span><strong>今日</strong></div>
                 <div class="team-filter-line"><span>团队</span><strong>团队 B</strong></div>
-                <div class="team-filter-line"><span>Bot 类型</span><strong>全部</strong></div>
-                <div class="team-filter-line"><span>风险</span><strong>低利用锁定</strong></div>
               </div>
             </div>
-            <p class="panel-title">团队需求排行</p>
-            <div class="rank-row"><span>团队 A</span><span class="rank-score">18 台</span></div>
-            <div class="rank-row active"><span>团队 B</span><span class="rank-score">14 台</span></div>
-            <div class="rank-row"><span>团队 C</span><span class="rank-score">9 台</span></div>
-            <div class="rank-row"><span>团队 D</span><span class="rank-score">6 台</span></div>
-            <div class="chart-use">左侧解决“看谁”：先按团队需求或低利用风险定位对象，再在右侧确认是否扩容、回收或协调。</div>
-          </aside>
+          </div>
+
+          <div class="team-kpi-block" aria-label="团队 B 资源使用">
+            <div class="section-head compact">
+              <h3>团队 B 资源使用</h3>
+              <div class="section-note">查看团队今日锁定规模、BUSY规模和资源利用情况</div>
+            </div>
+            <div class="team-kpi-grid" aria-label="团队视图关键指标">
+              <article class="team-kpi">
+                <div class="team-kpi-label">今日锁定机器</div>
+                <div class="team-kpi-value">14 台</div>
+              </article>
+              <article class="team-kpi">
+                <div class="team-kpi-label">今日锁定卡数</div>
+                <div class="team-kpi-value">112 卡</div>
+              </article>
+              <article class="team-kpi good">
+                <div class="team-kpi-label">锁定 XPU 均值/峰值</div>
+                <div class="team-kpi-value">71% / 87%</div>
+              </article>
+              <article class="team-kpi good">
+                <div class="team-kpi-label">锁定显存均值</div>
+                <div class="team-kpi-value">64%</div>
+              </article>
+            </div>
+          </div>
 
           <div>
             <article class="chart-card">
@@ -672,7 +653,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                   <span><i class="avg-legend-line mean"></i>今日均值</span>
                 </div>
               </div>
-              <div class="chart-use">判断口径：如果锁定机器数增加且 XPU / 显存同步抬升，说明资源申请有产出；如果锁定增加但曲线趴底，优先进入低利用明细协调。</div>
+              <div class="chart-use">解读方法：锁定规模上升且 XPU / 显存同步抬升，说明资源被有效使用；锁定规模上升但曲线偏低，优先查看低利用节点并协调释放。</div>
             </article>
 
             <div class="chart-grid" style="margin-top:12px;">
@@ -683,7 +664,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                   <div class="line three"></div>
                 </div>
                 <div class="axis-labels"><span>D-6</span><span>D-4</span><span>D-2</span><span>今天</span></div>
-                <div class="chart-use">用于判断需求是持续增长，还是某次发布、压测或排障造成的短时高峰。</div>
+                <div class="chart-use">看锁定规模是否连续走高，区分稳定增长和发布、压测、排障带来的短时高峰。</div>
               </article>
 
               <article class="chart-card">
@@ -693,7 +674,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                   <div class="line four"></div>
                 </div>
                 <div class="axis-labels"><span>整机锁</span><span>单卡锁</span><span>混合</span><span>峰值</span></div>
-                <div class="chart-use">用于看清是否存在“机器数不多但卡被占满”或“整机锁造成卡级碎片”的情况。</div>
+                <div class="chart-use">看锁定资源集中在整机还是单卡，判断是否存在卡被占满或卡级碎片。</div>
               </article>
             </div>
           </div>
@@ -756,15 +737,15 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <p>锁定高但利用低时，先按持锁人和节点明细沟通释放，不直接用团队总量做判断。</p>
           </article>
           <article class="team-action-card">
-            <h4>需补归因</h4>
-            <p>团队映射缺失或多人共用 Bot 时，在表格中标记“口径待确认”，避免错误归因。</p>
+            <h4>看低利用</h4>
+            <p>锁定 XPU 和显存长期偏低时，优先查看节点明细，确认是否可以释放或复用。</p>
           </article>
         </div>
       </section>
 
       <section class="section" id="team-compare">
         <div class="section-head">
-          <h3>团队对比表</h3>
+          <h3>今日团队资源使用对比</h3>
           <div class="section-note">用于从多个团队里找扩容、回收和协调对象</div>
         </div>
         <div class="table-wrap">
@@ -772,50 +753,50 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <thead>
               <tr>
                 <th>团队</th>
-                <th>今日锁定机器数</th>
+                <th>锁定机器数</th>
+                <th>BUSY机器数</th>
                 <th>锁定卡数</th>
-                <th>峰值锁定机器数</th>
-                <th>锁定 XPU 利用率</th>
-                <th>锁定显存利用率</th>
-                <th>管理提示</th>
+                <th>BUSY卡数</th>
+                <th>XPU利用率/峰值利用率</th>
+                <th>显存利用率</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td>团队 A</td>
                 <td class="mono">18 台</td>
+                <td class="mono">13 台</td>
                 <td class="mono">96 卡</td>
-                <td class="mono">24 台</td>
-                <td class="mono">46%</td>
+                <td class="mono">72 卡</td>
+                <td class="mono">46% / 62%</td>
                 <td class="mono">38%</td>
-                <td><span class="tip">需求高，使用质量中等，关注高峰排队</span></td>
               </tr>
               <tr>
                 <td>团队 B</td>
                 <td class="mono">14 台</td>
+                <td class="mono">14 台</td>
                 <td class="mono">112 卡</td>
-                <td class="mono">16 台</td>
-                <td class="mono">71%</td>
+                <td class="mono">104 卡</td>
+                <td class="mono">71% / 87%</td>
                 <td class="mono">64%</td>
-                <td><span class="tip">需求高且利用高，可作为扩容依据</span></td>
               </tr>
               <tr>
                 <td>团队 C</td>
                 <td class="mono">9 台</td>
+                <td class="mono">3 台</td>
                 <td class="mono">72 卡</td>
-                <td class="mono">12 台</td>
-                <td class="mono">18%</td>
+                <td class="mono">21 卡</td>
+                <td class="mono">18% / 31%</td>
                 <td class="mono">9%</td>
-                <td><span class="tip">锁定高但利用偏低，适合协调回收</span></td>
               </tr>
               <tr>
                 <td>团队 D</td>
                 <td class="mono">6 台</td>
+                <td class="mono">4 台</td>
                 <td class="mono">28 卡</td>
-                <td class="mono">8 台</td>
-                <td class="mono">口径待确认</td>
-                <td class="mono">口径待确认</td>
-                <td><span class="tip">团队归因需要补充映射</span></td>
+                <td class="mono">18 卡</td>
+                <td class="mono">29% / 45%</td>
+                <td class="mono">22%</td>
               </tr>
             </tbody>
           </table>
@@ -835,11 +816,11 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
           </article>
           <article class="decision-card">
             <h4>是否需要扩容</h4>
-            <p>看全部视图高峰利用率，再结合团队视图峰值锁定机器数，区分容量不足和局部排队。</p>
+            <p>看全部视图高峰利用率，再结合团队峰值 XPU 利用率，判断高峰压力是否集中在少数团队。</p>
           </article>
           <article class="decision-card">
             <h4>资源是否分配合理</h4>
-            <p>看团队锁定机器数、锁定卡数和团队对比表，判断哪些团队需求高且使用充分。</p>
+            <p>看团队锁定机器数、锁定卡数和今日团队资源使用对比，判断哪些团队需求高且使用充分。</p>
           </article>
           <article class="decision-card">
             <h4>资源是否锁而不用</h4>
@@ -850,24 +831,24 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
 
       <section class="section" id="assumptions">
         <div class="section-head">
-          <h3>数据依赖与待确认口径</h3>
-          <div class="section-note">防止把原型误解为当前功能</div>
+          <h3>数据基础与后续补齐</h3>
+          <div class="section-note">说明哪些数据已经可用，哪些数据需要在下一版接入</div>
         </div>
         <div class="assumption-grid">
           <div class="assumption">
             <h4>当前已有基础</h4>
             <ul>
-              <li>Monquery 可提供 XPU 与显存利用率时间序列，用于全部视图的均值、峰值和趋势。</li>
-              <li>Lock Bot 可提供锁定用户、节点或卡、起止时间，用于个人协作和团队归因。</li>
-              <li>现有页面已有「全部」趋势和「个人」节点明细。</li>
+              <li>Monquery 已提供 XPU 与显存利用率时间序列，可支撑全部视图的均值、峰值和趋势。</li>
+              <li>Lock Bot 已提供锁定用户、节点或卡、起止时间，可支撑个人协作和团队统计。</li>
+              <li>现有页面已有「全部」趋势和「个人」节点明细，可复用到下一版原型。</li>
             </ul>
           </div>
           <div class="assumption">
             <h4>下一版需要补齐</h4>
             <ul>
-              <li>日期对比和均值/峰值口径需要明确，避免把偶发波动误判为投入效果。</li>
-              <li>团队视图需要 user_id 到团队的映射表，或由 Lock Bot / 组织接口返回团队字段。</li>
-              <li>需要确认整机锁、单卡锁在团队统计里的折算口径。</li>
+              <li>补齐日期对比能力，用于查看投入前后 XPU 与显存利用率变化。</li>
+              <li>补齐 user_id 到团队的映射，或直接接入 Lock Bot / 组织接口返回的团队字段。</li>
+              <li>补齐团队维度的整机锁、单卡锁统计，让团队视图能展示锁定机器数和锁定卡数。</li>
             </ul>
           </div>
         </div>
@@ -878,6 +859,17 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
   <footer class="footer">低保真原型，仅用于确认下一版全部 / 个人 / 团队价值视图的信息结构、指标口径和老板视角价值。</footer>
 </div>
 <script>
+  const collapseToggle = document.querySelector('[data-collapse-target]');
+  if (collapseToggle) {
+    const collapseTarget = document.getElementById(collapseToggle.dataset.collapseTarget);
+    collapseToggle.addEventListener('click', () => {
+      const expanded = collapseToggle.getAttribute('aria-expanded') === 'true';
+      collapseToggle.setAttribute('aria-expanded', String(!expanded));
+      collapseToggle.textContent = expanded ? '展开背景说明' : '收起背景说明';
+      collapseTarget.hidden = expanded;
+    });
+  }
+
   const tabs = document.querySelectorAll('[data-view-tab]');
   const panes = document.querySelectorAll('[data-view-pane]');
 
