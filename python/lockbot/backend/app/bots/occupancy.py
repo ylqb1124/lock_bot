@@ -2,7 +2,7 @@
 Occupancy record model and service — tracks who occupied which node, when, and for how long.
 
 Records are written when a lock is released (manual unlock, auto-expiry, or kickout).
-Data older than 8 days is cleaned up automatically on each write.
+Data older than 365 days is cleaned up automatically on each write.
 """
 
 import logging
@@ -16,7 +16,7 @@ from lockbot.backend.app.database import Base, SessionLocal
 logger = logging.getLogger(__name__)
 
 # Number of days to retain occupancy records
-RETENTION_DAYS = 8
+RETENTION_DAYS = 365
 
 
 class OccupancyRecord(Base):

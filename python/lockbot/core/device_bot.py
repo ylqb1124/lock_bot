@@ -214,16 +214,22 @@ class DeviceBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         with self._lock:
             timestamp = int(time.time())
+            state_changed = False
+            seen = set()
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
+                for device in devices:
+                    state_changed |= self._cleanup_expired_current_users(node_key, device, seen=seen)
 
                 if not all(
                     device["status"] == "idle"
                     or (find_user_info(device["current_users"], user_id) and device["status"] == "exclusive")
                     for device in devices
                 ):
+                    if state_changed:
+                        self._save_and_notify()
                     return self.show_error(
                         user_id, self._msg_with_usage("error.device_in_use_or_shared", node_key=node_key)
                     )
@@ -238,6 +244,8 @@ class DeviceBot(BaseLockBot):
                         else:
                             start_time = timestamp
                         if remaining_duration(start_time, total_duration) > max_dur:
+                            if state_changed:
+                                self._save_and_notify()
                             return self.show_error(
                                 user_id,
                                 t(
@@ -286,11 +294,17 @@ class DeviceBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         with self._lock:
             timestamp = int(time.time())
+            state_changed = False
+            seen = set()
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
+                for device in devices:
+                    state_changed |= self._cleanup_expired_current_users(node_key, device, seen=seen)
 
                 if not all(device["status"] != "exclusive" for device in devices):
+                    if state_changed:
+                        self._save_and_notify()
                     return self.show_error(
                         user_id, self._msg_with_usage("error.device_exclusive_mode", node_key=node_key)
                     )
@@ -305,6 +319,8 @@ class DeviceBot(BaseLockBot):
                             total_duration = duration
                             start_time = timestamp
                         if remaining_duration(start_time, total_duration) > max_dur:
+                            if state_changed:
+                                self._save_and_notify()
                             return self.show_error(
                                 user_id,
                                 t(

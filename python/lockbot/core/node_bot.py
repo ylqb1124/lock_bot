@@ -153,6 +153,10 @@ class NodeBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            state_changed = False
+            for node_key, node in zip(node_keys, nodes, strict=True):
+                state_changed |= self._cleanup_expired_current_users(node_key, node)
+
             conflict_keys = [
                 nk
                 for nk, node in zip(node_keys, nodes, strict=True)
@@ -162,6 +166,8 @@ class NodeBot(BaseLockBot):
                 )
             ]
             if conflict_keys:
+                if state_changed:
+                    self._save_and_notify()
                 return self.show_error(
                     user_id, self._msg_with_usage("error.node_in_use_or_shared", node_key=conflict_keys)
                 )
@@ -178,6 +184,8 @@ class NodeBot(BaseLockBot):
                     else:
                         start_time = timestamp
                     if remaining_duration(start_time, total_duration) > max_dur:
+                        if state_changed:
+                            self._save_and_notify()
                         return self.show_error(
                             user_id,
                             t(
@@ -201,7 +209,9 @@ class NodeBot(BaseLockBot):
                 user_info["is_notified"] = False
                 node["current_users"] = [user_info]
 
-            reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked", node_key=node_keys), [user_id])
+            reply = self.adapter.build_reply(
+                self._msg_with_usage("success.resource_locked", node_key=node_keys), [user_id]
+            )
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
             return reply
@@ -217,8 +227,14 @@ class NodeBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            state_changed = False
+            for node_key, node in zip(node_keys, nodes, strict=True):
+                state_changed |= self._cleanup_expired_current_users(node_key, node)
+
             conflict_keys = [nk for nk, node in zip(node_keys, nodes, strict=True) if node["status"] == "exclusive"]
             if conflict_keys:
+                if state_changed:
+                    self._save_and_notify()
                 return self.show_error(
                     user_id, self._msg_with_usage("error.node_exclusive_mode", node_key=conflict_keys)
                 )
@@ -235,6 +251,8 @@ class NodeBot(BaseLockBot):
                         total_duration = duration
                         start_time = timestamp
                     if remaining_duration(start_time, total_duration) > max_dur:
+                        if state_changed:
+                            self._save_and_notify()
                         msg = t(
                             "error.slock_max_duration_exceeded",
                             config=self.config,
@@ -252,7 +270,9 @@ class NodeBot(BaseLockBot):
                     user_info["duration"] += duration
                     user_info["is_notified"] = False
 
-            reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked", node_key=node_keys), [user_id])
+            reply = self.adapter.build_reply(
+                self._msg_with_usage("success.resource_locked", node_key=node_keys), [user_id]
+            )
             log_to_file(user_id, "slock", node_keys, duration, config=self.config)
             self._save_and_notify()
             return reply
@@ -291,7 +311,7 @@ class NodeBot(BaseLockBot):
                 for node in nodes
             ):
                 return self.show_error(user_id, self._msg_with_usage("error.node_not_requested"))
-            for node_key, node in zip(node_keys, nodes):
+            for node_key, node in zip(node_keys, nodes, strict=True):
                 for ui in node["current_users"]:
                     if ui["user_id"] == user_id:
                         self._record_occupancy_end(node_key, ui, node["status"])
@@ -320,7 +340,7 @@ class NodeBot(BaseLockBot):
             users = set([user_id])
             content = t("success.resource_force_released", config=self.config, user_id=user_id)
             content += self._msg_with_usage("label.before_release", node_key=node_keys)
-            for node_key, node in zip(node_keys, nodes):
+            for node_key, node in zip(node_keys, nodes, strict=True):
                 for user_info in node["current_users"]:
                     users.add(user_info["user_id"])
                     self._record_occupancy_end(node_key, user_info, node["status"])

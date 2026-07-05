@@ -94,6 +94,12 @@ class BotManager:
             )
             self._bots[bot_id] = instance
 
+        # Wire callbacks before scheduling the first immediate check.  The
+        # scheduler may release already-expired locks as soon as it runs, and
+        # those releases must have occupancy recording wired up.
+        instance.bot._on_state_changed = lambda: self._scheduler.reschedule_soon(bot_id)
+        instance.bot._on_occupancy_end = _make_occupancy_handler(bot_id)
+
         # Schedule first check immediately (outside _lock to avoid lock ordering issues)
         self._scheduler.add(
             bot_id,
@@ -101,10 +107,6 @@ class BotManager:
             delay=0.0,
             on_fatal_error=self._make_fatal_error_handler(bot_id),
         )
-        # Wire up state-change callback so new locks wake the scheduler immediately
-        instance.bot._on_state_changed = lambda: self._scheduler.reschedule_soon(bot_id)
-        # Wire up occupancy-recording callback to persist lock history to DB
-        instance.bot._on_occupancy_end = _make_occupancy_handler(bot_id)
         logger.info("Started bot %d in-process (type=%s)", bot_id, instance.bot_type)
         return os.getpid()
 
