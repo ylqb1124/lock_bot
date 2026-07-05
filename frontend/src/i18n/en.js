@@ -168,6 +168,9 @@ export default {
       'On: warn before expiry without releasing; Off (default): release and notify on expiry',
     earlyNotifyOn: 'Early Warning',
     earlyNotifyOff: 'Release on Expiry',
+    forbidRelock: 'Forbid Re-lock',
+    forbidRelockHelp:
+      'QUEUE bots only. On (default): the current holder cannot re-lock or re-book the same node, preventing indefinite occupation; Off: re-lock and re-book allowed',
     language: 'Bot Reply Language',
     langZh: 'Chinese',
     langEn: 'English',

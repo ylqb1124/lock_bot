@@ -32,9 +32,9 @@ class QueueBot(NodeBot):
     QueueBot class
     """
 
-    # QUEUE keeps the original lock-based query rendering: no GPU memory
-    # collection, status/sort unchanged from NODE's pre-memory behavior.
-    _collect_xpu_on_query = False
+    # QueueBot collects per-node GPU memory on /query, same as NodeBot: it drives
+    # the memory-based status badge, the XPU columns, and the container column.
+    _collect_xpu_on_query = True
 
     def supported_commands(self):
         return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query"]
@@ -49,8 +49,16 @@ class QueueBot(NodeBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        forbid_relock = self.config.get_val("FORBID_RELOCK")
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+
+            # FORBID_RELOCK: the current holder may not re-lock (续锁) the same node.
+            # A head-of-queue booking user locking an idle node is *promotion*, not
+            # re-lock, and is still allowed (handled by Condition 1 below).
+            if forbid_relock and any(find_user_info(node["current_users"], user_id) for node in nodes):
+                return self.show_error(user_id, t("error.relock_forbidden", config=self.config))
+
             if not all(
                 (
                     # Condition 1: node is not in use
@@ -141,13 +149,18 @@ class QueueBot(NodeBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        forbid_relock = self.config.get_val("FORBID_RELOCK")
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
-            if any(
-                find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
-                for node in nodes
-            ):
+
+            # Already queued on any node → always reject (no duplicate booking).
+            if any(find_user_info(node["booking_list"], user_id) for node in nodes):
                 return self.show_error(user_id, self._msg_with_usage("error.already_locked", sep="\n"))
+
+            # Already the current holder of any node → this is a self-renewal (book-relock).
+            # Reject only when FORBID_RELOCK is on; otherwise allow booking one's next slot.
+            if forbid_relock and any(find_user_info(node["current_users"], user_id) for node in nodes):
+                return self.show_error(user_id, t("error.relock_forbidden", config=self.config))
 
             timestamp = int(time.time())
 
@@ -161,11 +174,29 @@ class QueueBot(NodeBot):
                     ),
                 )
 
+            locked_any = False
+            booked_any = False
             for node in nodes:
-                user_info = create_user_info(user_id, duration, timestamp, config=self.config)
-                node["booking_list"].append(user_info)
+                # book an idle node with no queue == lock it directly (no waiting).
+                if node["status"] == "idle" and not node["booking_list"]:
+                    user_info = create_user_info(user_id, duration, timestamp, config=self.config)
+                    node["status"] = "exclusive"
+                    node["current_users"] = [user_info]
+                    locked_any = True
+                else:
+                    user_info = create_user_info(user_id, duration, timestamp, config=self.config)
+                    node["booking_list"].append(user_info)
+                    booked_any = True
 
-            reply = self.adapter.build_reply(self._msg_with_usage("success.booking_added"), [user_id])
+            if locked_any and not booked_any:
+                content = self._msg_with_usage("success.resource_locked")
+            elif booked_any and not locked_any:
+                content = self._msg_with_usage("success.booking_added")
+            else:
+                content = t("success.resource_locked", config=self.config)
+                content += t("success.booking_added", config=self.config)
+                content += self._current_usage()
+            reply = self.adapter.build_reply(content, [user_id])
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
             return reply
@@ -283,30 +314,36 @@ class QueueBot(NodeBot):
         example_node1 = next(itr) if len(cluster_configs) > 1 else None
 
         parts = []
+        # 1. Request resource (title/rules printed by _help_header) — lock examples.
         parts.append(t("help.rule3_lock_exclusive", config=self.config))
         parts.append(f"    lock {example_node0}\n")
         parts.append(f"    lock {example_node0} 3d\n")
         if example_node1 is not None:
             parts.append(f"    lock {example_node0},{example_node1} 2h\n")
-        parts.append(f"    slock {example_node0} 30m\n")
-        parts.append(t("help.section2_title", config=self.config))
-        parts.append(f"    unlock {example_node0}\n")
-        if example_node1 is not None:
-            parts.append(f"    free {example_node0},{example_node1} \n")
-        parts.append(t("help.free_all", config=self.config))
-        parts.append(t("help.section_kickout_title", config=self.config))
-        parts.append(f"    kickout {example_node0} \n")
-        if example_node1 is not None:
-            parts.append(f"    kickout {example_node0},{example_node1} \n")
+        # 2. Book (queue; directly locks an idle node, default 2h)
         parts.append(t("help.section_booking_title", config=self.config))
+        parts.append(f"    book {example_node0}\n")
         parts.append(f"    book {example_node0} 2h\n")
-        parts.append(t("help.section_cancel_booking_title", config=self.config))
-        parts.append(f"    free {example_node0}\n")
+        # 3. Take (preempt current holder)
         parts.append(t("help.section_take_title", config=self.config))
         parts.append(f"    take {example_node0} 2h\n")
+        # 4. Release own resource / cancel own booking (unlock and free are interchangeable)
+        parts.append(t("help.section_release_title", config=self.config))
+        parts.append(f"    unlock {example_node0}\n")
+        if example_node1 is not None:
+            parts.append(f"    free {example_node0},{example_node1}\n")
+        parts.append(t("help.free_all", config=self.config))
+        # 5. Force-release others' resource
+        parts.append(t("help.section_kickout_title", config=self.config))
+        parts.append(f"    kickout {example_node0}\n")
+        if example_node1 is not None:
+            parts.append(f"    kickout {example_node0},{example_node1}\n")
+        # 6. Force-release lock only (keep booking list)
         parts.append(t("help.section_kicklock_title", config=self.config))
         parts.append(f"    kicklock {example_node0}\n")
+        # 7. Help
         parts.append(t("help.section_help_title_queue", config=self.config))
+        # 8. Query
         parts.append(t("help.section_query_title_queue", config=self.config))
         parts.append(t("help.query_at_bot", config=self.config))
         parts.append(f"    {example_node0}\n\n")
@@ -326,38 +363,31 @@ class QueueBot(NodeBot):
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
 
-        TIME_TO_LOCK = 5 * 60
-
-        expired_users = []
-
         alert_info = self._build_alert_header()
 
-        # Build the base part of notify_info (resource available + time)
-        notify_info_header = t(
-            "notify.resource_available_header",
-            config=self.config,
-            timeout=format_duration(TIME_TO_LOCK, config=self.config),
-        )
+        # Header for the "auto-locked on promotion" notification
+        notify_info_header = t("notify.resource_available_header", config=self.config)
 
-        expired_notify = ""  # Expired booking content
-        pending_notify = ""  # Pending lock booking content
+        promoted_notify = ""  # Auto-locked (promoted) booking content
 
-        def notify_first_booking_user(node_key, node, timestamp):
-            """Notify the first booked user for this node."""
-            nonlocal trigger_notify_alert, state_changed, user_ids, pending_notify
+        def promote_first_booking_user(node_key, node, timestamp):
+            """Promote the first booked user to current holder (auto-lock, no wait window)."""
+            nonlocal trigger_notify_alert, state_changed, user_ids, promoted_notify
 
             if not node["booking_list"]:
                 return
 
-            first_user = node["booking_list"][0]
-            first_user["is_notified"] = True
+            first_user = node["booking_list"].pop(0)
             first_user["start_time"] = timestamp
+            first_user["is_notified"] = False
+            node["current_users"] = [first_user]
+            node["status"] = "exclusive"
             trigger_notify_alert = True
             state_changed = True
             user_ids.add(first_user["user_id"])
 
             dur = format_duration(first_user["duration"], config=self.config)
-            pending_notify += f"  - {node_key} {first_user['user_id']} {dur}\n"
+            promoted_notify += f"  - {node_key} {first_user['user_id']} {dur}\n"
 
         with self._lock:
             # 1. Release resources
@@ -399,29 +429,16 @@ class QueueBot(NodeBot):
 
                     if len(node["current_users"]) == 0:
                         node["status"] = "idle"
-                # === 2. If node is idle, check if any booked user needs notification ===
+                # === 2. If node is idle with a queue, auto-lock (promote) the first booked user ===
                 if node["status"] == "idle" and node["booking_list"]:
-                    first_book_user = node["booking_list"][0]
                     now = int(time.time())
-
-                    # Not notified yet, notify directly
-                    if not first_book_user.get("is_notified", False):
-                        notify_first_booking_user(node_key, node, now)
-                    else:
-                        # Already notified but timed out without response -> remove and notify next
-                        if now - first_book_user["start_time"] >= TIME_TO_LOCK:
-                            remove_user_info(node["booking_list"], first_book_user["user_id"])
-                            expired_users.append((first_book_user["user_id"], node_key))
-                            user_ids.add(first_book_user["user_id"])
-                            state_changed = True
-                            notify_first_booking_user(node_key, node, now)
+                    promote_first_booking_user(node_key, node, now)
 
             if state_changed:
                 save_bot_state_to_file(self.state.bot_state, config=self.config)
 
             # Compute next wakeup after mutations
             min_next = float("inf")
-            now_ts = int(time.time())
             for node in self.state.bot_state.values():
                 # Active users
                 if node["status"] != "idle":
@@ -434,31 +451,15 @@ class QueueBot(NodeBot):
                         else:
                             next_event = remaining
                         min_next = min(min_next, next_event)
-                # Booking list: first notified user may time out after TIME_TO_LOCK
-                booking_list = node.get("booking_list", [])
-                if booking_list:
-                    first = booking_list[0]
-                    if first.get("is_notified") and first.get("start_time"):
-                        until_timeout = TIME_TO_LOCK - (now_ts - first["start_time"])
-                        min_next = min(min_next, max(0.0, until_timeout))
-                    else:
-                        min_next = min(min_next, 1.0)  # unnotified booking → check soon
+                # Idle node with a pending queue → promote very soon (should be rare;
+                # promotion normally happens in the same tick a node becomes idle).
+                elif node.get("booking_list"):
+                    min_next = min(min_next, 1.0)
 
-        # Aggregate expired bookings into expired_notify
-        if expired_users:
-            expired_notify = t("notify.booking_expired_header", config=self.config)
-            for user_id, node_key in expired_users:
-                expired_notify += t(
-                    "notify.booking_timeout_cancelled", config=self.config, user_id=user_id, node_key=node_key
-                )
-            expired_notify += "\n"
-
-        # Assemble final notify_info in strict order
+        # Aggregate promoted bookings into notify_info
         notify_info = notify_info_header
-        if expired_notify:
-            notify_info += expired_notify
-        if pending_notify:
-            notify_info += t("notify.pending_bookings_header", config=self.config) + pending_notify
+        if promoted_notify:
+            notify_info += promoted_notify
 
         # Send messages
         if trigger_time_alert or trigger_notify_alert:

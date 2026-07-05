@@ -252,6 +252,21 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
+            <el-col v-if="form.bot_type === 'QUEUE'" :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.forbidRelock') }}
+                  <el-tooltip
+                    :content="$t('botCreate.forbidRelockHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch v-model="advancedConfig.FORBID_RELOCK" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </el-collapse-item>
       </el-collapse>
@@ -316,6 +331,7 @@ const advancedConfig = reactive({
   MAX_LOCK_DURATION: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
+  FORBID_RELOCK: true,
   LANGUAGE: 'zh',
 })
 
@@ -366,6 +382,7 @@ onMounted(async () => {
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
+        if (overrides.FORBID_RELOCK != null) advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
       } catch {
         // keep defaults

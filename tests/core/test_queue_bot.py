@@ -1,6 +1,5 @@
 import copy
 import os
-import re
 import time
 
 import pytest
@@ -67,8 +66,8 @@ def test_query(bot):
     assert "test" in result["message"]["body"][0]["content"], "Missing node name in query info"
 
 
-def test_query_does_not_collect_usage(bot, monkeypatch):
-    """QUEUE keeps legacy lock-based query: it must NOT SSH-collect GPU memory."""
+def test_query_collects_usage(bot, monkeypatch):
+    """QUEUE inherits NODE's memory-based query: it SSH-collects GPU usage."""
     import lockbot.core.node_bot as node_bot_mod
 
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1"})
@@ -79,9 +78,8 @@ def test_query_does_not_collect_usage(bot, monkeypatch):
         return {}
 
     monkeypatch.setattr(node_bot_mod, "collect_node_usage", fake_collect)
-    out = bot.query("user1")["message"]["body"][0]["content"]
-    assert called["count"] == 0
-    assert "XPU%/MEM%" not in out  # legacy 5-column table
+    bot.query("user1")
+    assert called["count"] == 1
 
 
 def test_lock_unlock(bot):
@@ -101,8 +99,11 @@ def test_unlock_all(bot):
 
 
 def test_unlock_all_after_book(bot):
-    """Test unlock all after book."""
+    """Test unlock all after book (booking a busy node, then free to cancel)."""
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+
+    # Occupy the node first so user1's book enqueues instead of direct-locking.
+    bot.lock("holder", "lock test 1h")
 
     reply_book = bot.book("user1", "book test 1h")
     assert "🗓️【排队成功】" in reply_book["message"]["body"][0]["content"], "Failed to queue"
@@ -115,7 +116,7 @@ def test_unlock_all_after_book(bot):
 
 
 def test_book_multiple_nodes(bot):
-    """Test book multiple nodes."""
+    """Test book multiple nodes (both busy → both enqueued)."""
     bot.config.set_val(
         "CLUSTER_CONFIGS",
         {
@@ -125,9 +126,19 @@ def test_book_multiple_nodes(bot):
         },
     )
 
+    now = int(time.time())
+    # node1/node2 already held by others so user1's book enqueues on both.
     bot.state.bot_state = {
-        "node1": {"status": "idle", "current_users": [], "booking_list": []},
-        "node2": {"status": "idle", "current_users": [], "booking_list": []},
+        "node1": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "holder1", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [],
+        },
+        "node2": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "holder2", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [],
+        },
         "node3": {
             "status": "idle",
             "current_users": [],
@@ -231,6 +242,142 @@ def test_locked_user_cannot_book_again(bot):
     assert "🗓️【排队成功】" in reply2["message"]["body"][0]["content"], "Other users should be able to book"
 
 
+def test_forbid_relock_default_rejects_relock(bot):
+    """FORBID_RELOCK defaults to True: the current holder cannot re-lock (续锁) the same node."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    assert bot.config.get_val("FORBID_RELOCK") is True, "FORBID_RELOCK should default to True"
+
+    now = int(time.time())
+    holder = {"user_id": "user1", "start_time": now - 100, "duration": 3600, "is_notified": False}
+    bot.state.bot_state = {
+        "test": {
+            "status": "exclusive",
+            "current_users": [copy.deepcopy(holder)],
+            "booking_list": [],
+        }
+    }
+
+    reply = bot.lock("user1", "lock test 1h")
+    assert "❌" in reply["message"]["body"][0]["content"], "Re-lock should be rejected when FORBID_RELOCK is on"
+    assert "续锁" in reply["message"]["body"][0]["content"], "Should surface the relock_forbidden message"
+
+    # State untouched: still one holder, no accumulation.
+    node = bot.state.bot_state["test"]
+    assert len(node["current_users"]) == 1 and node["current_users"][0]["user_id"] == "user1"
+
+
+def test_forbid_relock_off_allows_relock(bot):
+    """FORBID_RELOCK=False restores the legacy behaviour: the holder may extend (续锁)."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    bot.config.set_val("FORBID_RELOCK", False)
+
+    now = int(time.time())
+    holder = {"user_id": "user1", "start_time": now - 100, "duration": 1800, "is_notified": False}
+    bot.state.bot_state = {
+        "test": {
+            "status": "exclusive",
+            "current_users": [copy.deepcopy(holder)],
+            "booking_list": [],
+        }
+    }
+
+    reply = bot.lock("user1", "lock test 1h")
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"], (
+        "Re-lock should succeed when FORBID_RELOCK is off"
+    )
+
+
+def test_forbid_relock_default_rejects_holder_book(bot):
+    """FORBID_RELOCK default True: the current holder cannot book its own next slot."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+
+    now = int(time.time())
+    holder = {"user_id": "user1", "start_time": now - 100, "duration": 3600, "is_notified": False}
+    bot.state.bot_state = {
+        "test": {
+            "status": "exclusive",
+            "current_users": [copy.deepcopy(holder)],
+            "booking_list": [],
+        }
+    }
+
+    reply = bot.book("user1", "book test 1h")
+    assert "❌" in reply["message"]["body"][0]["content"], "Holder book should be rejected when FORBID_RELOCK is on"
+    assert len(bot.state.bot_state["test"]["booking_list"]) == 0, "Rejected book must not enqueue the holder"
+
+
+def test_forbid_relock_off_allows_holder_book(bot):
+    """FORBID_RELOCK=False: the holder may book its own next slot (enqueued)."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    bot.config.set_val("FORBID_RELOCK", False)
+
+    now = int(time.time())
+    holder = {"user_id": "user1", "start_time": now - 100, "duration": 3600, "is_notified": False}
+    bot.state.bot_state = {
+        "test": {
+            "status": "exclusive",
+            "current_users": [copy.deepcopy(holder)],
+            "booking_list": [],
+        }
+    }
+
+    reply = bot.book("user1", "book test 1h")
+    assert "🗓️【排队成功】" in reply["message"]["body"][0]["content"], "Holder book should be allowed when off"
+    booking_ids = [u["user_id"] for u in bot.state.bot_state["test"]["booking_list"]]
+    assert booking_ids == ["user1"], "Holder should be enqueued for the next slot"
+
+
+def test_head_of_queue_lock_is_promotion_not_relock(bot):
+    """A head-of-queue booking user locking the idle node is promotion, allowed even with FORBID_RELOCK on."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    assert bot.config.get_val("FORBID_RELOCK") is True
+
+    now = int(time.time())
+    bot.state.bot_state = {
+        "test": {
+            "status": "idle",
+            "current_users": [],
+            "booking_list": [
+                {"user_id": "user2", "start_time": now, "duration": 3600, "is_notified": False},
+            ],
+        }
+    }
+
+    # user2 is NOT a current holder — locking here is promotion, must not be blocked.
+    reply = bot.lock("user2", "lock test 1h")
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"], "Head-of-queue lock (promotion) must succeed"
+
+    node = bot.state.bot_state["test"]
+    assert node["status"] == "exclusive" and node["current_users"][0]["user_id"] == "user2"
+    assert len(node["booking_list"]) == 0, "Promoted user should leave the booking list"
+
+
+def test_book_mixed_idle_and_busy_nodes(bot):
+    """book across a free node and a busy node: free one locks directly, busy one enqueues."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"free": "Free", "busy": "Busy"})
+
+    now = int(time.time())
+    bot.state.bot_state = {
+        "free": {"status": "idle", "current_users": [], "booking_list": []},
+        "busy": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "holder", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [],
+        },
+    }
+
+    reply = bot.book("user1", "book free，busy 1h")
+    content = reply["message"]["body"][0]["content"]
+    assert "✅【资源申请成功】" in content and "🗓️【排队成功】" in content, f"Mixed book reply incorrect: {content}"
+
+    free_node = bot.state.bot_state["free"]
+    assert free_node["status"] == "exclusive" and free_node["current_users"][0]["user_id"] == "user1", (
+        "Free node should be directly locked"
+    )
+    busy_node = bot.state.bot_state["busy"]
+    assert any(u["user_id"] == "user1" for u in busy_node["booking_list"]), "Busy node should enqueue the user"
+
+
 def test_current_usage_display(bot):
     """Test current usage display."""
     bot.state.bot_state = {"test": {"status": "idle", "current_users": [], "booking_list": []}}
@@ -266,7 +413,7 @@ def test_current_usage_display(bot):
 
 
 def test_book_when_no_lock(bot):
-    """Test book when no lock."""
+    """book on an idle node with no queue == direct lock."""
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     bot.state.bot_state = {
         "test": {
@@ -276,9 +423,18 @@ def test_book_when_no_lock(bot):
         }
     }
 
-    # user1 book
+    # user1 book on a free node → locked directly, not enqueued
     reply = bot.book("user1", "book test 1h")
-    assert "🗓️【排队成功】" in reply["message"]["body"][0]["content"], "Should allow booking"
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"], (
+        "Booking an idle node should lock it directly"
+    )
+
+    node = bot.state.bot_state["test"]
+    assert node["status"] == "exclusive", "Node should be exclusive after direct lock"
+    assert len(node["current_users"]) == 1 and node["current_users"][0]["user_id"] == "user1", (
+        "user1 should be the current holder"
+    )
+    assert len(node["booking_list"]) == 0, "booking_list should stay empty on direct lock"
 
 
 def test_lock_when_free_or_first_in_queue(bot):
@@ -310,8 +466,9 @@ def test_lock_when_free_or_first_in_queue(bot):
 
 
 def test_extend_lock_should_notify_waiting_users(bot):
-    """Test extend lock should notify waiting users."""
+    """Test extend lock should notify waiting users (requires FORBID_RELOCK off)."""
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    bot.config.set_val("FORBID_RELOCK", False)
     now = int(time.time())
     user_lock = {"user_id": "user1", "start_time": now - 1800, "duration": 3600, "is_notified": False}
     booking_users = [
@@ -682,8 +839,9 @@ def test_io_create_and_save(bot):
 
 
 def test_max_lock_duration_exceeded(bot):
-    """Test max lock duration exceeded."""
+    """Test max lock duration exceeded (re-lock accumulation, needs FORBID_RELOCK off)."""
     bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("FORBID_RELOCK", False)
 
     reply1 = bot.lock("user1", "lock test 30m")
     assert "✅【资源申请成功】" in reply1["message"]["body"][0]["content"], "First lock failed"
@@ -704,7 +862,7 @@ def test_lock_duration_exceeded_no_state_pollution(bot):
 
 
 def test_check_and_notify(bot, monkeypatch):
-    """Test check and notify."""
+    """Expired holder is released; an idle node with a queue auto-promotes its head."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
 
     sent_payload = {}
@@ -737,7 +895,7 @@ def test_check_and_notify(bot, monkeypatch):
     assert "user1" in msg["body"][1]["atuserids"], "Missing user ID in release notification"
     assert "释放" in msg["body"][0]["content"], "Missing release prompt"
 
-    now = int(time.time())
+    # Idle node with a queue → auto-promote the head of the queue (no wait window).
     bot.state.bot_state = {
         "test": {
             "status": "idle",
@@ -750,17 +908,24 @@ def test_check_and_notify(bot, monkeypatch):
     bot._check_and_notify()
 
     msg = sent_payload["json"]["message"]
-    assert "user2" in msg["body"][1]["atuserids"], "First booked user not notified"
-    assert "可用" in msg["body"][0]["content"], "Available reminder content not generated"
+    assert "user2" in msg["body"][1]["atuserids"], "Promoted head-of-queue user not notified"
+    assert "自动" in msg["body"][0]["content"], "Auto-lock notification content not generated"
 
-    now = int(time.time())
+    node = bot.state.bot_state["test"]
+    assert node["status"] == "exclusive", "Promoted node should be exclusive"
+    assert len(node["current_users"]) == 1 and node["current_users"][0]["user_id"] == "user2", (
+        "user2 should be promoted to current holder"
+    )
+    assert len(node["booking_list"]) == 0, "Promoted user should leave the booking list"
+
+    # Multiple queued users → only the head is promoted; the rest stay in queue.
     bot.state.bot_state = {
         "test": {
             "status": "idle",
             "current_users": [],
             "booking_list": [
-                {"user_id": "user2", "start_time": now - 200 * 60, "duration": 3600, "is_notified": True},
-                {"user_id": "user3", "start_time": 0, "duration": 3600, "is_notified": False},
+                {"user_id": "user2", "start_time": now, "duration": 3600, "is_notified": False},
+                {"user_id": "user3", "start_time": now, "duration": 3600, "is_notified": False},
             ],
         }
     }
@@ -768,17 +933,16 @@ def test_check_and_notify(bot, monkeypatch):
     sent_payload.clear()
     bot._check_and_notify()
 
-    msg = sent_payload["json"]["message"]
-    body_text = msg["body"][0]["content"]
-    assert "user3" in msg["body"][1]["atuserids"], "Second booked user not notified"
-    assert "user2" not in bot.state.bot_state["test"]["booking_list"][0]["user_id"], "超时未响应用户未被移除"
-    assert "可用" in body_text or "提醒" in body_text, "Reminder content not generated"
+    node = bot.state.bot_state["test"]
+    assert node["current_users"][0]["user_id"] == "user2", "Head of queue (user2) should be promoted"
+    remaining_ids = [u["user_id"] for u in node["booking_list"]]
+    assert remaining_ids == ["user3"], f"Only user2 should be promoted, rest stay queued: {remaining_ids}"
 
     print("✅ 所有 _check_and_notify 测试通过")
 
 
 def test_check_and_notify_combined(bot, monkeypatch):
-    """Test check and notify combined."""
+    """Expiry release + auto-promotion of the queued user happen in one tick."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
 
     sent_payload = {}
@@ -813,23 +977,22 @@ def test_check_and_notify_combined(bot, monkeypatch):
     atuserids = msg["body"][1]["atuserids"]
 
     assert "释放" in content, f"释放提示缺失: {content}"
-    assert "可用" in content or "提醒" in content, f"预约提醒缺失: {content}"
+    assert "自动" in content, f"自动锁定提示缺失: {content}"
     assert "user1" in atuserids, f"释放用户未通知: {atuserids}"
-    assert "user2" in atuserids, f"预约用户未通知: {atuserids}"
+    assert "user2" in atuserids, f"晋升用户未通知: {atuserids}"
 
     node = bot.state.bot_state["test"]
-    assert node["status"] == "idle", "Node not marked idle after release"
-    assert len(node["current_users"]) == 0, "Locked user list not cleared after release"
-
-    first_booking = node["booking_list"][0]
-    assert first_booking["user_id"] == "user2", "First booked user incorrect"
-    assert first_booking["is_notified"] is True, "First booked user not marked as notified"
+    assert node["status"] == "exclusive", "Node should be re-locked by the promoted user"
+    assert len(node["current_users"]) == 1 and node["current_users"][0]["user_id"] == "user2", (
+        "user2 should be promoted to current holder"
+    )
+    assert len(node["booking_list"]) == 0, "booking_list should be empty after promotion"
 
     print("✅ 复合场景测试通过")
 
 
-def test_check_and_notify_no_duplicate_reminder(bot, monkeypatch):
-    """Test check and notify no duplicate reminder."""
+def test_check_and_notify_promotes_only_when_idle(bot, monkeypatch):
+    """A busy node with a queue does NOT promote; an idle node with a queue does."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
 
     sent_payload = {}
@@ -841,44 +1004,30 @@ def test_check_and_notify_no_duplicate_reminder(bot, monkeypatch):
     monkeypatch.setattr(bot.adapter, "send", fake_send)
 
     now = int(time.time())
-
-    booking_user = {"user_id": "user2", "start_time": now, "duration": 3600, "is_notified": True}
+    # Busy node, not expired, with a queued user → nothing should happen.
+    holder = {"user_id": "user1", "start_time": now, "duration": 3600, "is_notified": False}
+    booking_user = {"user_id": "user2", "start_time": now, "duration": 3600, "is_notified": False}
 
     bot.state.bot_state = {
         "test": {
-            "status": "idle",
-            "current_users": [],
+            "status": "exclusive",
+            "current_users": [copy.deepcopy(holder)],
             "booking_list": [copy.deepcopy(booking_user)],
         }
     }
 
     bot._check_and_notify()
-    assert sent_payload == {}, "Should not re-notify already notified booked user"
+    assert sent_payload == {}, "Should not promote or notify while the node is still held"
 
-    new_booking_user = {"user_id": "user3", "start_time": 0, "duration": 3600, "is_notified": False}
-    bot.state.bot_state["test"]["booking_list"] = [
-        {"user_id": "user2", "start_time": now - 6 * 60, "duration": 3600, "is_notified": True},
-        new_booking_user,
-    ]
+    node = bot.state.bot_state["test"]
+    assert node["current_users"][0]["user_id"] == "user1", "Holder must stay while not expired"
+    assert [u["user_id"] for u in node["booking_list"]] == ["user2"], "Queue must be untouched while node is busy"
 
-    sent_payload.clear()
-    bot._check_and_notify()
-
-    msg = sent_payload["json"]["message"]
-    assert "user3" in msg["body"][1]["atuserids"], "Should notify new booked user"
-    assert all(
-        u not in [user["user_id"] for user in bot.state.bot_state["test"]["booking_list"]]
-        for u in ["user2"]
-        if u != "user3"
-    ), "超时旧预约用户未被移除"
-
-    print("✅ 不重复提醒测试通过")
+    print("✅ 忙碌节点不晋升测试通过")
 
 
-def test_release_expired_booking_and_notify_next(bot, monkeypatch):
-    """Test release expired booking and notify next."""
-    TIME_TO_LOCK = 300
-
+def test_check_and_notify_promotes_multi_node(bot, monkeypatch):
+    """Each idle node with a queue promotes its own head independently."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
 
     sent_payload = {}
@@ -890,20 +1039,14 @@ def test_release_expired_booking_and_notify_next(bot, monkeypatch):
     monkeypatch.setattr(bot.adapter, "send", fake_send)
 
     now = int(time.time())
-
-    expired_user = {
-        "user_id": "user_old",
-        "start_time": now - (TIME_TO_LOCK + 10),
-        "duration": 3600,
-        "is_notified": True,
-    }
-    next_user = {"user_id": "user_next", "start_time": now, "duration": 3600, "is_notified": False}
-
     bot.state.bot_state = {
         "node01": {
             "status": "idle",
             "current_users": [],
-            "booking_list": [copy.deepcopy(expired_user), copy.deepcopy(next_user)],
+            "booking_list": [
+                {"user_id": "user_a", "start_time": now, "duration": 3600, "is_notified": False},
+                {"user_id": "user_b", "start_time": now, "duration": 3600, "is_notified": False},
+            ],
         }
     }
 
@@ -912,32 +1055,14 @@ def test_release_expired_booking_and_notify_next(bot, monkeypatch):
 
     msg = sent_payload.get("json", {}).get("message", {})
     at_users = msg.get("body", [{}, {}])[1].get("atuserids", [])
-    content = msg.get("body", [{}, {}])[0].get("content", "")
 
-    booking_users = [u["user_id"] for u in bot.state.bot_state["node01"]["booking_list"]]
-    assert "user_old" not in booking_users
+    node = bot.state.bot_state["node01"]
+    assert node["status"] == "exclusive", "Node should be locked by the promoted user"
+    assert node["current_users"][0]["user_id"] == "user_a", "Head of queue (user_a) should be promoted"
+    assert [u["user_id"] for u in node["booking_list"]] == ["user_b"], "Rest of the queue must be preserved"
+    assert "user_a" in at_users, "Promoted user must be notified"
 
-    assert "user_next" in at_users
-
-    expected_order = [
-        r"资源已空闲，请在 [\d\.]+ (分钟|天|小时) 内lock:",
-        r"⚠️ 以下预约已失效，请重新预约：",
-        r"- user_old 的预约 node01 超时失效",
-        r"🗓️ 目前待抢锁的预约：",
-        r"- node01 user_next [\d\.]+ (分钟|天|小时)",
-    ]
-
-    idx = 0
-    for pattern in expected_order:
-        if pattern == r"- user_old 的预约 node01 超时失效":
-            continue
-        match = re.search(pattern, content)
-        assert match is not None, f"通知内容缺失或格式不符: {pattern}, {content}"
-        pos = match.start()
-        assert pos > idx, "Notification content order incorrect"
-        idx = pos
-
-    print("✅ 释放超时预约并提醒下一位用户，且通知格式与顺序验证通过")
+    print("✅ 多节点自动晋升测试通过")
 
 
 def test_timer_routine_trigger_early_notify(bot, monkeypatch):

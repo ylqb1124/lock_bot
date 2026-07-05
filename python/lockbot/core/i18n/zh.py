@@ -41,6 +41,7 @@ MESSAGES = {
     # ── Queue-specific errors ──
     "error.node_in_use_or_not_your_turn": "节点正在被他人使用，或未到排队顺序",
     "error.already_locked": "你已经正在使用或者已经排过队",
+    "error.relock_forbidden": "你正在使用该节点，不支持续锁或对同一节点重复预约",
     "error.not_in_booking_list": "【你不在排队列表中】\n",
     "error.locked_user_cannot_take": "你已经正在使用",
     "error.slock_not_supported": "QueueBot不支持slock",
@@ -55,10 +56,6 @@ MESSAGES = {
     "alert.early_resource_list_header": "即将被释放的资源:\n",
     "alert.auto_released_title": "❗️【资源自动释放】\n\n",
     "alert.auto_released_list_header": "已释放的资源列表:\n",
-    # ── Queue alerts ──
-    "alert.booking_expired": "❗️【排队超时自动取消】\n\n",
-    "alert.your_turn": "❗️【轮到你了】\n\n",
-    "alert.your_turn_reminder": "请在{timeout}内使用lock命令锁定资源, 否则将自动跳过\n\n",
     # ── Query ──
     "query.cluster_usage_title": "机器状态报告（{timestamp}）\n",
     "query.idle_summary_node": '<font color="blue">**未lock节点数：{unlocked_nodes}；当前Free节点数：{free_nodes}**</font>\n',
@@ -125,28 +122,22 @@ MESSAGES = {
     "help.resource_list_title": "资源列表:\n",
     "help.resource_list_item": "    {node_key}: dev_id 0~{max_dev}\n",
     # ── Help text (QUEUE) extras ──
-    "help.section_booking_title": "2. 排队\n",
+    "help.section_booking_title": "2. 排队 (机器空闲时直接锁定; 不填时长默认2h)\n",
     "help.book_example": "    book {node} (排队等候{node}节点)\n",
     "help.book_duration_example": "    book {node} {duration} (排队等候{node}节点{duration})\n",
     "help.section_take_title": "3. 抢占\n",
     "help.take_example": "    take {node} (抢占{node}节点)\n",
-    "help.section_release_title": "4. 释放资源 (unlock和free通用)\n",
+    "help.section_release_title": "4. 释放资源 / 取消排队 (unlock和free通用)\n",
     "help.section_kickout_title": "5. 强制释放他人资源 (会at相关人员)\n",
-    "help.section_cancel_booking_title": "5. 取消排队\n",
-    "help.section_kicklock_title": "7. 强制释放锁(排队信息不清除)\n",
+    "help.section_kicklock_title": "6. 强制释放锁(排队信息不清除)\n",
     "help.rule3_lock_exclusive": "    规则3: lock申请独占资源\n",
-    "help.section_help_title_queue": "6. 帮助: help或者h\n",
-    "help.section_query_title_queue": "7. 查询:\n",
+    "help.section_help_title_queue": "7. 帮助: help或者h\n",
+    "help.section_query_title_queue": "8. 查询:\n",
     # ── Notify messages (queue) ──
-    "notify.node_released_your_turn": "📋 节点 {node_key} 已释放，轮到 {user_id} 使用\n",
-    "notify.please_lock_in_time": "请在{timeout}内使用 lock {node_key} 命令锁定资源\n",
-    "notify.booking_timeout_cancelled": "⏰ {user_id} 排队超时，已自动取消\n",
     "notify.take_preempt": "⚠️ {user_id} 抢占了节点 {node_key}\n",
     "notify.take_notify_all": "📋 节点 {node_key} 已被 {user_id} 抢占，当前使用情况:\n",
     "notify.wait_time_increased": "请注意等待时间已增加 \n\n",
-    "notify.resource_available_header": "📢【资源可用提醒】\n资源已空闲，请在 {timeout} 内lock:\n\n",
-    "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
-    "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
+    "notify.resource_available_header": "📢【资源已自动锁定】\n以下节点已空闲，已自动为排队队首锁定:\n\n",
     "notify.duration_clamped": (
         "⚠️【锁定时长调整通知】\n管理员已将最大锁定时长调整为 {max_duration}，您的锁定剩余时长已被自动缩短，请知悉。\n"
     ),

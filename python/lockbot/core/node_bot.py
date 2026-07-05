@@ -46,7 +46,7 @@ class NodeBot(BaseLockBot):
         _loader = staticmethod(create_or_load_node_state)
 
     # Whether /query collects per-node GPU memory via SSH to drive the
-    # memory-based status badge + 7-column table. QueueBot opts out.
+    # memory-based status badge + 7-column table. NODE and QUEUE both collect.
     _collect_xpu_on_query = True
 
     def supported_commands(self):
@@ -114,8 +114,7 @@ class NodeBot(BaseLockBot):
         # Collect GPU memory (blocking SSH on cache miss) OUTSIDE the lock so it
         # does not stall user commands or the scheduler's _check_and_notify, which
         # contend on the same self._lock. node_ips is read under the lock since it
-        # touches bot_state; the SSH I/O itself runs lock-free. QueueBot disables
-        # this via _collect_xpu_on_query.
+        # touches bot_state; the SSH I/O itself runs lock-free.
         xpu_usage = None
         if self._collect_xpu_on_query:
             with self._lock:

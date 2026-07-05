@@ -63,6 +63,11 @@ _CONFIG_SCHEMA = {
         "description": "True: warn before expiry; False: release and notify on expiry",
         "env": True,
     },
+    "FORBID_RELOCK": {
+        "default": True,
+        "description": "QUEUE only: forbid the current holder from re-locking (续锁) or booking the same node",
+        "env": True,
+    },
     "PORT": {
         "default": 5000,
         "description": "Flask server listen port",

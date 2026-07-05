@@ -41,6 +41,9 @@ MESSAGES = {
     # ── Queue-specific errors ──
     "error.node_in_use_or_not_your_turn": "Node is in use by others, or it is not your turn yet",
     "error.already_locked": "You are already using or have already booked",
+    "error.relock_forbidden": (
+        "You are currently using this node; re-locking or re-booking the same node is not allowed"
+    ),
     "error.not_in_booking_list": "You are not in the booking queue\n",
     "error.locked_user_cannot_take": "You are already using this node",
     "error.slock_not_supported": "QueueBot does not support slock",
@@ -57,12 +60,6 @@ MESSAGES = {
     "alert.early_resource_list_header": "Resources about to be released:\n",
     "alert.auto_released_title": "❗️ Resource auto-released\n\n",
     "alert.auto_released_list_header": "Released resources:\n",
-    # ── Queue alerts ──
-    "alert.booking_expired": "❗️ Booking expired and auto-cancelled\n\n",
-    "alert.your_turn": "❗️ It's your turn\n\n",
-    "alert.your_turn_reminder": (
-        "Please use the lock command within {timeout} to lock the resource, or it will be skipped\n\n"
-    ),
     # ── Query ──
     "query.cluster_usage_title": "ℹ️ Cluster Usage Details\n",
     "query.idle_summary_node": '<font color="blue">**Unlocked nodes: {unlocked_nodes}; Current FREE nodes: {free_nodes}**</font>\n',
@@ -129,28 +126,24 @@ MESSAGES = {
     "help.resource_list_title": "Resource list:\n",
     "help.resource_list_item": "    {node_key}: dev_id 0~{max_dev}\n",
     # ── Help text (QUEUE) extras ──
-    "help.section_booking_title": "2. Book\n",
+    "help.section_booking_title": "2. Book (locks directly if node is idle; default 2h if no duration)\n",
     "help.book_example": "    book {node} (book node {node})\n",
     "help.book_duration_example": "    book {node} {duration} (book node {node} for {duration})\n",
     "help.section_take_title": "3. Take (preempt)\n",
     "help.take_example": "    take {node} (take node {node})\n",
-    "help.section_release_title": "4. Release resource (unlock and free are interchangeable)\n",
+    "help.section_release_title": "4. Release resource / cancel booking (unlock and free are interchangeable)\n",
     "help.section_kickout_title": "5. Force release others' resource (will notify affected users)\n",
-    "help.section_cancel_booking_title": "5. Cancel booking\n",
-    "help.section_kicklock_title": "7. Force release lock (booking info preserved)\n",
+    "help.section_kicklock_title": "6. Force release lock (booking info preserved)\n",
     "help.rule3_lock_exclusive": "    Rule 3: lock for exclusive access\n",
-    "help.section_help_title_queue": "6. Help: help or h\n",
-    "help.section_query_title_queue": "7. Query:\n",
+    "help.section_help_title_queue": "7. Help: help or h\n",
+    "help.section_query_title_queue": "8. Query:\n",
     # ── Notify messages (queue) ──
-    "notify.node_released_your_turn": "📋 Node {node_key} released, it's {user_id}'s turn\n",
-    "notify.please_lock_in_time": "Please use lock {node_key} within {timeout}\n",
-    "notify.booking_timeout_cancelled": "⏰ {user_id} booking expired, auto-cancelled\n",
     "notify.take_preempt": "⚠️ {user_id} preempted node {node_key}\n",
     "notify.take_notify_all": "📋 Node {node_key} taken by {user_id}, current usage:\n",
     "notify.wait_time_increased": "Note: wait times have been updated\n\n",
-    "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
-    "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
-    "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
+    "notify.resource_available_header": (
+        "📢 Resource auto-locked\nThe following idle nodes have been auto-locked for the head of the queue:\n\n"
+    ),
     "notify.duration_clamped": (
         "⚠️ [Lock Duration Adjusted]\n"
         "The admin has set max lock duration to {max_duration}. "

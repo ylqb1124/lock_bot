@@ -164,6 +164,8 @@ export default {
     earlyNotifyHelp: '开启：到期前发预警但不释放；关闭（默认）：到期后立即释放并通知',
     earlyNotifyOn: '提前预警',
     earlyNotifyOff: '到期释放',
+    forbidRelock: '禁止续锁',
+    forbidRelockHelp: '仅排队机器人生效。开启（默认）：当前占用者不能对本机续锁或再次预约，避免变相无限占用；关闭：允许续锁和预约',
     language: '机器人回复语言',
     langZh: '中文',
     langEn: 'English',
