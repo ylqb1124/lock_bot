@@ -209,16 +209,32 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .avg-grid-line { stroke: #9fb3d1; stroke-width: 1; stroke-dasharray: 5 5; }
 .avg-axis-line { stroke: #111827; stroke-width: 3; }
 .avg-today-line { fill: none; stroke: #6d4aff; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.avg-today-line.mem { stroke: #ea580c; }
 .avg-yesterday-line { fill: none; stroke: #c4b5fd; stroke-width: 3; stroke-dasharray: 8 6; stroke-linejoin: round; stroke-linecap: round; }
+.avg-yesterday-line.mem { stroke: #fed7aa; }
 .avg-mean-line { stroke: #dc2626; stroke-width: 2; }
+.avg-mean-line.mem { stroke: #f97316; }
 .avg-peak-label { fill: #8b5cf6; font-size: 12px; font-weight: 700; }
+.avg-peak-label.mem { fill: #ea580c; }
 .avg-hover-dot { fill: #fff; stroke: #8b5cf6; stroke-width: 3; }
+.avg-hover-dot.mem { stroke: #ea580c; }
+.team-compare-line { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.team-compare-line.a { stroke: #6d4aff; }
+.team-compare-line.b { stroke: #ea580c; }
+.team-compare-line.c { stroke: #16a34a; }
+.team-compare-line.d { stroke: #dc2626; stroke-dasharray: 8 6; }
 .avg-chart-tooltip { position: absolute; left: 42%; top: 38px; background: #1e293b; color: #fff; border-radius: 6px; padding: 8px 12px; font: 12px/1.55 "SF Mono", "JetBrains Mono", Consolas, monospace; box-shadow: 0 8px 20px rgba(15,23,42,.22); }
 .avg-chart-tooltip b { color: #a78bfa; }
 .avg-chart-legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 10px; color: #64748b; font-size: 12px; }
 .avg-legend-line { display: inline-block; width: 28px; height: 0; border-top: 3px solid #6d4aff; vertical-align: middle; margin-right: 6px; }
+.avg-legend-line.mem { border-color: #ea580c; }
 .avg-legend-line.mean { border-color: #dc2626; border-top-width: 2px; }
+.avg-legend-line.mean.mem { border-color: #f97316; }
 .avg-legend-line.yesterday { border-color: #c4b5fd; border-top-style: dashed; }
+.avg-legend-line.yesterday.mem { border-color: #fed7aa; }
+.avg-legend-line.team-b { border-color: #ea580c; }
+.avg-legend-line.team-c { border-color: #16a34a; }
+.avg-legend-line.team-d { border-color: #dc2626; border-top-style: dashed; }
 .legend-star { color: #8b5cf6; font-weight: 700; margin-right: 5px; }
 .callout { position: absolute; max-width: 210px; border: 1px solid #111827; background: #fff; padding: 6px 8px; font-size: 12px; line-height: 1.45; box-shadow: 3px 3px 0 #e5e7eb; }
 .callout::before { content: ''; position: absolute; width: 36px; border-top: 1px solid #111827; transform-origin: left center; }
@@ -235,7 +251,25 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .legend-line.yesterday { border-color: #c4b5fd; border-top-style: dashed; }
 .legend-star { color: #8b5cf6; font-weight: 700; margin-right: 5px; }
 .chart-use { margin-top: 10px; border-left: 4px solid #111827; padding-left: 8px; color: #111827; font-size: 13px; }
+.horizontal-rank-chart { position: relative; border: 1px solid #d1d5db; background: linear-gradient(to right, #fff 0, #fff calc(25% - 1px), #e5e7eb 25%, #fff calc(25% + 1px), #fff calc(50% - 1px), #e5e7eb 50%, #fff calc(50% + 1px), #fff calc(75% - 1px), #e5e7eb 75%, #fff calc(75% + 1px)); padding: 22px 92px 46px 118px; }
+.horizontal-rank-chart::before { content: ''; position: absolute; left: 118px; top: 18px; bottom: 46px; border-left: 3px solid #111827; }
+.horizontal-rank-chart::after { content: ''; position: absolute; left: 118px; right: 34px; bottom: 46px; border-bottom: 3px solid #111827; }
+.rank-axis-y { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 12px; font-weight: 700; }
+.rank-axis-x { position: absolute; right: 34px; bottom: 14px; color: #64748b; font-size: 12px; font-weight: 700; }
+.rank-bars { display: grid; gap: 14px; position: relative; z-index: 1; }
+.rank-row { display: grid; grid-template-columns: 72px 1fr 54px; gap: 14px; align-items: center; }
+.rank-team { color: #111827; font-size: 13px; font-weight: 700; text-align: right; }
+.rank-track { height: 26px; background: #f8fafc; border: 1px solid #e2e8f0; position: relative; }
+.rank-bar { display: block; width: var(--w); height: 100%; background: linear-gradient(90deg, #6d4aff 0%, #4f46e5 100%); border-right: 2px solid #111827; box-shadow: 4px 4px 0 #e5e7eb; }
+.rank-bar.top { background: linear-gradient(90deg, #f97316 0%, #ea580c 100%); }
+.rank-value { font: 700 13px "SF Mono", Consolas, monospace; color: #111827; white-space: nowrap; }
+.rank-baseline { position: absolute; left: calc(118px + 26%); top: 18px; bottom: 46px; border-left: 1px dashed #dc2626; z-index: 2; }
+.rank-baseline span { position: absolute; left: 6px; top: 0; color: #dc2626; font-size: 12px; font-weight: 700; background: #fff; white-space: nowrap; }
+.rank-ticks { position: absolute; left: 118px; right: 34px; bottom: 28px; display: flex; justify-content: space-between; color: #64748b; font: 11px "SF Mono", Consolas, monospace; }
 .personal-controls { border: 1px solid #9ca3af; background: #fafafa; padding: 14px; margin-bottom: 14px; }
+.comparison-controls { border: 1px solid #9ca3af; background: #fafafa; padding: 12px; margin-bottom: 12px; }
+.control-select { min-width: 180px; display: inline-flex; justify-content: space-between; gap: 20px; border: 1px solid #d1d5db; background: #fff; padding: 6px 10px; color: #111827; font-size: 13px; font-weight: 700; }
+.control-select span { color: #64748b; font-weight: 600; }
 .control-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .control-row:last-child { margin-bottom: 0; }
 .control-title { color: #6b7280; font-weight: 700; font-size: 13px; }
@@ -243,7 +277,28 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .pill.active { border-color: #4f46e5; color: #4f46e5; background: #eef2ff; font-weight: 700; }
 .search-pill { min-width: 180px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; padding: 6px 14px; color: #64748b; font-size: 13px; }
 .sort-pill { border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; padding: 4px 14px; color: #64748b; font-size: 13px; }
+.sort-pill.red { border-color: #fecaca; background: #fef2f2; color: #dc2626; font-weight: 700; }
+.sort-pill.black { border-color: #cbd5e1; background: #111827; color: #fff; font-weight: 700; }
 .control-help { color: #4b5563; font-size: 13px; margin-top: 10px; }
+.leaderboard-prototype { display: grid; grid-template-columns: 1fr 380px; gap: 12px; align-items: start; margin-bottom: 12px; }
+.leaderboard-note-card { border: 1px dashed #9ca3af; background: #fafafa; padding: 12px; min-height: 130px; }
+.leaderboard-note-card h4 { margin: 0 0 8px; font-size: 14px; color: #111827; }
+.leaderboard-note-card p { margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.55; }
+.leaderboard-drawer-proto { border: 1px solid #111827; background: #fff; box-shadow: -6px 6px 0 #e5e7eb; padding: 14px; }
+.leaderboard-drawer-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 10px; }
+.leaderboard-drawer-title { font-weight: 800; font-size: 16px; color: #dc2626; }
+.leaderboard-drawer-title.black { color: #111827; }
+.leaderboard-drawer-sub { color: #64748b; font-size: 12px; margin-top: 3px; }
+.drawer-close-proto { border: 1px solid #cbd5e1; background: #fff; border-radius: 50%; width: 24px; height: 24px; text-align: center; line-height: 22px; color: #64748b; }
+.leaderboard-list-proto { display: grid; gap: 8px; }
+.leaderboard-row-proto { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; border: 1px solid #e2e8f0; border-left: 4px solid #dc2626; border-radius: 8px; padding: 9px 10px; background: #fff; }
+.leaderboard-row-proto.black { border-left-color: #111827; }
+.leaderboard-rank-proto { font: 800 14px "SF Mono", Consolas, monospace; color: #dc2626; }
+.leaderboard-row-proto.black .leaderboard-rank-proto { color: #111827; }
+.leaderboard-user-proto { font-weight: 700; color: #111827; font-size: 13px; }
+.leaderboard-meta-proto { color: #64748b; font-size: 11px; margin-top: 2px; }
+.leaderboard-score-proto { font: 800 16px "SF Mono", Consolas, monospace; color: #111827; text-align: right; }
+.leaderboard-score-proto span { display: block; color: #94a3b8; font-size: 10px; font-family: inherit; font-weight: 600; }
 .node-prototype { display: grid; gap: 12px; }
 .node-card { border: 1px solid #d1d5db; border-radius: 10px; background: #fff; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
 .node-card.expanded { background: #f9fafb; }
@@ -294,7 +349,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
   .team-kpi-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 980px) {
-  .background-grid, .prototype-main, .chart-grid, .assumption-grid, .compare-grid, .team-node-grid, .team-action-grid, .team-control-panel { grid-template-columns: 1fr; }
+  .background-grid, .prototype-main, .chart-grid, .assumption-grid, .compare-grid, .team-node-grid, .team-action-grid, .team-control-panel, .leaderboard-prototype { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .avg-filter-bar { align-items: flex-start; }
   .decision-grid { grid-template-columns: repeat(2, 1fr); }
@@ -409,8 +464,9 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="all-charts">
         <div class="section-head">
           <h3>全部视图趋势图</h3>
-          <div class="section-note">直接复用现有平均利用率趋势图效果：今日、昨日、今日均值、昨日均值和峰值提示</div>
+          <div class="section-note">直接复用现有平均利用率趋势图效果：XPU / 显存分别展示今日、昨日、均值线和峰值提示</div>
         </div>
+        <div class="chart-grid" style="grid-template-columns:1fr;">
         <article class="chart-card">
           <div class="chart-title">XPU利用率趋势 <span>平均移动利用率，示意</span></div>
           <div class="avg-prototype-chart" aria-label="现有平均利用率趋势图原型">
@@ -468,6 +524,171 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
           <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>今日</span><span><i class="avg-legend-line mean"></i>今日均值</span><span><i class="avg-legend-line yesterday"></i>昨日</span><span><span class="legend-star">★</span>峰值</span></div>
           <div class="chart-use">老板视角：看今天相对昨天的平均移动利用率、均值线和峰值点，判断全局利用率是否持续抬升，而不是只看某个瞬时尖峰。</div>
         </article>
+        <article class="chart-card">
+          <div class="chart-title">显存利用率趋势 <span>平均移动利用率，示意</span></div>
+          <div class="avg-prototype-chart" aria-label="显存平均利用率趋势图原型">
+            <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="显存利用率趋势示意图">
+              <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
+              <line class="avg-grid-line" x1="70" y1="96" x2="1030" y2="96"></line>
+              <line class="avg-grid-line" x1="70" y1="142" x2="1030" y2="142"></line>
+              <line class="avg-grid-line" x1="70" y1="188" x2="1030" y2="188"></line>
+              <line class="avg-grid-line" x1="70" y1="234" x2="1030" y2="234"></line>
+              <line class="avg-grid-line" x1="70" y1="280" x2="1030" y2="280"></line>
+              <line class="avg-grid-line" x1="70" y1="326" x2="1030" y2="326"></line>
+              <line class="avg-grid-line" x1="150" y1="50" x2="150" y2="326"></line>
+              <line class="avg-grid-line" x1="230" y1="50" x2="230" y2="326"></line>
+              <line class="avg-grid-line" x1="310" y1="50" x2="310" y2="326"></line>
+              <line class="avg-grid-line" x1="390" y1="50" x2="390" y2="326"></line>
+              <line class="avg-grid-line" x1="470" y1="50" x2="470" y2="326"></line>
+              <line class="avg-grid-line" x1="550" y1="50" x2="550" y2="326"></line>
+              <line class="avg-grid-line" x1="630" y1="50" x2="630" y2="326"></line>
+              <line class="avg-grid-line" x1="710" y1="50" x2="710" y2="326"></line>
+              <line class="avg-grid-line" x1="790" y1="50" x2="790" y2="326"></line>
+              <line class="avg-grid-line" x1="870" y1="50" x2="870" y2="326"></line>
+              <line class="avg-grid-line" x1="950" y1="50" x2="950" y2="326"></line>
+              <line class="avg-axis-line" x1="70" y1="50" x2="70" y2="326"></line>
+              <line class="avg-axis-line" x1="70" y1="326" x2="1030" y2="326"></line>
+              <text class="avg-axis-text" x="28" y="54">70%</text>
+              <text class="avg-axis-text" x="28" y="100">60%</text>
+              <text class="avg-axis-text" x="28" y="146">50%</text>
+              <text class="avg-axis-text" x="28" y="192">40%</text>
+              <text class="avg-axis-text" x="28" y="238">30%</text>
+              <text class="avg-axis-text" x="28" y="284">20%</text>
+              <text class="avg-axis-text" x="36" y="330">0%</text>
+              <text class="avg-time-text" x="54" y="352">00:00</text>
+              <text class="avg-time-text" x="134" y="352">02:00</text>
+              <text class="avg-time-text" x="214" y="352">04:00</text>
+              <text class="avg-time-text" x="294" y="352">06:00</text>
+              <text class="avg-time-text" x="374" y="352">08:00</text>
+              <text class="avg-time-text" x="454" y="352">10:00</text>
+              <text class="avg-time-text" x="534" y="352">12:00</text>
+              <text class="avg-time-text" x="614" y="352">14:00</text>
+              <text class="avg-time-text" x="694" y="352">16:00</text>
+              <text class="avg-time-text" x="774" y="352">18:00</text>
+              <text class="avg-time-text" x="854" y="352">20:00</text>
+              <text class="avg-time-text" x="934" y="352">22:00</text>
+              <line class="avg-mean-line mem" x1="70" y1="192" x2="1030" y2="192"></line>
+              <polyline class="avg-yesterday-line mem" points="70,220 86,184 102,170 126,206 150,210 190,212 230,208 270,210 310,204 350,206 390,198 430,202 450,170 466,184 486,210 502,164 518,178 534,202 550,154 566,188 582,172 598,196 614,166 630,142 646,188 662,154 678,122 694,168 718,150 742,160 766,166 790,204 830,212 870,214 910,204 950,180 986,170 1014,158 1030,138"></polyline>
+              <polyline class="avg-today-line mem" points="70,230 82,176 94,162 112,190 126,198 150,200 190,198 230,194 270,196 310,190 350,192 390,184 430,186 470,178 490,150 510,138 530,172 550,146 570,180 590,152 610,132 630,118 648,102 666,130 684,166 704,150 724,138 744,158"></polyline>
+              <circle class="avg-hover-dot mem" cx="410" cy="186" r="5"></circle>
+              <text class="avg-peak-label mem" x="94" y="156">★ 峰值 67.2%</text>
+              <text class="avg-peak-label mem" x="660" y="96">★ 峰值 62.5%</text>
+            </svg>
+            <div class="avg-chart-tooltip">07:40<br>● 今日 <b>36.8%</b><br>● 昨日 <b>31.2%</b><br>━ 今日均值 <b>34.1%</b><br>⋯ 昨日均值 <b>31.8%</b><br>⊙ 今日峰值 <b>67.2%</b><br>⊙ 昨日峰值 <b>62.5%</b></div>
+          </div>
+          <div class="avg-chart-legend"><span><i class="avg-legend-line mem"></i>今日显存</span><span><i class="avg-legend-line mean mem"></i>今日均值</span><span><i class="avg-legend-line yesterday mem"></i>昨日显存</span><span><span class="legend-star">★</span>峰值</span></div>
+          <div class="chart-use">老板视角：显存趋势用于补充 XPU 利用率判断，避免只看到算力低但显存长期占用的场景；如果显存持续高位但 XPU 曲线偏低，需要进一步查看团队和节点明细。</div>
+        </article>
+        </div>
+      </section>
+
+      <section class="section" id="team-trend-compare">
+        <div class="section-head">
+          <h3>团队趋势对比</h3>
+          <div class="section-note">按指标和团队选择，对比不同团队在同一时间轴上的资源使用趋势</div>
+        </div>
+        <div class="comparison-controls" aria-label="团队趋势对比筛选控件占位">
+          <div class="control-row">
+            <span class="control-title">对比指标</span>
+            <span class="control-select"><span>下拉框</span>XPU利用率 ▾</span>
+            <span class="pill active">XPU利用率</span>
+            <span class="pill">显存利用率</span>
+            <span class="pill">lock节点</span>
+            <span class="pill">lock卡数</span>
+          </div>
+          <div class="control-row">
+            <span class="control-title">对比团队</span>
+            <span class="control-select"><span>多选下拉</span>团队 A、团队 B、团队 C ▾</span>
+            <span class="pill active">团队 A</span>
+            <span class="pill active">团队 B</span>
+            <span class="pill active">团队 C</span>
+            <span class="pill">团队 D</span>
+            <span class="pill">团队 E</span>
+            <span class="sort-pill">全选</span>
+            <span class="sort-pill">反选</span>
+          </div>
+          <div class="control-help">支持选择多个团队在同一张图中对比；全选用于看整体分布，反选用于快速排除当前已选团队。</div>
+        </div>
+        <article class="chart-card">
+          <div class="chart-title">团队趋势对比 <span>当前指标：XPU利用率，示意</span></div>
+          <div class="avg-prototype-chart" aria-label="团队趋势对比图原型">
+            <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队 XPU 利用率趋势对比示意图">
+              <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
+              <line class="avg-grid-line" x1="70" y1="96" x2="1030" y2="96"></line>
+              <line class="avg-grid-line" x1="70" y1="142" x2="1030" y2="142"></line>
+              <line class="avg-grid-line" x1="70" y1="188" x2="1030" y2="188"></line>
+              <line class="avg-grid-line" x1="70" y1="234" x2="1030" y2="234"></line>
+              <line class="avg-grid-line" x1="70" y1="280" x2="1030" y2="280"></line>
+              <line class="avg-grid-line" x1="70" y1="326" x2="1030" y2="326"></line>
+              <line class="avg-grid-line" x1="150" y1="50" x2="150" y2="326"></line>
+              <line class="avg-grid-line" x1="230" y1="50" x2="230" y2="326"></line>
+              <line class="avg-grid-line" x1="310" y1="50" x2="310" y2="326"></line>
+              <line class="avg-grid-line" x1="390" y1="50" x2="390" y2="326"></line>
+              <line class="avg-grid-line" x1="470" y1="50" x2="470" y2="326"></line>
+              <line class="avg-grid-line" x1="550" y1="50" x2="550" y2="326"></line>
+              <line class="avg-grid-line" x1="630" y1="50" x2="630" y2="326"></line>
+              <line class="avg-grid-line" x1="710" y1="50" x2="710" y2="326"></line>
+              <line class="avg-grid-line" x1="790" y1="50" x2="790" y2="326"></line>
+              <line class="avg-grid-line" x1="870" y1="50" x2="870" y2="326"></line>
+              <line class="avg-grid-line" x1="950" y1="50" x2="950" y2="326"></line>
+              <line class="avg-axis-line" x1="70" y1="50" x2="70" y2="326"></line>
+              <line class="avg-axis-line" x1="70" y1="326" x2="1030" y2="326"></line>
+              <text class="avg-axis-text" x="28" y="54">80%</text>
+              <text class="avg-axis-text" x="28" y="100">70%</text>
+              <text class="avg-axis-text" x="28" y="146">60%</text>
+              <text class="avg-axis-text" x="28" y="192">40%</text>
+              <text class="avg-axis-text" x="28" y="238">20%</text>
+              <text class="avg-axis-text" x="36" y="330">0%</text>
+              <text class="avg-time-text" x="54" y="352">00:00</text>
+              <text class="avg-time-text" x="134" y="352">02:00</text>
+              <text class="avg-time-text" x="214" y="352">04:00</text>
+              <text class="avg-time-text" x="294" y="352">06:00</text>
+              <text class="avg-time-text" x="374" y="352">08:00</text>
+              <text class="avg-time-text" x="454" y="352">10:00</text>
+              <text class="avg-time-text" x="534" y="352">12:00</text>
+              <text class="avg-time-text" x="614" y="352">14:00</text>
+              <text class="avg-time-text" x="694" y="352">16:00</text>
+              <text class="avg-time-text" x="774" y="352">18:00</text>
+              <text class="avg-time-text" x="854" y="352">20:00</text>
+              <text class="avg-time-text" x="934" y="352">22:00</text>
+              <path class="team-compare-line a" d="M70 286 C150 270,230 254,310 248 S470 218,550 196 S710 152,790 166 S930 144,1030 126"></path>
+              <path class="team-compare-line b" d="M70 300 C150 286,230 260,310 244 S470 228,550 206 S670 180,750 134 S910 156,1030 120"></path>
+              <path class="team-compare-line c" d="M70 308 C170 296,250 286,330 270 S490 250,570 236 S710 210,790 220 S930 198,1030 186"></path>
+              <path class="team-compare-line d" d="M70 318 C170 308,250 304,330 292 S490 286,570 270 S710 252,790 260 S930 238,1030 232"></path>
+              <circle class="avg-hover-dot" cx="710" cy="152" r="5"></circle>
+              <text class="avg-peak-label" x="724" y="146">团队 A 58%</text>
+              <text class="avg-peak-label mem" x="762" y="128">团队 B 72%</text>
+            </svg>
+            <div class="avg-chart-tooltip">15:20<br>● 团队 A <b>58%</b><br>● 团队 B <b>72%</b><br>● 团队 C <b>41%</b><br>⋯ 团队 D <b>28%</b></div>
+          </div>
+          <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>团队 A</span><span><i class="avg-legend-line team-b"></i>团队 B</span><span><i class="avg-legend-line team-c"></i>团队 C</span><span><i class="avg-legend-line team-d"></i>团队 D</span></div>
+          <div class="chart-use">管理视角：同一指标下对比多个团队，能看出资源使用是否集中在少数团队；切换到 lock节点或 lock卡数后，可以判断“申请规模”和“实际利用率”是否匹配。</div>
+        </article>
+      </section>
+
+      <section class="section" id="team-xpu-rank">
+        <div class="section-head">
+          <h3>XPU利用率团队排名</h3>
+          <div class="section-note">按团队当日平均 XPU 利用率从高到低排序，横向柱状图展示团队差距</div>
+        </div>
+        <article class="chart-card">
+          <div class="chart-title">XPU利用率团队排名 <span>今日均值，示意</span></div>
+          <div class="horizontal-rank-chart" aria-label="XPU利用率团队横向排名柱状图原型">
+            <div class="rank-axis-y">团队名</div>
+            <div class="rank-axis-x">XPU 平均利用率 →</div>
+            <div class="rank-baseline"><span>全集群均值 5.2%</span></div>
+            <div class="rank-bars">
+              <div class="rank-row"><span class="rank-team">团队 B</span><span class="rank-track"><span class="rank-bar top" style="--w: 93%;"></span></span><span class="rank-value">18.6%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 A</span><span class="rank-track"><span class="rank-bar top" style="--w: 76%;"></span></span><span class="rank-value">15.2%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 C</span><span class="rank-track"><span class="rank-bar" style="--w: 57%;"></span></span><span class="rank-value">11.4%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 D</span><span class="rank-track"><span class="rank-bar" style="--w: 39%;"></span></span><span class="rank-value">7.8%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 E</span><span class="rank-track"><span class="rank-bar" style="--w: 25%;"></span></span><span class="rank-value">4.9%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 F</span><span class="rank-track"><span class="rank-bar" style="--w: 16%;"></span></span><span class="rank-value">3.1%</span></div>
+            </div>
+            <div class="rank-ticks"><span>0%</span><span>5%</span><span>10%</span><span>15%</span><span>20%</span></div>
+          </div>
+          <div class="chart-use">管理视角：横向条越长代表团队当日平均 XPU 利用率越高；从上到下按利用率排序，高于全集群均值的团队可作为有效使用样本，低于均值且锁定规模较大的团队需要继续下钻到节点和持锁人。</div>
+        </article>
       </section>
 
       <section class="section" id="investment-compare">
@@ -518,8 +739,45 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <span class="control-title">排序：</span>
             <span class="sort-pill">XPU利用率 ↓</span>
             <span class="sort-pill">显存 ↓</span>
+            <span class="control-title">榜单：</span>
+            <span class="sort-pill red">红榜</span>
+            <span class="sort-pill black">黑榜</span>
           </div>
-          <div class="control-help">好处：研发可以先模糊搜索 node，再按 FREE / PARTIAL / BUSY 定位可用机器，并用 XPU 或显存排序优先处理高占用、低利用或需要协调的节点。</div>
+          <div class="control-help">好处：研发可以先模糊搜索 node，再按 FREE / PARTIAL / BUSY 定位可用机器；点击红榜 / 黑榜后，从右侧抽屉查看“锁定期间平均 XPU 利用率”的个人使用效率排名。</div>
+        </div>
+
+        <div class="leaderboard-prototype" aria-label="个人视图使用率红黑榜抽屉原型">
+          <article class="leaderboard-note-card">
+            <h4>点击红榜 / 黑榜后的交互</h4>
+            <p>榜单不改变当前节点列表，只从页面右侧滑出抽屉，方便研发一边看 node 曲线，一边定位需要表扬或协调的人。</p>
+            <p><strong>红榜：</strong>锁定期间平均 XPU 越高越靠前，代表资源被充分跑起来。<br><strong>黑榜：</strong>锁定期间平均 XPU 越低越靠前，方便定位长期占着但利用率偏低的资源。</p>
+          </article>
+          <aside class="leaderboard-drawer-proto" aria-label="个人红榜右侧抽屉示意">
+            <div class="leaderboard-drawer-head">
+              <div>
+                <div class="leaderboard-drawer-title">个人红榜</div>
+                <div class="leaderboard-drawer-sub">今日 00:00 - 当前已完成槽</div>
+              </div>
+              <div class="drawer-close-proto">×</div>
+            </div>
+            <div class="leaderboard-list-proto">
+              <div class="leaderboard-row-proto">
+                <div class="leaderboard-rank-proto">#1</div>
+                <div><div class="leaderboard-user-proto">guhangsong</div><div class="leaderboard-meta-proto">32.5卡时 · 4节点 · 锁定期间</div></div>
+                <div class="leaderboard-score-proto"><span>平均XPU</span>82.40%</div>
+              </div>
+              <div class="leaderboard-row-proto">
+                <div class="leaderboard-rank-proto">#2</div>
+                <div><div class="leaderboard-user-proto">zhangsan</div><div class="leaderboard-meta-proto">18.0卡时 · 2节点 · 锁定期间</div></div>
+                <div class="leaderboard-score-proto"><span>平均XPU</span>67.20%</div>
+              </div>
+              <div class="leaderboard-row-proto black">
+                <div class="leaderboard-rank-proto">#3</div>
+                <div><div class="leaderboard-user-proto">yepeiwen02</div><div class="leaderboard-meta-proto">48.0卡时 · 3节点 · 锁定期间</div></div>
+                <div class="leaderboard-score-proto"><span>平均XPU</span>12.80%</div>
+              </div>
+            </div>
+          </aside>
         </div>
 
         <div class="node-prototype" aria-label="个人视图节点曲线和占用明细">
@@ -655,28 +913,6 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
               </div>
               <div class="chart-use">解读方法：锁定规模上升且 XPU / 显存同步抬升，说明资源被有效使用；锁定规模上升但曲线偏低，优先查看低利用节点并协调释放。</div>
             </article>
-
-            <div class="chart-grid" style="margin-top:12px;">
-              <article class="chart-card">
-                <div class="chart-title">锁定规模趋势 <span>最近 7 天，示意</span></div>
-                <div class="chart-box" aria-label="团队锁定规模趋势图">
-                  <div class="line one"></div>
-                  <div class="line three"></div>
-                </div>
-                <div class="axis-labels"><span>D-6</span><span>D-4</span><span>D-2</span><span>今天</span></div>
-                <div class="chart-use">看锁定规模是否连续走高，区分稳定增长和发布、压测、排障带来的短时高峰。</div>
-              </article>
-
-              <article class="chart-card">
-                <div class="chart-title">整机锁 / 单卡锁结构 <span>今日，示意</span></div>
-                <div class="chart-box" aria-label="团队整机锁和单卡锁结构图">
-                  <div class="line two"></div>
-                  <div class="line four"></div>
-                </div>
-                <div class="axis-labels"><span>整机锁</span><span>单卡锁</span><span>混合</span><span>峰值</span></div>
-                <div class="chart-use">看锁定资源集中在整机还是单卡，判断是否存在卡被占满或卡级碎片。</div>
-              </article>
-            </div>
           </div>
         </div>
       </section>
