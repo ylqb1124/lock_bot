@@ -218,12 +218,26 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .avg-today-line.mem { stroke: #ea580c; }
 .avg-yesterday-line { fill: none; stroke: #c4b5fd; stroke-width: 3; stroke-dasharray: 8 6; stroke-linejoin: round; stroke-linecap: round; }
 .avg-yesterday-line.mem { stroke: #fed7aa; }
+.avg-history-line { fill: none; stroke-width: 2.5; stroke-dasharray: 6 4; stroke-linejoin: round; stroke-linecap: round; }
+.avg-history-line.mem { stroke-width: 2.5; }
+.avg-history-line.d1 { stroke: #c4b5fd; }
+.avg-history-line.d3 { stroke: #8b5cf6; }
+.avg-history-line.d7 { stroke: #6d28d9; }
+.avg-history-line.d30 { stroke: #4c1d95; }
+.avg-history-line.mem.d1 { stroke: #fed7aa; }
+.avg-history-line.mem.d3 { stroke: #fb923c; }
+.avg-history-line.mem.d7 { stroke: #ea580c; }
+.avg-history-line.mem.d30 { stroke: #9a3412; }
 .avg-mean-line { stroke: #dc2626; stroke-width: 2; }
 .avg-mean-line.mem { stroke: #f97316; }
 .avg-peak-label { fill: #8b5cf6; font-size: 12px; font-weight: 700; }
 .avg-peak-label.mem { fill: #ea580c; }
 .avg-hover-dot { fill: #fff; stroke: #8b5cf6; stroke-width: 3; }
 .avg-hover-dot.mem { stroke: #ea580c; }
+.avg-max-dot { fill: #fff; stroke: #dc2626; stroke-width: 2.5; }
+.avg-max-dot.mem { stroke: #f97316; }
+.avg-max-label { fill: #dc2626; font-size: 11px; font-weight: 700; }
+.avg-max-label.mem { fill: #f97316; }
 .team-compare-line { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .team-compare-line.a { stroke: #6d4aff; }
 .team-compare-line.b { stroke: #ea580c; }
@@ -279,8 +293,10 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .control-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .control-row:last-child { margin-bottom: 0; }
 .control-title { color: #6b7280; font-weight: 700; font-size: 13px; }
-.pill { min-width: 72px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; padding: 4px 14px; text-align: center; color: #64748b; font-size: 13px; }
+.pill { min-width: 72px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; padding: 4px 14px; text-align: center; color: #64748b; font-size: 13px; cursor: pointer; }
 .pill.active { border-color: #4f46e5; color: #4f46e5; background: #eef2ff; font-weight: 700; }
+.custom-days-input { width: 80px; padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #1e293b; font: 13px "SF Mono", Consolas, monospace; outline: none; }
+.custom-days-input:focus { border-color: #4f46e5; }
 .rank-toggle-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .search-pill { min-width: 180px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; padding: 6px 14px; color: #64748b; font-size: 13px; }
 .sort-pill { border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; padding: 4px 14px; color: #64748b; font-size: 13px; }
@@ -446,29 +462,28 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="all-summary">
         <div class="section-head">
           <h3>全集群趋势筛选</h3>
-          <div class="section-note">按日期范围查看所有开发机的 XPU / 显存利用率变化，固定 10 分钟粒度</div>
+          <div class="section-note">按最近 N 天查看所有开发机的 XPU / 显存利用率变化；选择"此刻"仅展示今日 00:00 至今的移动平均曲线，选择日期范围则显示该窗口的聚合曲线</div>
         </div>
 
         <div class="avg-filter-bar" aria-label="集群视图筛选控件占位">
-          <div class="avg-date-control">
-            <label for="prototype-begin-date">开始</label>
-            <input id="prototype-begin-date" type="date" value="2026-06-24">
-          </div>
-          <div class="avg-date-control">
-            <label for="prototype-end-date">结束</label>
-            <input id="prototype-end-date" type="date" value="2026-07-01">
-          </div>
+          <span class="pill active" data-date-range="0">此刻</span>
+          <span class="pill" data-date-range="1">最近一天</span>
+          <span class="pill" data-date-range="3">最近三天</span>
+          <span class="pill" data-date-range="7">最近七天</span>
+          <span class="pill" data-date-range="30">最近三十天</span>
+          <span class="pill" data-date-range="custom">自定义</span>
+          <input type="number" class="custom-days-input" min="1" max="365" placeholder="天数" hidden>
         </div>
       </section>
 
       <section class="section" id="all-charts">
         <div class="section-head">
           <h3>集群趋势图</h3>
-          <div class="section-note">XPU / 显存分别展示今日曲线、均值线和峰值点，复用现有平均利用率趋势图效果</div>
+          <div class="section-note">按最近 N 天展示 XPU / 显存利用率的聚合曲线和今日均值线；选择 N 天后显示对应窗口的聚合曲线 + 峰值标记</div>
         </div>
         <div class="chart-grid" style="grid-template-columns:1fr;">
         <article class="chart-card">
-          <div class="chart-title">XPU利用率趋势 <span>10分钟移动平均</span></div>
+          <div class="chart-title">XPU利用率趋势 <span class="date-range-label">此刻，10分钟移动平均</span></div>
           <div class="avg-prototype-chart" aria-label="现有平均利用率趋势图原型">
             <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="XPU利用率趋势示意图">
               <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
@@ -514,16 +529,29 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
               <text class="avg-time-text" x="934" y="352">22:00</text>
               <line class="avg-mean-line" x1="70" y1="282" x2="1030" y2="282"></line>
               <polyline class="avg-today-line" points="70,306 78,304 90,305 110,305 130,304 150,304 190,305 230,304 270,305 310,304 350,305 390,304 430,303 470,300 488,296 500,300 512,296 526,300 538,296 550,282 562,236 570,116 578,86 586,92 594,172 602,286 610,306 622,292 634,308 646,304 658,292 666,176 674,98 682,122 692,210 700,288 710,305 720,306 730,286 740,236 750,184 760,260 770,238 780,62 786,76 794,152 802,94 810,146 820,138 828,58 836,124 844,74 852,136 862,158 872,170 884,104 894,146 904,120 914,108 924,166 934,82 944,104 954,148 962,112 972,156 982,130 990,172 1000,186 1012,236 1024,224 1030,228"></polyline>
+              <!-- 聚合历史曲线: 每条对应一个日期筛选 pill，同一时刻只显示一条 -->
+              <polyline class="avg-history-line d1" data-date-range="1" points="70,301 110,300 150,297 190,297 230,297 270,303 310,296 350,293 390,304 430,299 470,293 510,300 550,300 590,298 630,298 670,273 710,214 750,142 790,83 830,58 870,83 910,142 950,214 990,273 1030,298" hidden></polyline>
+              <polyline class="avg-history-line d3" data-date-range="3" points="70,298 110,299 150,298 190,298 230,298 270,299 310,298 350,297 390,299 430,288 470,269 510,245 550,216 590,188 630,175 670,169 710,166 750,170 790,178 830,190 870,221 910,246 950,269 990,290 1030,298" hidden></polyline>
+              <polyline class="avg-history-line d7" data-date-range="7" points="70,276 110,263 150,252 190,242 230,234 270,231 310,230 350,229 390,235 430,237 470,240 510,242 550,242 590,239 630,242 670,243 710,242 750,243 790,247 830,253 870,264 910,275 950,286 990,294 1030,298" hidden></polyline>
+              <polyline class="avg-history-line d30" data-date-range="30" points="70,254 110,242 150,232 190,223 230,215 270,213 310,212 350,211 390,216 430,218 470,221 510,223 550,223 590,220 630,223 670,224 710,223 750,224 790,227 830,233 870,243 910,253 950,263 990,270 1030,274" hidden></polyline>
               <circle class="avg-hover-dot" cx="828" cy="58" r="5"></circle>
               <text class="avg-peak-label" x="842" y="50">★ 峰值 18.9%</text>
+              <circle class="avg-max-dot" cx="824" cy="58" r="5" data-date-range="1" hidden></circle>
+              <text class="avg-max-label" x="838" y="52" data-date-range="1" hidden>近1日峰值 18.9%</text>
+              <circle class="avg-max-dot" cx="710" cy="166" r="5" data-date-range="3" hidden></circle>
+              <text class="avg-max-label" x="724" y="160" data-date-range="3" hidden>近3日峰值 15.2%</text>
+              <circle class="avg-max-dot" cx="350" cy="229" r="5" data-date-range="7" hidden></circle>
+              <text class="avg-max-label" x="364" y="223" data-date-range="7" hidden>近7日峰值 12.3%</text>
+              <circle class="avg-max-dot" cx="350" cy="211" r="5" data-date-range="30" hidden></circle>
+              <text class="avg-max-label" x="364" y="205" data-date-range="30" hidden>近30日峰值 11.0%</text>
             </svg>
             <div class="avg-chart-tooltip">15:00<br>● 今日 <b>18.9%</b><br>━ 今日均值 <b>5.6%</b><br>⊙ 今日峰值 <b>18.9%</b></div>
           </div>
-          <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>今日</span><span><i class="avg-legend-line mean"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
-          <div class="chart-use">看今日 10 分钟移动平均曲线、均值线和峰值点，判断全局利用率是否持续抬升，而不是只看某个瞬时尖峰。</div>
+          <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>今日</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#c4b5fd"></i>近1日</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#8b5cf6"></i>近3日</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#6d28d9"></i>近7日</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#4c1d95"></i>近30日</span><span><i class="avg-legend-line mean"></i>今日均值</span><span><span style="color:#dc2626;font-weight:700">MAX</span>峰值</span></div>
+          <div class="chart-use">按选定天数展示对应时间窗口的10分钟移动平均聚合曲线，红色 MAX 标记窗口内峰值，与今日曲线对比判断利用率趋势。</div>
         </article>
         <article class="chart-card">
-          <div class="chart-title">显存利用率趋势 <span>10分钟移动平均</span></div>
+          <div class="chart-title">显存利用率趋势 <span class="date-range-label">此刻，10分钟移动平均</span></div>
           <div class="avg-prototype-chart" aria-label="显存平均利用率趋势图原型">
             <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="显存利用率趋势示意图">
               <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
@@ -567,13 +595,26 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
               <text class="avg-time-text" x="934" y="352">22:00</text>
               <line class="avg-mean-line mem" x1="70" y1="200" x2="1030" y2="200"></line>
               <polyline class="avg-today-line mem" points="70,184 82,186 94,184 110,184 126,184 142,184 150,192 160,184 190,184 230,184 250,198 270,200 292,198 310,190 334,184 350,184 370,192 390,200 430,200 470,200 502,198 526,202 550,198 574,210 590,224 610,222 634,228 658,236 682,234 704,230 724,238 742,248 760,228 780,242 798,220 812,236 826,206 840,212 856,188 870,210 886,206 902,198 918,164 934,200 948,170 960,214 974,180 986,222 1000,230 1014,210 1030,224"></polyline>
+              <!-- 聚合历史曲线: 每条对应一个日期筛选 pill，同一时刻只显示一条 -->
+              <polyline class="avg-history-line mem d1" data-date-range="1" points="70,214 110,213 150,211 190,211 230,204 270,209 310,219 350,209 390,204 430,210 470,210 510,213 550,215 590,203 630,205 670,217 710,210 750,205 790,194 830,180 870,169 910,164 950,169 990,180 1030,194" hidden></polyline>
+              <polyline class="avg-history-line mem d3" data-date-range="3" points="70,208 110,210 150,212 190,211 230,209 270,208 310,210 350,212 390,211 430,208 470,210 510,208 550,204 590,191 630,183 670,178 710,172 750,171 790,173 830,177 870,182 910,184 950,195 990,203 1030,202" hidden></polyline>
+              <polyline class="avg-history-line mem d7" data-date-range="7" points="70,205 110,203 150,199 190,199 230,197 270,197 310,197 350,198 390,199 430,199 470,198 510,199 550,200 590,195 630,193 670,193 710,193 750,194 790,194 830,195 870,198 910,200 950,203 990,207 1030,207" hidden></polyline>
+              <polyline class="avg-history-line mem d30" data-date-range="30" points="70,189 110,187 150,183 190,183 230,181 270,181 310,181 350,182 390,183 430,183 470,182 510,183 550,184 590,179 630,178 670,178 710,178 750,178 790,178 830,179 870,182 910,184 950,187 990,190 1030,190" hidden></polyline>
               <circle class="avg-hover-dot mem" cx="918" cy="164" r="5"></circle>
               <text class="avg-peak-label mem" x="932" y="158">★ 峰值 37.9%</text>
+              <circle class="avg-max-dot mem" cx="914" cy="164" r="5" data-date-range="1" hidden></circle>
+              <text class="avg-max-label mem" x="928" y="158" data-date-range="1" hidden>近1日峰值 37.9%</text>
+              <circle class="avg-max-dot mem" cx="750" cy="171" r="5" data-date-range="3" hidden></circle>
+              <text class="avg-max-label mem" x="764" y="165" data-date-range="3" hidden>近3日峰值 42.5%</text>
+              <circle class="avg-max-dot mem" cx="710" cy="193" r="5" data-date-range="7" hidden></circle>
+              <text class="avg-max-label mem" x="724" y="187" data-date-range="7" hidden>近7日峰值 35.8%</text>
+              <circle class="avg-max-dot mem" cx="790" cy="178" r="5" data-date-range="30" hidden></circle>
+              <text class="avg-max-label mem" x="804" y="172" data-date-range="30" hidden>近30日峰值 40.2%</text>
             </svg>
             <div class="avg-chart-tooltip">16:40<br>● 今日 <b>37.9%</b><br>━ 今日均值 <b>32.0%</b><br>⊙ 今日峰值 <b>37.9%</b></div>
           </div>
-          <div class="avg-chart-legend"><span><i class="avg-legend-line mem"></i>今日显存</span><span><i class="avg-legend-line mean mem"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
-          <div class="chart-use">显存趋势用于补充 XPU 利用率判断，避免只看到算力低但显存长期占用的场景；如果显存持续高位但 XPU 曲线偏低，需进一步查看团队和节点明细。</div>
+          <div class="avg-chart-legend"><span><i class="avg-legend-line mem"></i>今日显存</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#fed7aa"></i>近1日</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#fb923c"></i>近3日</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#ea580c"></i>近7日</span><span><i class="avg-legend-line" style="border-top-style:dashed;border-color:#9a3412"></i>近30日</span><span><i class="avg-legend-line mean mem"></i>今日均值</span><span><span style="color:#f97316;font-weight:700">MAX</span>峰值</span></div>
+          <div class="chart-use">显存趋势用于补充 XPU 利用率判断；按选定天数展示对应窗口的聚合曲线，红色 MAX 标记窗口内峰值，避免只看到算力低但显存长期占用的场景。</div>
         </article>
         </div>
       </section>
@@ -581,7 +622,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="team-trend-compare">
         <div class="section-head">
           <h3>团队趋势对比</h3>
-          <div class="section-note">按指标和团队选择，对比不同团队在同一时间轴上的资源使用趋势</div>
+          <div class="section-note">按指标和团队选择，对比不同团队在最近 N 天同一时间轴上的资源使用趋势</div>
         </div>
         <div class="comparison-controls" aria-label="团队趋势对比筛选控件占位">
           <div class="control-row">
@@ -665,14 +706,14 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="team-rank">
         <div class="section-head">
           <h3>团队利用率排名</h3>
-          <div class="section-note">按团队最近 7 天平均利用率从高到低排序，横向柱状图展示团队差距</div>
+          <div class="section-note">按团队最近 N 天平均利用率从高到低排序，横向柱状图展示团队差距</div>
         </div>
         <div class="rank-toggle-bar" aria-label="排名指标切换">
           <span class="pill active" data-rank-toggle="xpu">XPU利用率</span>
           <span class="pill" data-rank-toggle="mem">显存利用率</span>
         </div>
         <article class="chart-card" id="rank-xpu">
-          <div class="chart-title">XPU利用率团队排名 <span>近7日均值，示意</span></div>
+          <div class="chart-title">XPU利用率团队排名 <span>近N日均值，示意</span></div>
           <div class="horizontal-rank-chart" aria-label="XPU利用率团队横向排名柱状图原型">
             <div class="rank-axis-y">团队名</div>
             <div class="rank-axis-x">XPU 平均利用率 →</div>
@@ -687,10 +728,10 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             </div>
             <div class="rank-ticks"><span>0%</span><span>5%</span><span>10%</span><span>15%</span><span>20%</span></div>
           </div>
-          <div class="chart-use">横向条越长代表团队近 7 日平均 XPU 利用率越高；从上到下按利用率排序，高于全集群均值的团队可作为有效使用样本，低于均值且锁定规模较大的团队需进一步下钻。</div>
+          <div class="chart-use">横向条越长代表团队近 N 日平均 XPU 利用率越高；从上到下按利用率排序，高于全集群均值的团队可作为有效使用样本，低于均值且锁定规模较大的团队需进一步下钻。</div>
         </article>
         <article class="chart-card" id="rank-mem" hidden>
-          <div class="chart-title">显存利用率团队排名 <span>近7日均值，示意</span></div>
+          <div class="chart-title">显存利用率团队排名 <span>近N日均值，示意</span></div>
           <div class="horizontal-rank-chart" aria-label="显存利用率团队横向排名柱状图原型">
             <div class="rank-axis-y">团队名</div>
             <div class="rank-axis-x">显存平均利用率 →</div>
@@ -705,14 +746,14 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             </div>
             <div class="rank-ticks"><span>0%</span><span>10%</span><span>20%</span><span>30%</span><span>50%</span></div>
           </div>
-          <div class="chart-use">横向条越长代表团队近 7 日平均显存利用率越高；与 XPU 排名对比，可发现显存占用高但 XPU 利用率低的团队，帮助定位资源浪费。</div>
+          <div class="chart-use">横向条越长代表团队近 N 日平均显存利用率越高；与 XPU 排名对比，可发现显存占用高但 XPU 利用率低的团队，帮助定位资源浪费。</div>
         </article>
       </section>
 
       <section class="section" id="investment-compare">
         <div class="section-head">
           <h3>投入效果判断</h3>
-          <div class="section-note">将选定日期范围的曲线、均值和峰值转化为管理层讨论语言</div>
+          <div class="section-note">将选定日期范围的曲线和均值转化为管理层讨论语言</div>
         </div>
         <div class="compare-grid">
           <article class="compare-card">
@@ -858,14 +899,14 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="team-body">
         <div class="section-head">
           <h3>团队视图主体</h3>
-          <div class="section-note">选择日期和团队，查看团队当前时刻资源使用情况</div>
+          <div class="section-note">选择日期范围和团队，查看团队资源使用情况</div>
         </div>
         <div class="team-layout">
           <div class="team-control-panel">
             <div class="filter-block">
               <div class="filter-label">筛选条件</div>
               <div class="team-filter-stack">
-                <div class="team-filter-line"><span>日期</span><strong>今日</strong></div>
+                <div class="team-filter-line"><span>日期</span><strong>此刻</strong></div>
                 <div class="team-filter-line"><span>团队</span><strong>团队 B</strong></div>
               </div>
             </div>
@@ -1101,6 +1142,73 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       document.getElementById('rank-mem').hidden = (type !== 'mem');
     });
   });
+
+  const dateRangePills = document.querySelectorAll('[data-date-range]');
+  const dateRangeCurves = document.querySelectorAll('[data-date-range]:not(.pill)');
+  const customInput = document.querySelector('.custom-days-input');
+  const dateRangeLabels = document.querySelectorAll('.date-range-label');
+
+  // pills 和 curves/peaks 共用 data-date-range
+  function updateDateVisibility(days) {
+    // days=0: 此刻 — 只显示今日曲线，隐藏所有历史曲线和峰值
+    // 始终只显示一条聚合曲线（与 date-range 值精确匹配的那条）
+    dateRangeCurves.forEach(el => {
+      const range = el.dataset.dateRange;
+      const elDays = range === 'custom' ? Infinity : parseInt(range);
+      if (days === 0 || elDays !== days) {
+        el.setAttribute('hidden', '');
+      } else {
+        el.removeAttribute('hidden');
+      }
+    });
+  }
+
+  function getLabelText(days) {
+    if (days === 0) return '此刻，10分钟移动平均';
+    if (days === 1) return '最近一天，10分钟移动平均';
+    if (days === 3) return '最近三天，10分钟移动平均';
+    if (days === 7) return '最近七天，10分钟移动平均';
+    if (days === 30) return '最近三十天，10分钟移动平均';
+    return '最近' + days + '天，10分钟移动平均';
+  }
+
+  dateRangePills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      dateRangePills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      const range = pill.dataset.dateRange;
+      if (range === 'custom') {
+        customInput.hidden = false;
+        customInput.focus();
+        customInput.value = '';
+      } else {
+        customInput.hidden = true;
+        const days = parseInt(range);
+        updateDateVisibility(days);
+        dateRangeLabels.forEach(l => l.textContent = getLabelText(days));
+      }
+    });
+  });
+
+  customInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const days = parseInt(customInput.value);
+      if (days > 0) {
+        updateDateVisibility(days);
+        dateRangeLabels.forEach(l => l.textContent = getLabelText(days));
+      }
+    }
+  });
+
+  customInput.addEventListener('blur', () => {
+    const days = parseInt(customInput.value);
+    if (days > 0) {
+      updateDateVisibility(days);
+      dateRangeLabels.forEach(l => l.textContent = getLabelText(days));
+    }
+  });
+
+  updateDateVisibility(0);
 </script>
 </body>
 </html>
