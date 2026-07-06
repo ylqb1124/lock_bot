@@ -174,6 +174,12 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .team-kpi-label { color: #6b7280; font-size: 12px; margin-bottom: 8px; }
 .team-kpi-value { font: 700 24px/1 "SF Mono", Consolas, monospace; color: #111827; }
 .team-kpi.good .team-kpi-value { color: #16a34a; }
+.settlement-card { border: 1px solid #d97706; background: #fffbeb; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.settlement-head { display: flex; align-items: center; gap: 10px; }
+.settlement-time { font-weight: 700; font-size: 14px; color: #92400e; }
+.settlement-team { font-size: 12px; color: #64748b; background: #fef3c7; padding: 2px 8px; border-radius: 4px; }
+.settlement-event { font-size: 13px; color: #374151; }
+.settlement-changes { display: flex; gap: 24px; font-size: 13px; color: #4b5563; }
 .team-hero-chart { position: relative; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 12px; background: linear-gradient(135deg, #fff 0%, #fff 58%, #f8fafc 58%, #f8fafc 100%); padding: 16px 16px 10px; }
 .team-action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
 .team-action-card { border: 1px dashed #6b7280; background: #fafafa; padding: 12px; }
@@ -275,6 +281,7 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .control-title { color: #6b7280; font-weight: 700; font-size: 13px; }
 .pill { min-width: 72px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; padding: 4px 14px; text-align: center; color: #64748b; font-size: 13px; }
 .pill.active { border-color: #4f46e5; color: #4f46e5; background: #eef2ff; font-weight: 700; }
+.rank-toggle-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .search-pill { min-width: 180px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; padding: 6px 14px; color: #64748b; font-size: 13px; }
 .sort-pill { border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; padding: 4px 14px; color: #64748b; font-size: 13px; }
 .sort-pill.red { border-color: #fecaca; background: #fef2f2; color: #dc2626; font-weight: 700; }
@@ -439,7 +446,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="all-summary">
         <div class="section-head">
           <h3>全集群趋势筛选</h3>
-          <div class="section-note">按开始～结束看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
+          <div class="section-note">按日期范围查看所有开发机的 XPU / 显存利用率变化，固定 10 分钟粒度</div>
         </div>
 
         <div class="avg-filter-bar" aria-label="集群视图筛选控件占位">
@@ -451,24 +458,17 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <label for="prototype-end-date">结束</label>
             <input id="prototype-end-date" type="date" value="2026-07-01">
           </div>
-          <div class="avg-window-toggles" aria-label="移动平均窗口">
-            <span class="avg-win-btn">5m</span>
-            <span class="avg-win-btn active">10m</span>
-            <span class="avg-win-btn">30m</span>
-            <span class="avg-win-btn">1h</span>
-          </div>
         </div>
-        <div class="control-help">移动平均窗口用于抹平 5 分钟粒度的尖刺和空洞：5m 更贴近实时波动，1h 更适合看投入前后的整体趋势。</div>
       </section>
 
       <section class="section" id="all-charts">
         <div class="section-head">
           <h3>集群趋势图</h3>
-          <div class="section-note">直接复用现有平均利用率趋势图效果：XPU / 显存分别展示今日、均值线和峰值提示</div>
+          <div class="section-note">XPU / 显存分别展示今日曲线、均值线和峰值点，复用现有平均利用率趋势图效果</div>
         </div>
         <div class="chart-grid" style="grid-template-columns:1fr;">
         <article class="chart-card">
-          <div class="chart-title">XPU利用率趋势 <span>平均移动利用率，示意</span></div>
+          <div class="chart-title">XPU利用率趋势 <span>10分钟移动平均</span></div>
           <div class="avg-prototype-chart" aria-label="现有平均利用率趋势图原型">
             <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="XPU利用率趋势示意图">
               <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
@@ -520,10 +520,10 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <div class="avg-chart-tooltip">15:00<br>● 今日 <b>18.9%</b><br>━ 今日均值 <b>5.6%</b><br>⊙ 今日峰值 <b>18.9%</b></div>
           </div>
           <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>今日</span><span><i class="avg-legend-line mean"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
-          <div class="chart-use">老板视角：看今日平均移动利用率、均值线和峰值点，判断全局利用率是否持续抬升，而不是只看某个瞬时尖峰。</div>
+          <div class="chart-use">看今日 10 分钟移动平均曲线、均值线和峰值点，判断全局利用率是否持续抬升，而不是只看某个瞬时尖峰。</div>
         </article>
         <article class="chart-card">
-          <div class="chart-title">显存利用率趋势 <span>平均移动利用率，示意</span></div>
+          <div class="chart-title">显存利用率趋势 <span>10分钟移动平均</span></div>
           <div class="avg-prototype-chart" aria-label="显存平均利用率趋势图原型">
             <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="显存利用率趋势示意图">
               <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
@@ -573,7 +573,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <div class="avg-chart-tooltip">16:40<br>● 今日 <b>37.9%</b><br>━ 今日均值 <b>32.0%</b><br>⊙ 今日峰值 <b>37.9%</b></div>
           </div>
           <div class="avg-chart-legend"><span><i class="avg-legend-line mem"></i>今日显存</span><span><i class="avg-legend-line mean mem"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
-          <div class="chart-use">老板视角：显存趋势用于补充 XPU 利用率判断，避免只看到算力低但显存长期占用的场景；如果显存持续高位但 XPU 曲线偏低，需要进一步查看团队和节点明细。</div>
+          <div class="chart-use">显存趋势用于补充 XPU 利用率判断，避免只看到算力低但显存长期占用的场景；如果显存持续高位但 XPU 曲线偏低，需进一步查看团队和节点明细。</div>
         </article>
         </div>
       </section>
@@ -603,7 +603,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <span class="sort-pill">全选</span>
             <span class="sort-pill">反选</span>
           </div>
-          <div class="control-help">支持选择多个团队在同一张图中对比；全选用于看整体分布，反选用于快速排除当前已选团队。</div>
+          <div class="control-help">同一指标下对比多个团队，可以看出资源使用是否集中在少数团队；切换到 lock节点或 lock卡数后，可判断"申请规模"和"实际利用率"是否匹配。</div>
         </div>
         <article class="chart-card">
           <div class="chart-title">团队趋势对比 <span>当前指标：XPU利用率，示意</span></div>
@@ -662,17 +662,21 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
         </article>
       </section>
 
-      <section class="section" id="team-xpu-rank">
+      <section class="section" id="team-rank">
         <div class="section-head">
-          <h3>XPU利用率团队排名</h3>
-          <div class="section-note">按团队当日平均 XPU 利用率从高到低排序，横向柱状图展示团队差距</div>
+          <h3>团队利用率排名</h3>
+          <div class="section-note">按团队最近 7 天平均利用率从高到低排序，横向柱状图展示团队差距</div>
         </div>
-        <article class="chart-card">
-          <div class="chart-title">XPU利用率团队排名 <span>今日均值，示意</span></div>
+        <div class="rank-toggle-bar" aria-label="排名指标切换">
+          <span class="pill active" data-rank-toggle="xpu">XPU利用率</span>
+          <span class="pill" data-rank-toggle="mem">显存利用率</span>
+        </div>
+        <article class="chart-card" id="rank-xpu">
+          <div class="chart-title">XPU利用率团队排名 <span>近7日均值，示意</span></div>
           <div class="horizontal-rank-chart" aria-label="XPU利用率团队横向排名柱状图原型">
             <div class="rank-axis-y">团队名</div>
             <div class="rank-axis-x">XPU 平均利用率 →</div>
-            <div class="rank-baseline"><span>全集群均值 5.2%</span></div>
+            <div class="rank-baseline"><span>全集群 XPU 均值 5.2%</span></div>
             <div class="rank-bars">
               <div class="rank-row"><span class="rank-team">团队 B</span><span class="rank-track"><span class="rank-bar top" style="--w: 93%;"></span></span><span class="rank-value">18.6%</span></div>
               <div class="rank-row"><span class="rank-team">团队 A</span><span class="rank-track"><span class="rank-bar top" style="--w: 76%;"></span></span><span class="rank-value">15.2%</span></div>
@@ -683,14 +687,32 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             </div>
             <div class="rank-ticks"><span>0%</span><span>5%</span><span>10%</span><span>15%</span><span>20%</span></div>
           </div>
-          <div class="chart-use">管理视角：横向条越长代表团队当日平均 XPU 利用率越高；从上到下按利用率排序，高于全集群均值的团队可作为有效使用样本，低于均值且锁定规模较大的团队需要继续下钻到节点和持锁人。</div>
+          <div class="chart-use">横向条越长代表团队近 7 日平均 XPU 利用率越高；从上到下按利用率排序，高于全集群均值的团队可作为有效使用样本，低于均值且锁定规模较大的团队需进一步下钻。</div>
+        </article>
+        <article class="chart-card" id="rank-mem" hidden>
+          <div class="chart-title">显存利用率团队排名 <span>近7日均值，示意</span></div>
+          <div class="horizontal-rank-chart" aria-label="显存利用率团队横向排名柱状图原型">
+            <div class="rank-axis-y">团队名</div>
+            <div class="rank-axis-x">显存平均利用率 →</div>
+            <div class="rank-baseline"><span>全集群显存均值 28.6%</span></div>
+            <div class="rank-bars">
+              <div class="rank-row"><span class="rank-team">团队 B</span><span class="rank-track"><span class="rank-bar top" style="--w: 90%;"></span></span><span class="rank-value">45.2%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 A</span><span class="rank-track"><span class="rank-bar top" style="--w: 77%;"></span></span><span class="rank-value">38.6%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 C</span><span class="rank-track"><span class="rank-bar" style="--w: 48%;"></span></span><span class="rank-value">24.1%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 D</span><span class="rank-track"><span class="rank-bar" style="--w: 36%;"></span></span><span class="rank-value">18.3%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 E</span><span class="rank-track"><span class="rank-bar" style="--w: 22%;"></span></span><span class="rank-value">11.0%</span></div>
+              <div class="rank-row"><span class="rank-team">团队 F</span><span class="rank-track"><span class="rank-bar" style="--w: 14%;"></span></span><span class="rank-value">7.2%</span></div>
+            </div>
+            <div class="rank-ticks"><span>0%</span><span>10%</span><span>20%</span><span>30%</span><span>50%</span></div>
+          </div>
+          <div class="chart-use">横向条越长代表团队近 7 日平均显存利用率越高；与 XPU 排名对比，可发现显存占用高但 XPU 利用率低的团队，帮助定位资源浪费。</div>
         </article>
       </section>
 
       <section class="section" id="investment-compare">
         <div class="section-head">
           <h3>投入效果判断</h3>
-          <div class="section-note">把开始～结束的今日曲线、均值和峰值转成管理层讨论语言</div>
+          <div class="section-note">将选定日期范围的曲线、均值和峰值转化为管理层讨论语言</div>
         </div>
         <div class="compare-grid">
           <article class="compare-card">
@@ -706,7 +728,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
           <article class="compare-card">
             <h4>老板判断</h4>
             <div class="compare-number">持续观察</div>
-            <p>如果今日均值、峰值和高利用时段都稳定提升，说明全局利用率变好；如果只是峰值变高但均值不变，需要继续看节点和团队明细。</p>
+            <p>如果均值、峰值和高利用时段都稳定提升，说明全局利用率在改善；如果只是峰值变高但均值不变，需要进一步查看节点和团队明细。</p>
           </article>
         </div>
       </section>
@@ -735,23 +757,23 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <span class="control-title">排序：</span>
             <span class="sort-pill">XPU利用率 ↓</span>
             <span class="sort-pill">显存 ↓</span>
-            <span class="control-title">榜单：</span>
-            <span class="sort-pill red">红榜</span>
-            <span class="sort-pill black">黑榜</span>
+            <span class="control-title">算力使用排行榜：</span>
+            <span class="sort-pill red">降序</span>
+            <span class="sort-pill black">升序</span>
           </div>
-          <div class="control-help">好处：研发可以先模糊搜索 node，再按 FREE / PARTIAL / BUSY 定位可用机器；点击红榜 / 黑榜后，从右侧抽屉查看“锁定期间平均 XPU 利用率”的个人使用效率排名。</div>
+          <div class="control-help">研发可以先模糊搜索 node，再按 FREE / PARTIAL / BUSY 状态定位可用机器；点击算力使用排行榜，从右侧抽屉查看"锁定期间平均 XPU 利用率"排名，支持升序、降序切换。</div>
         </div>
 
-        <div class="leaderboard-prototype" aria-label="个人视图使用率红黑榜抽屉原型">
+        <div class="leaderboard-prototype" aria-label="个人视图算力使用排行榜抽屉原型">
           <article class="leaderboard-note-card">
-            <h4>点击红榜 / 黑榜后的交互</h4>
-            <p>榜单不改变当前节点列表，只从页面右侧滑出抽屉，方便研发一边看 node 曲线，一边定位需要表扬或协调的人。</p>
-            <p><strong>红榜：</strong>锁定期间平均 XPU 越高越靠前，代表资源被充分跑起来。<br><strong>黑榜：</strong>锁定期间平均 XPU 越低越靠前，方便定位长期占着但利用率偏低的资源。</p>
+            <h4>点击算力使用排行榜后的交互</h4>
+            <p>排行榜不改变当前节点列表，只从页面右侧滑出抽屉，方便研发一边看 node 曲线，一边定位需要关注的人。</p>
+            <p><strong>降序：</strong>锁定期间平均 XPU 越高越靠前，代表资源被充分跑起来。<br><strong>升序：</strong>锁定期间平均 XPU 越低越靠前，方便定位长期占着但利用率偏低的资源。</p>
           </article>
-          <aside class="leaderboard-drawer-proto" aria-label="个人红榜右侧抽屉示意">
+          <aside class="leaderboard-drawer-proto" aria-label="算力使用排行榜右侧抽屉示意">
             <div class="leaderboard-drawer-head">
               <div>
-                <div class="leaderboard-drawer-title">个人红榜</div>
+                <div class="leaderboard-drawer-title">算力使用排行榜</div>
                 <div class="leaderboard-drawer-sub">今日 00:00 - 当前已完成槽</div>
               </div>
               <div class="drawer-close-proto">×</div>
@@ -793,7 +815,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
               <div class="now-line"></div>
             </div>
             <div class="node-axis"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
-            <div class="chart-use">同步现有效果：一天内 XPU 曲线、显存曲线、Lock Bot 锁记录和当前时间线放在同一条时间轴，研发能直接判断“谁在占、占了多久、占用期间资源是否真的在跑”。</div>
+            <div class="chart-use">一天内 XPU 曲线、显存曲线、Lock Bot 锁记录和当前时间线放在同一条时间轴，研发能直接判断谁在占、占了多久、占用期间资源是否真的在跑。</div>
           </article>
 
           <article class="node-card expanded">
@@ -836,7 +858,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="team-body">
         <div class="section-head">
           <h3>团队视图主体</h3>
-          <div class="section-note">先选择日期和团队，再查看团队今日资源使用情况</div>
+          <div class="section-note">选择日期和团队，查看团队当前时刻资源使用情况</div>
         </div>
         <div class="team-layout">
           <div class="team-control-panel">
@@ -852,31 +874,43 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
           <div class="team-kpi-block" aria-label="团队 B 资源使用">
             <div class="section-head compact">
               <h3>团队 B 资源使用</h3>
-              <div class="section-note">查看团队今日锁定规模、BUSY规模和资源利用情况</div>
+              <div class="section-note">查看团队当前时刻锁定规模、BUSY 规模</div>
             </div>
             <div class="team-kpi-grid" aria-label="团队视图关键指标">
               <article class="team-kpi">
-                <div class="team-kpi-label">今日锁定机器</div>
+                <div class="team-kpi-label">当前 LOCK 节点数</div>
                 <div class="team-kpi-value">14 台</div>
               </article>
               <article class="team-kpi">
-                <div class="team-kpi-label">今日锁定卡数</div>
+                <div class="team-kpi-label">当前 LOCK 卡数</div>
                 <div class="team-kpi-value">112 卡</div>
               </article>
-              <article class="team-kpi good">
-                <div class="team-kpi-label">锁定 XPU 均值/峰值</div>
-                <div class="team-kpi-value">71% / 87%</div>
+              <article class="team-kpi">
+                <div class="team-kpi-label">当前 BUSY 节点数</div>
+                <div class="team-kpi-value">10 台</div>
               </article>
-              <article class="team-kpi good">
-                <div class="team-kpi-label">锁定显存均值/峰值</div>
-                <div class="team-kpi-value">64% / 67%</div>
+              <article class="team-kpi">
+                <div class="team-kpi-label">当前 BUSY 卡数</div>
+                <div class="team-kpi-value">78 卡</div>
               </article>
+            </div>
+          </div>
+
+          <div class="settlement-card" aria-label="最近结算点">
+            <div class="settlement-head">
+              <span class="settlement-time">14:00 结算</span>
+              <span class="settlement-team">团队 B</span>
+            </div>
+            <div class="settlement-event">LOCKED → FREE: node27 (DEVICE, 4卡) · yepeiwen02 释放</div>
+            <div class="settlement-changes">
+              <span>结算后团队 XPU 利用率: <strong>71% → 68%</strong></span>
+              <span>结算后团队显存利用率: <strong>64% → 61%</strong></span>
             </div>
           </div>
 
           <div>
             <article class="chart-card">
-              <div class="chart-title">团队 B 锁定资源利用率趋势 <span>今日 / 昨日对比，示意</span></div>
+              <div class="chart-title">团队 B 锁定资源实时利用率趋势 <span>今日 / 昨日对比</span></div>
               <div class="team-hero-chart" aria-label="团队 B 锁定资源 XPU 和显存利用率趋势原型">
                 <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队锁定资源趋势示意图">
                   <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
@@ -895,90 +929,24 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                   <path class="avg-yesterday-line" d="M70 230 C160 218,230 180,330 166 S520 156,610 138 S820 116,1030 132"></path>
                   <path class="avg-today-line" d="M70 236 C155 224,245 172,330 150 S515 126,610 96 S820 78,1030 102"></path>
                   <path class="avg-today-line" style="stroke:#ea580c" d="M70 250 C165 238,245 198,330 178 S520 150,620 132 S810 122,1030 126"></path>
-                  <line class="avg-mean-line" x1="70" y1="128" x2="1030" y2="128"></line>
-                  <circle class="avg-hover-dot" cx="845" cy="80" r="6"></circle>
-                  <text class="avg-peak-label" x="860" y="76">峰值 87%</text>
                 </svg>
                 <div class="avg-chart-tooltip"><b>15:20</b><br>XPU 82% · 显存 67%<br>锁定 15 台 / 118 卡</div>
                 <div class="avg-chart-legend">
                   <span><i class="avg-legend-line"></i>今日 XPU</span>
                   <span><i class="legend-line mem"></i>今日显存</span>
                   <span><i class="avg-legend-line yesterday"></i>昨日 XPU</span>
-                  <span><i class="avg-legend-line mean"></i>今日均值</span>
                 </div>
               </div>
-              <div class="chart-use">解读方法：锁定规模上升且 XPU / 显存同步抬升，说明资源被有效使用；锁定规模上升但曲线偏低，优先查看低利用节点并协调释放。</div>
+              <div class="chart-use">实时趋势：XPU/显存曲线实时反映锁定资源的实际使用情况，结算点标记锁定状态变更时刻。</div>
             </article>
           </div>
         </div>
       </section>
 
-      <section class="section" id="team-details">
-        <div class="section-head">
-          <h3>团队占用节点明细</h3>
-          <div class="section-note">复用个人视图的节点卡片，团队负责人能直接下钻到持锁人和低利用节点</div>
-        </div>
-        <div class="team-node-grid" aria-label="团队占用节点明细原型">
-          <article class="node-card">
-            <div class="node-head">
-              <div class="node-title">node48</div>
-              <span class="owner-chip">guhangsong</span>
-              <span class="type-chip">NODE</span>
-              <span class="status-tag busy">BUSY</span>
-              <span class="node-value">XPU <strong>88.00%</strong></span>
-              <span class="node-value">显存 <strong>89.20%</strong></span>
-            </div>
-            <div class="node-line-box" aria-label="团队节点 node48 曲线">
-              <div class="occupy-band" style="left: 42%; width: 42%;"></div>
-              <div class="occupy-label" style="left: 61%;">团队 B 整机锁</div>
-              <div class="util-line xpu"></div>
-              <div class="util-line mem"></div>
-              <div class="now-line"></div>
-            </div>
-            <div class="node-axis"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
-            <div class="chart-use">扩容证据：锁定时段和利用率高峰重合，说明团队 B 的资源申请被实际任务消耗。</div>
-          </article>
-
-          <article class="node-card expanded">
-            <div class="node-head">
-              <div class="node-title">node27</div>
-              <span class="owner-chip">yepeiwen02</span>
-              <span class="type-chip">DEVICE</span>
-              <span class="status-tag partial">PARTIAL</span>
-              <span class="node-value">XPU <strong>19.60%</strong></span>
-              <span class="node-value">显存 <strong class="mem">0.67%</strong></span>
-            </div>
-            <div class="node-line-box" aria-label="团队节点 node27 曲线">
-              <div class="occupy-band" style="left: 40%; width: 40%;"></div>
-              <div class="occupy-label" style="left: 52%;">低利用锁定 · 4 卡</div>
-              <div class="util-line xpu low"></div>
-              <div class="util-line mem low"></div>
-              <div class="now-line"></div>
-            </div>
-            <div class="node-axis"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
-            <div class="chart-use">协调证据：锁定时段较长但 XPU / 显存曲线偏低，适合作为团队内释放或复用的沟通入口。</div>
-          </article>
-        </div>
-        <div class="team-action-grid" aria-label="团队管理动作建议">
-          <article class="team-action-card">
-            <h4>可扩容</h4>
-            <p>连续多日锁定高、利用高、峰值接近满载时，把团队趋势图和节点明细作为扩容依据。</p>
-          </article>
-          <article class="team-action-card">
-            <h4>可协调</h4>
-            <p>锁定高但利用低时，先按持锁人和节点明细沟通释放，不直接用团队总量做判断。</p>
-          </article>
-          <article class="team-action-card">
-            <h4>看低利用</h4>
-            <p>锁定 XPU 和显存长期偏低时，优先查看节点明细，确认是否可以释放或复用。</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section" id="team-compare">
+<section class="section" id="team-compare">
         <div class="section-head">
           <h3>今日团队资源使用对比</h3>
-          <div class="section-note">用于从多个团队里找扩容、回收和协调对象</div>
+          <div class="section-note">多团队横向对比，用于找扩容、回收和协调对象</div>
         </div>
         <div class="table-wrap">
           <table>
@@ -989,8 +957,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <th>BUSY机器数</th>
                 <th>锁定卡数</th>
                 <th>BUSY卡数</th>
-                <th>XPU利用率/峰值利用率</th>
-                <th>显存利用率/峰值利用率</th>
+                <th>XPU利用率</th>
+                <th>显存利用率</th>
               </tr>
             </thead>
             <tbody>
@@ -1000,8 +968,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">13 台</td>
                 <td class="mono">96 卡</td>
                 <td class="mono">72 卡</td>
-                <td class="mono">46% / 62%</td>
-                <td class="mono">38% / 52%</td>
+                <td class="mono">46%</td>
+                <td class="mono">38%</td>
               </tr>
               <tr>
                 <td>团队 B</td>
@@ -1009,8 +977,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">14 台</td>
                 <td class="mono">112 卡</td>
                 <td class="mono">104 卡</td>
-                <td class="mono">71% / 87%</td>
-                <td class="mono">64% / 67%</td>
+                <td class="mono">71%</td>
+                <td class="mono">64%</td>
               </tr>
               <tr>
                 <td>团队 C</td>
@@ -1018,8 +986,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">3 台</td>
                 <td class="mono">72 卡</td>
                 <td class="mono">21 卡</td>
-                <td class="mono">18% / 31%</td>
-                <td class="mono">9% / 18%</td>
+                <td class="mono">18%</td>
+                <td class="mono">9%</td>
               </tr>
               <tr>
                 <td>团队 D</td>
@@ -1027,8 +995,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
                 <td class="mono">4 台</td>
                 <td class="mono">28 卡</td>
                 <td class="mono">18 卡</td>
-                <td class="mono">29% / 45%</td>
-                <td class="mono">22% / 36%</td>
+                <td class="mono">29%</td>
+                <td class="mono">22%</td>
               </tr>
             </tbody>
           </table>
@@ -1039,7 +1007,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="decision">
         <div class="section-head">
           <h3>管理判断入口</h3>
-          <div class="section-note">把集群、团队、个人三个视角连到具体问题</div>
+          <div class="section-note">把集群、团队、个人三个视角连接到具体问题</div>
         </div>
         <div class="decision-grid">
           <article class="decision-card">
@@ -1120,6 +1088,17 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
         pane.classList.toggle('active', isActive);
         pane.hidden = !isActive;
       });
+    });
+  });
+
+  const rankToggles = document.querySelectorAll('[data-rank-toggle]');
+  rankToggles.forEach(btn => {
+    btn.addEventListener('click', () => {
+      rankToggles.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const type = btn.dataset.rankToggle;
+      document.getElementById('rank-xpu').hidden = (type !== 'xpu');
+      document.getElementById('rank-mem').hidden = (type !== 'mem');
     });
   });
 </script>
