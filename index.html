@@ -138,9 +138,8 @@ let currentLoadPhase = 'idle';
 let viewType = 'all';  // 'all' | 'personal'
 let avgWindow = 2;
 let avgTodayXpuMA = [], avgTodayMemMA = [];
-let avgYestXpuMA = null, avgYestMemMA = null;
 let avgShowTodayMean = true;
-let avgTodayNodes = [], avgYestNodes = [];
+let avgTodayNodes = [];
 let avgCutoffSlot = 287;
 let avgRefreshTimer = null;
 const AVG_MARGIN = { top: 10, right: 16, bottom: 20, left: 48 };
@@ -578,9 +577,8 @@ function doLogout() {
   monqueryMergedData = [];
   currentLoadPhase = 'idle';
   nodes = [];
-  avgTodayNodes = []; avgYestNodes = [];
+  avgTodayNodes = [];
   avgTodayXpuMA = []; avgTodayMemMA = [];
-  avgYestXpuMA = null; avgYestMemMA = null;
   avgHoverBound = { 'avg-xpu-chart': false, 'avg-mem-chart': false };
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
   if (avgRefreshTimer) { clearInterval(avgRefreshTimer); avgRefreshTimer = null; }
@@ -692,10 +690,6 @@ document.getElementById('avg-window-toggles').addEventListener('click', (e) => {
   if (avgTodayNodes.length) {
     const td = computeMA(avgTodayNodes, avgWindow);
     avgTodayXpuMA = td.xpu; avgTodayMemMA = td.mem;
-    if (avgYestNodes.length) {
-      const yd = computeMA(avgYestNodes, avgWindow);
-      avgYestXpuMA = yd.xpu; avgYestMemMA = yd.mem;
-    }
     avgDrawAllCharts();
     renderStats();
     renderStatusBar({ lockBot: { ok: true }, monquery: { ok: true, phase: 'complete' }, lastUpdated: Date.now() });
@@ -891,7 +885,7 @@ function _peakSlotOf(arr, endInclusive) {
   return peak && peak.value >= 1e-6 ? peak : null;
 }
 
-function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yTicks, cutoffSlot, todayAvgColor, yestAvgColor, showTodayMean = true) {
+function avgDrawChart(canvasId, todayData, color, yMax, yTicks, cutoffSlot, todayAvgColor, showTodayMean = true) {
   const canvas = document.getElementById(canvasId);
   const wrap = canvas.parentElement;
   const { w, h } = avgSetupHiDPI(canvas, wrap);
@@ -957,20 +951,6 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
   ctx.save();
   ctx.beginPath(); ctx.rect(AVG_MARGIN.left, AVG_MARGIN.top, plotW, plotH); ctx.clip();
 
-  // Yesterday line (dashed, full day)
-  if (yestData) {
-    ctx.strokeStyle = ghostColor; ctx.lineWidth = 2;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    for (let i = 0; i < SLOT_COUNT; i++) {
-      const x = AVG_MARGIN.left + (i / (SLOT_COUNT - 1)) * plotW;
-      const v = Math.max(0, Math.min(yMax, yestData[i]));
-      const y = AVG_MARGIN.top + (1 - v / yMax) * plotH;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    }
-    ctx.stroke(); ctx.setLineDash([]);
-  }
-
   // Today line (solid, up to maxSlot)
   ctx.strokeStyle = color; ctx.lineWidth = 2;
   ctx.beginPath();
@@ -984,9 +964,7 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
 
   // ---- 平均参考线与峰值标注（仍在 clip 保护内，早于快照捕获） ----
   const todayMean = _meanSlotOf(todayData, cutoffSlot);
-  const yestMean  = yestData ? _meanSlotOf(yestData, SLOT_COUNT - 1) : null;
   const todayPeak = _peakSlotOf(todayData, maxSlot);
-  const yestPeak  = yestData ? _peakSlotOf(yestData, SLOT_COUNT - 1) : null;
   const _drawAvgLine = (val, strokeStyle, labelText, dashed) => {
     if (val == null || val < 0 || val > yMax * 1.05) return;
     const yy = AVG_MARGIN.top + Math.min(plotH, (1 - val / yMax) * plotH);
@@ -1037,18 +1015,12 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
     ctx.fillText(text, textX, textY);
     ctx.restore();
   };
-  const closePeaks = todayPeak && yestPeak &&
-    Math.abs(todayPeak.slot - yestPeak.slot) < 8 &&
-    Math.abs(todayPeak.value - yestPeak.value) < yMax * 0.08;
-  _drawPeak(yestPeak, ghostColor, closePeaks ? 12 : 0);
   _drawPeak(todayPeak, color, 0);
 
   // 把均值和峰值挂到 canvas 元素上供后续 hover tooltip 扩展使用
   canvas._avgshowTodayMean = showTodayMean;
   canvas._avgtodayMean = showTodayMean ? todayMean : null;
-  canvas._avgyestMean  = yestMean;
   canvas._avgtodayPeak = todayPeak;
-  canvas._avgyestPeak  = yestPeak;
 
   ctx.restore();
 
@@ -1058,9 +1030,8 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
     { color, dash: false, label: '今日' }
   ];
   if (showTodayMean) items.push({ color: todayAvgColor, dash: false, label: '今日均值' });
-  if (yestData) items.push({ color: ghostColor, dash: true, label: '昨日' });
   items.push({ color, star: true, label: '峰值' });
-  const lw = yestData ? 104 : 78, lh = 12 + items.length * 14;
+  const lw = 78, lh = 12 + items.length * 14;
   ctx.fillStyle = 'rgba(255,255,255,0.82)';
   ctx.beginPath(); ctx.roundRect(lx, ly, lw, lh, 4); ctx.fill();
   ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = .5;
@@ -1084,9 +1055,7 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
   });
 
   // Store metadata for hover
-  const layers = [{ data: todayData, color, label: '今日' }];
-  if (yestData) layers.push({ data: yestData, color: ghostColor, tipColor: color, label: '昨日' });
-  canvas._avglayers = layers;
+  canvas._avglayers = [{ data: todayData, color, label: '今日' }];
   canvas._avgmargins = AVG_MARGIN;
   canvas._avgplotW = plotW;
   canvas._avgplotH = plotH;
@@ -1098,12 +1067,12 @@ function avgDrawChart(canvasId, todayData, yestData, color, ghostColor, yMax, yT
 
 function avgDrawAllCharts() {
   if (!avgTodayXpuMA.length) return;
-  avgDrawChart('avg-xpu-chart', avgTodayXpuMA, avgYestXpuMA,
-               '#7c3aed', 'rgba(124,58,237,0.45)', 35, XPU_TICKS, avgCutoffSlot,
-               '#dc2626', '#dc2626', avgShowTodayMean);
-  avgDrawChart('avg-mem-chart', avgTodayMemMA, avgYestMemMA,
-               '#ea580c', 'rgba(234,88,12,0.45)', 70, MEM_TICKS, avgCutoffSlot,
-               '#dc2626', '#dc2626', avgShowTodayMean);
+  avgDrawChart('avg-xpu-chart', avgTodayXpuMA,
+               '#7c3aed', 35, XPU_TICKS, avgCutoffSlot,
+               '#dc2626', avgShowTodayMean);
+  avgDrawChart('avg-mem-chart', avgTodayMemMA,
+               '#ea580c', 70, MEM_TICKS, avgCutoffSlot,
+               '#dc2626', avgShowTodayMean);
 }
 
 function avgRestoreSnapshot(canvas) {
@@ -1160,8 +1129,7 @@ function avgBindHover(canvasId) {
       html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;background:${tc};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${l.label}</span><span style="font-weight:600;color:${tc};text-align:right;font-variant-numeric:tabular-nums;">${l.data[ci].toFixed(1)}%</span></div>`;
     });
     const avgRows = [
-      { label: '今日均值', value: canvas._avgtodayMean, dash: false },
-      { label: '昨日均值', value: canvas._avgyestMean, dash: true }
+      { label: '今日均值', value: canvas._avgtodayMean, dash: false }
     ].filter(row => row.value != null);
     avgRows.forEach(row => {
       const line = row.dash
@@ -1170,8 +1138,7 @@ function avgBindHover(canvasId) {
       html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:12px;height:2px;background:${line};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${row.label}</span><span style="font-weight:600;color:#dc2626;text-align:right;font-variant-numeric:tabular-nums;">${row.value.toFixed(1)}%</span></div>`;
     });
     const peakRows = [
-      { label: '今日峰值', value: canvas._avgtodayPeak, color: layers[0]?.color || '#7c3aed' },
-      { label: '昨日峰值', value: canvas._avgyestPeak, color: layers[1]?.tipColor || layers[0]?.color || '#7c3aed' }
+      { label: '今日峰值', value: canvas._avgtodayPeak, color: layers[0]?.color || '#7c3aed' }
     ].filter(row => row.value != null);
     peakRows.forEach(row => {
       html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;border:2px solid ${row.color};background:#fff;justify-self:center;box-sizing:border-box;"></span><span style="font-size:10px;color:#cbd5e1;">${row.label}</span><span style="font-weight:600;color:${row.color};text-align:right;font-variant-numeric:tabular-nums;">${row.value.value.toFixed(1)}%</span></div>`;
@@ -1193,26 +1160,12 @@ async function avgLoadAndRender() {
   const todayStart = formatDateStart(selDate);
   const todayEnd = isToday ? formatDateTime(new Date()) : formatDateEnd(selDate);
 
-  const yesterday = new Date(selDate); yesterday.setDate(yesterday.getDate() - 1);
-  const yestStart = formatDateStart(yesterday), yestEnd = formatDateEnd(yesterday);
-
-  const [todayData, yestData] = await Promise.all([
-    fetchMonqueryUtilization(todayStart, todayEnd).catch(e => { console.error('Avg fetch failed:', e); return null; }),
-    fetchMonqueryUtilization(yestStart, yestEnd).catch(e => { console.warn('Avg yesterday fetch failed:', e); return null; })
-  ]);
+  const todayData = await fetchMonqueryUtilization(todayStart, todayEnd).catch(e => { console.error('Avg fetch failed:', e); return null; });
 
   avgTodayNodes = processMonqueryData(todayData);
-  avgYestNodes = processMonqueryData(yestData);
 
   const td = computeMA(avgTodayNodes, avgWindow);
   avgTodayXpuMA = td.xpu; avgTodayMemMA = td.mem;
-
-  if (avgYestNodes.length) {
-    const yd = computeMA(avgYestNodes, avgWindow);
-    avgYestXpuMA = yd.xpu; avgYestMemMA = yd.mem;
-  } else {
-    avgYestXpuMA = null; avgYestMemMA = null;
-  }
 
   if (isToday) {
     const now = new Date();

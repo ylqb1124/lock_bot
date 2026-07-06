@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XPU 资源监控下一版原型 - 全部 / 个人 / 团队价值视图</title>
+<title>XPU 资源监控下一版原型 - 集群 / 个人 / 团队价值视图</title>
 <style>
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -372,8 +372,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
   <header class="topbar">
     <div>
       <div class="kicker">Next version wireframe</div>
-      <h1>XPU 资源监控下一版原型：全部 / 个人 / 团队价值视图</h1>
-      <p class="lede">这是一张低保真原型图，用来评审下一版网站的信息结构。页面中的数值均为示意，重点说明「全部」如何判断资源投入是否有效，「团队」如何判断资源申请、使用质量和分配问题。</p>
+      <h1>XPU 资源监控下一版原型：集群 / 个人 / 团队价值视图</h1>
+      <p class="lede">这是一张低保真原型图，用来评审下一版网站的信息结构。页面中的数值均为示意，重点说明「集群」如何判断资源投入是否有效，「团队」如何判断资源申请、使用质量和分配问题。</p>
     </div>
     <a class="return-link" href="index.html">返回当前仪表盘</a>
   </header>
@@ -401,7 +401,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
         </div>
         <div class="background-grid" id="background-content" hidden>
           <div class="panel">
-            <p class="panel-title">为什么「全部」和「团队」都要做原型</p>
+            <p class="panel-title">为什么「集群」和「团队」都要做原型</p>
             <ul class="problem-list">
               <li>老板关心全局投入是否有效：新增共享存储、优化镜像拉取后，集群 XPU 和显存利用率有没有明显变化。</li>
               <li>资源协调不能只看 lock 数量，还要看被锁定后的真实 XPU 和显存利用率。</li>
@@ -417,8 +417,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
           <div class="stats-bar-row">
             <div class="stat-card total"><div class="label">总节点</div><div class="value total">48</div></div>
             <div class="stat-card total"><div class="label">总卡数</div><div class="value total">384</div></div>
-            <div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">5.6%/12.5%</div></div>
-            <div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">34.1%/33.1%</div></div>
+            <div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">5.6%/18.9%</div></div>
+            <div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">32.0%/37.9%</div></div>
           </div>
           <div class="stats-bar-row">
             <div class="stat-card locked"><div class="label">LOCKED 节点</div><div class="value locked">46</div></div>
@@ -430,7 +430,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       </section>
 
       <nav class="tabs" aria-label="原型视图切换">
-        <button class="tab active" type="button" data-view-tab="all" aria-selected="true">全部</button>
+        <button class="tab active" type="button" data-view-tab="all" aria-selected="true">集群</button>
         <button class="tab" type="button" data-view-tab="personal" aria-selected="false">个人</button>
         <button class="tab" type="button" data-view-tab="team" aria-selected="false">团队</button>
       </nav>
@@ -442,7 +442,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
           <div class="section-note">按开始～结束看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
         </div>
 
-        <div class="avg-filter-bar" aria-label="全部视图筛选控件占位">
+        <div class="avg-filter-bar" aria-label="集群视图筛选控件占位">
           <div class="avg-date-control">
             <label for="prototype-begin-date">开始</label>
             <input id="prototype-begin-date" type="date" value="2026-06-24">
@@ -463,8 +463,8 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
 
       <section class="section" id="all-charts">
         <div class="section-head">
-          <h3>全部视图趋势图</h3>
-          <div class="section-note">直接复用现有平均利用率趋势图效果：XPU / 显存分别展示今日、昨日、均值线和峰值提示</div>
+          <h3>集群趋势图</h3>
+          <div class="section-note">直接复用现有平均利用率趋势图效果：XPU / 显存分别展示今日、均值线和峰值提示</div>
         </div>
         <div class="chart-grid" style="grid-template-columns:1fr;">
         <article class="chart-card">
@@ -513,16 +513,14 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
               <text class="avg-time-text" x="854" y="352">20:00</text>
               <text class="avg-time-text" x="934" y="352">22:00</text>
               <line class="avg-mean-line" x1="70" y1="282" x2="1030" y2="282"></line>
-              <polyline class="avg-yesterday-line" points="70,298 78,236 86,220 94,292 106,294 126,299 150,298 190,299 230,298 270,299 310,298 350,298 390,294 430,297 450,248 466,281 486,300 502,250 518,270 534,296 550,248 566,286 582,266 598,300 614,260 622,205 632,282 646,238 658,184 668,258 682,212 694,230 706,240 718,260 730,232 742,255 754,238 766,252 778,256 790,294 812,294 830,302 850,298 870,304 890,282 910,300 930,292 950,250 962,268 974,248 986,286 998,268 1014,256 1030,232"></polyline>
-              <polyline class="avg-today-line" points="70,298 74,226 80,218 88,266 98,276 112,276 126,282 150,280 190,282 230,281 270,282 310,281 350,282 390,281 430,282 470,280 490,258 502,246 514,270 526,292 538,286 550,254 562,296 574,274 586,292 598,284 610,260 622,248 634,210 646,204 656,258 666,292 678,286 690,266 704,258 718,282"></polyline>
-              <circle class="avg-hover-dot" cx="410" cy="282" r="5"></circle>
-              <text class="avg-peak-label" x="92" y="212">★ 峰值 12.5%</text>
-              <text class="avg-peak-label" x="636" y="198">★ 峰值 18.1%</text>
+              <polyline class="avg-today-line" points="70,306 78,304 90,305 110,305 130,304 150,304 190,305 230,304 270,305 310,304 350,305 390,304 430,303 470,300 488,296 500,300 512,296 526,300 538,296 550,282 562,236 570,116 578,86 586,92 594,172 602,286 610,306 622,292 634,308 646,304 658,292 666,176 674,98 682,122 692,210 700,288 710,305 720,306 730,286 740,236 750,184 760,260 770,238 780,62 786,76 794,152 802,94 810,146 820,138 828,58 836,124 844,74 852,136 862,158 872,170 884,104 894,146 904,120 914,108 924,166 934,82 944,104 954,148 962,112 972,156 982,130 990,172 1000,186 1012,236 1024,224 1030,228"></polyline>
+              <circle class="avg-hover-dot" cx="828" cy="58" r="5"></circle>
+              <text class="avg-peak-label" x="842" y="50">★ 峰值 18.9%</text>
             </svg>
-            <div class="avg-chart-tooltip">07:40<br>● 今日 <b>4.9%</b><br>● 昨日 <b>3.3%</b><br>━ 今日均值 <b>5.2%</b><br>⋯ 昨日均值 <b>6.0%</b><br>⊙ 今日峰值 <b>12.5%</b><br>⊙ 昨日峰值 <b>18.1%</b></div>
+            <div class="avg-chart-tooltip">15:00<br>● 今日 <b>18.9%</b><br>━ 今日均值 <b>5.6%</b><br>⊙ 今日峰值 <b>18.9%</b></div>
           </div>
-          <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>今日</span><span><i class="avg-legend-line mean"></i>今日均值</span><span><i class="avg-legend-line yesterday"></i>昨日</span><span><span class="legend-star">★</span>峰值</span></div>
-          <div class="chart-use">老板视角：看今天相对昨天的平均移动利用率、均值线和峰值点，判断全局利用率是否持续抬升，而不是只看某个瞬时尖峰。</div>
+          <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>今日</span><span><i class="avg-legend-line mean"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
+          <div class="chart-use">老板视角：看今日平均移动利用率、均值线和峰值点，判断全局利用率是否持续抬升，而不是只看某个瞬时尖峰。</div>
         </article>
         <article class="chart-card">
           <div class="chart-title">显存利用率趋势 <span>平均移动利用率，示意</span></div>
@@ -567,16 +565,14 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
               <text class="avg-time-text" x="774" y="352">18:00</text>
               <text class="avg-time-text" x="854" y="352">20:00</text>
               <text class="avg-time-text" x="934" y="352">22:00</text>
-              <line class="avg-mean-line mem" x1="70" y1="192" x2="1030" y2="192"></line>
-              <polyline class="avg-yesterday-line mem" points="70,220 86,184 102,170 126,206 150,210 190,212 230,208 270,210 310,204 350,206 390,198 430,202 450,170 466,184 486,210 502,164 518,178 534,202 550,154 566,188 582,172 598,196 614,166 630,142 646,188 662,154 678,122 694,168 718,150 742,160 766,166 790,204 830,212 870,214 910,204 950,180 986,170 1014,158 1030,138"></polyline>
-              <polyline class="avg-today-line mem" points="70,230 82,176 94,162 112,190 126,198 150,200 190,198 230,194 270,196 310,190 350,192 390,184 430,186 470,178 490,150 510,138 530,172 550,146 570,180 590,152 610,132 630,118 648,102 666,130 684,166 704,150 724,138 744,158"></polyline>
-              <circle class="avg-hover-dot mem" cx="410" cy="186" r="5"></circle>
-              <text class="avg-peak-label mem" x="94" y="156">★ 峰值 67.2%</text>
-              <text class="avg-peak-label mem" x="660" y="96">★ 峰值 62.5%</text>
+              <line class="avg-mean-line mem" x1="70" y1="200" x2="1030" y2="200"></line>
+              <polyline class="avg-today-line mem" points="70,184 82,186 94,184 110,184 126,184 142,184 150,192 160,184 190,184 230,184 250,198 270,200 292,198 310,190 334,184 350,184 370,192 390,200 430,200 470,200 502,198 526,202 550,198 574,210 590,224 610,222 634,228 658,236 682,234 704,230 724,238 742,248 760,228 780,242 798,220 812,236 826,206 840,212 856,188 870,210 886,206 902,198 918,164 934,200 948,170 960,214 974,180 986,222 1000,230 1014,210 1030,224"></polyline>
+              <circle class="avg-hover-dot mem" cx="918" cy="164" r="5"></circle>
+              <text class="avg-peak-label mem" x="932" y="158">★ 峰值 37.9%</text>
             </svg>
-            <div class="avg-chart-tooltip">07:40<br>● 今日 <b>36.8%</b><br>● 昨日 <b>31.2%</b><br>━ 今日均值 <b>34.1%</b><br>⋯ 昨日均值 <b>31.8%</b><br>⊙ 今日峰值 <b>67.2%</b><br>⊙ 昨日峰值 <b>62.5%</b></div>
+            <div class="avg-chart-tooltip">16:40<br>● 今日 <b>37.9%</b><br>━ 今日均值 <b>32.0%</b><br>⊙ 今日峰值 <b>37.9%</b></div>
           </div>
-          <div class="avg-chart-legend"><span><i class="avg-legend-line mem"></i>今日显存</span><span><i class="avg-legend-line mean mem"></i>今日均值</span><span><i class="avg-legend-line yesterday mem"></i>昨日显存</span><span><span class="legend-star">★</span>峰值</span></div>
+          <div class="avg-chart-legend"><span><i class="avg-legend-line mem"></i>今日显存</span><span><i class="avg-legend-line mean mem"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
           <div class="chart-use">老板视角：显存趋势用于补充 XPU 利用率判断，避免只看到算力低但显存长期占用的场景；如果显存持续高位但 XPU 曲线偏低，需要进一步查看团队和节点明细。</div>
         </article>
         </div>
@@ -694,7 +690,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="investment-compare">
         <div class="section-head">
           <h3>投入效果判断</h3>
-          <div class="section-note">把开始～结束的今日/昨日曲线、均值和峰值转成管理层讨论语言</div>
+          <div class="section-note">把开始～结束的今日曲线、均值和峰值转成管理层讨论语言</div>
         </div>
         <div class="compare-grid">
           <article class="compare-card">
@@ -703,9 +699,9 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
             <p>看今日曲线是否持续高于均值线，以及峰值是否集中在业务高峰时段。</p>
           </article>
           <article class="compare-card">
-            <h4>昨日对比</h4>
-            <div class="compare-number">昨日均值 6.0%</div>
-            <p>同一时间轴对比昨日虚线，避免把单日偶发尖峰误判为整体资源效率提升。</p>
+            <h4>均值判断</h4>
+            <div class="compare-number">今日均值 5.2%</div>
+            <p>结合今日均值线和曲线形态，避免把单日偶发尖峰误判为整体资源效率提升。</p>
           </article>
           <article class="compare-card">
             <h4>老板判断</h4>
@@ -726,7 +722,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
         <div class="personal-controls" aria-label="个人视图筛选和排序说明">
           <div class="control-row">
             <span class="control-title">视图：</span>
-            <span class="pill">全部</span>
+            <span class="pill">集群</span>
             <span class="pill active">个人</span>
           </div>
           <div class="control-row">
@@ -1043,16 +1039,16 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
       <section class="section" id="decision">
         <div class="section-head">
           <h3>管理判断入口</h3>
-          <div class="section-note">把全部、团队、个人三个视角连到具体问题</div>
+          <div class="section-note">把集群、团队、个人三个视角连到具体问题</div>
         </div>
         <div class="decision-grid">
           <article class="decision-card">
             <h4>投入是否有效</h4>
-            <p>看全部视图的 XPU / 显存平均利用率、峰值和投入前后对比，判断共享存储等投入是否改善整体效率。</p>
+            <p>看集群视图的 XPU / 显存平均利用率、峰值和投入前后对比，判断共享存储等投入是否改善整体效率。</p>
           </article>
           <article class="decision-card">
             <h4>是否需要扩容</h4>
-            <p>看全部视图高峰利用率，再结合团队峰值 XPU 利用率，判断高峰压力是否集中在少数团队。</p>
+            <p>看集群视图高峰利用率，再结合团队峰值 XPU 利用率，判断高峰压力是否集中在少数团队。</p>
           </article>
           <article class="decision-card">
             <h4>资源是否分配合理</h4>
@@ -1074,9 +1070,9 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
           <div class="assumption">
             <h4>当前已有基础</h4>
             <ul>
-              <li>Monquery 已提供 XPU 与显存利用率时间序列，可支撑全部视图的均值、峰值和趋势。</li>
+              <li>Monquery 已提供 XPU 与显存利用率时间序列，可支撑集群视图的均值、峰值和趋势。</li>
               <li>Lock Bot 已提供锁定用户、节点或卡、起止时间，可支撑个人协作和团队统计。</li>
-              <li>现有页面已有「全部」趋势和「个人」节点明细，可复用到下一版原型。</li>
+              <li>现有页面已有「集群」趋势和「个人」节点明细，可复用到下一版原型。</li>
             </ul>
           </div>
           <div class="assumption">
@@ -1092,7 +1088,7 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
     </div>
   </main>
 
-  <footer class="footer">低保真原型，仅用于确认下一版全部 / 个人 / 团队价值视图的信息结构、指标口径和老板视角价值。</footer>
+  <footer class="footer">低保真原型，仅用于确认下一版集群 / 个人 / 团队价值视图的信息结构、指标口径和老板视角价值。</footer>
 </div>
 <script>
   const collapseToggle = document.querySelector('[data-collapse-target]');
