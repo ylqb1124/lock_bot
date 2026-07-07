@@ -65,6 +65,7 @@ MESSAGES = {
     "query.idle_summary_node": '<font color="blue">**Unlocked nodes: {unlocked_nodes}; Current FREE nodes: {free_nodes}**</font>\n',
     "query.idle_summary_device": '<font color="blue">**Unlocked cards: {unlocked_devs}; Current FREE cards: {free_devs}**</font>\n',
     "query.status_tip": "ℹ️ Node status (XPU mem): BUSY=all busy, PARTIAL=some busy, FREE=all idle.\n",
+    "query.status_tip_node": "ℹ️ Node status (XPU & mem): BUSY=occupied  FREE=idle\n",
     "query.table_header": "| IP | Locked by | Node | Card | Remaining |\n| --- | --- | --- | --- | --- |\n",
     "query.table_header_xpu": (
         "| IP | Locked by | Node | Card | Remaining | XPU%/MEM% | Container |\n"
@@ -73,6 +74,10 @@ MESSAGES = {
     "query.table_header_node": "| IP | Locked by | Node | Remaining |\n| --- | --- | --- | --- |\n",
     "query.table_header_node_xpu": (
         "| IP | Locked by | Node | Remaining | XPU%/MEM% | Container |\n| --- | --- | --- | --- | --- | --- |\n"
+    ),
+    "query.table_header_queue": "| IP | Locked by | Queued | Node | Remaining |\n| --- | --- | --- | --- | --- |\n",
+    "query.table_header_queue_xpu": (
+        "| IP | Locked by | Queued | Node | Remaining | XPU%/MEM% | Container |\n| --- | --- | --- | --- | --- | --- | --- |\n"
     ),
     # ── Device usage ──
     "device_usage.hetero_warning": (

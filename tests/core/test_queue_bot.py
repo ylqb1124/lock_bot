@@ -68,7 +68,7 @@ def test_query(bot):
 
 def test_query_collects_usage(bot, monkeypatch):
     """QUEUE inherits NODE's memory-based query: it SSH-collects GPU usage."""
-    import lockbot.core.node_bot as node_bot_mod
+    import lockbot.core.queue_bot as queue_bot_mod
 
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1"})
     called = {"count": 0}
@@ -77,7 +77,7 @@ def test_query_collects_usage(bot, monkeypatch):
         called["count"] += 1
         return {}
 
-    monkeypatch.setattr(node_bot_mod, "collect_node_usage", fake_collect)
+    monkeypatch.setattr(queue_bot_mod, "collect_node_usage", fake_collect)
     bot.query("user1")
     assert called["count"] == 1
 

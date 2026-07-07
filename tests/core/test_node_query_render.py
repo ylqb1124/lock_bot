@@ -43,7 +43,7 @@ def test_node_memory_based_seven_columns_and_status():
     }
     out = build_node_query(_state(), None, _config(), memory_based=True, xpu_usage=xpu)
     assert "未lock节点数：1；当前Free节点数：1" in out
-    assert "节点状态（XPU显存）" in out
+    assert "节点状态（XPU与显存）" in out
     assert "XPU%/MEM%" in out
     assert "5.0%/2.0%" in out
     assert "90.0%/80.0%" in out
@@ -113,9 +113,31 @@ def test_node_status_decoupled_from_lock():
 
 
 def test_queue_legacy_mode_lock_based():
-    """memory_based=False (QUEUE): idle->FREE, locked->BUSY, lock column '--', 4 cols."""
+    """memory_based=False (QUEUE): idle->FREE, locked->BUSY, lock column '--', 5 cols."""
     out = build_node_query(_state(), None, _config(), memory_based=False, xpu_usage=None)
     assert "FREE" in out  # idle node
     assert "BUSY" in out  # locked node
     assert "null" not in out  # legacy uses '--' placeholder
+    assert "排队同学" in out
     assert "XPU%/MEM%" not in out
+
+
+def test_queue_query_shows_booking_users_without_affecting_node_query():
+    state = {
+        "n1": {"status": "idle", "current_users": [], "booking_list": []},
+        "n2": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "u1", "start_time": 0, "duration": 999999999999}],
+            "booking_list": [
+                {"user_id": "u2", "start_time": 0, "duration": 3600, "is_notified": False},
+                {"user_id": "u3", "start_time": 0, "duration": 7200, "is_notified": False},
+            ],
+        },
+    }
+    queue_out = build_node_query(state, None, _config(), memory_based=False, xpu_usage=None)
+    assert "排队同学" in queue_out
+    assert "u2(1.0 小时)、u3(2.0 小时)" in queue_out
+
+    node_out = build_node_query(state, None, _config(), memory_based=True, xpu_usage=None)
+    assert "排队同学" not in node_out
+    assert "u2(1.0 小时)、u3(2.0 小时)" not in node_out

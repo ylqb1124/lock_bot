@@ -9,6 +9,7 @@ from lockbot.core.io import (
     save_bot_state_to_file,
 )
 from lockbot.core.node_bot import NodeBot
+from lockbot.core.query_render import build_node_query
 from lockbot.core.usage_render import (
     DEFAULT_IDLE_TEMPLATE,
     DEFAULT_LINE_TEMPLATE,
@@ -16,6 +17,7 @@ from lockbot.core.usage_render import (
     render_line,
     sort_and_group,
 )
+from lockbot.core.xpu_collector import collect_node_usage
 from lockbot.core.utils import (
     create_user_info,
     find_user_info,
@@ -38,6 +40,27 @@ class QueueBot(NodeBot):
 
     def supported_commands(self):
         return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query"]
+
+    def query(self, user_id, node_key=None):
+        """Query usage; always uses memory_based=False so the booking column is shown."""
+        xpu_usage = None
+        if self._collect_xpu_on_query:
+            with self._lock:
+                node_ips = self._node_ips(node_filter=node_key)
+            xpu_usage = collect_node_usage(node_ips, self.config) if node_ips else None
+        with self._lock:
+            content = build_node_query(
+                self.state.bot_state,
+                user_id,
+                self.config,
+                node_filter=node_key,
+                xpu_usage=xpu_usage,
+                memory_based=False,
+            )
+            return self.adapter.build_reply(content, [user_id], markdown=True)
+
+    def _success_usage(self, node_keys):
+        return self._current_usage(node_keys)
 
     def lock(self, user_id, command):
         """
@@ -129,7 +152,7 @@ class QueueBot(NodeBot):
                 user_info["is_notified"] = False
                 node["current_users"] = [user_info]
 
-            content = self._msg_with_usage("success.resource_locked")
+            content = t("success.resource_locked", config=self.config) + self._success_usage(node_keys)
             if len(users_to_notify) > 1:
                 content += t("notify.wait_time_increased", config=self.config)
             reply = self.adapter.build_reply(content, list(users_to_notify))
@@ -189,13 +212,13 @@ class QueueBot(NodeBot):
                     booked_any = True
 
             if locked_any and not booked_any:
-                content = self._msg_with_usage("success.resource_locked")
+                content = t("success.resource_locked", config=self.config) + self._success_usage(node_keys)
             elif booked_any and not locked_any:
-                content = self._msg_with_usage("success.booking_added")
+                content = t("success.booking_added", config=self.config) + self._success_usage(node_keys)
             else:
                 content = t("success.resource_locked", config=self.config)
                 content += t("success.booking_added", config=self.config)
-                content += self._current_usage()
+                content += self._success_usage(node_keys)
             reply = self.adapter.build_reply(content, [user_id])
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
@@ -512,7 +535,9 @@ class QueueBot(NodeBot):
         entries = []
         order = 0
         for node_key, node_status in self.state.bot_state.items():
-            if node_filter is not None and node_key != node_filter:
+            if node_filter is not None and node_key != node_filter and not (
+                isinstance(node_filter, list) and node_key in node_filter
+            ):
                 continue
             rem = min_remaining(node_status)
             rows = []

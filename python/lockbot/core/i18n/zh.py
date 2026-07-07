@@ -61,6 +61,7 @@ MESSAGES = {
     "query.idle_summary_node": '<font color="blue">**未lock节点数：{unlocked_nodes}；当前Free节点数：{free_nodes}**</font>\n',
     "query.idle_summary_device": '<font color="blue">**未Lock卡数：{unlocked_devs}；当前Free卡数：{free_devs}**</font>\n',
     "query.status_tip": "ℹ️ 节点状态（XPU显存）：BUSY=全部占用 PARTIAL=部分占用 FREE=全部空闲\n",
+    "query.status_tip_node": "ℹ️ 节点状态（XPU与显存）：BUSY=占用  FREE=空闲\n",
     "query.my_resources_header": "已占用 {resources}\n",
     "query.table_header": "| IP | lock同学 | 节点状态 | 卡状态 | 剩余时间 |\n| --- | --- | --- | --- | --- |\n",
     "query.table_header_xpu": (
@@ -70,6 +71,10 @@ MESSAGES = {
     "query.table_header_node": "| IP | lock同学 | 节点状态 | 剩余时间 |\n| --- | --- | --- | --- |\n",
     "query.table_header_node_xpu": (
         "| IP | lock同学 | 节点状态 | 剩余时间 | XPU%/MEM% | 容器名 |\n| --- | --- | --- | --- | --- | --- |\n"
+    ),
+    "query.table_header_queue": "| IP | lock同学 | 排队同学 | 节点状态 | 剩余时间 |\n| --- | --- | --- | --- | --- |\n",
+    "query.table_header_queue_xpu": (
+        "| IP | lock同学 | 排队同学 | 节点状态 | 剩余时间 | XPU%/MEM% | 容器名 |\n| --- | --- | --- | --- | --- | --- | --- |\n"
     ),
     "query.tip.default": "💡 按需lock，及时释放，谢谢～",
     # ── Device usage ──

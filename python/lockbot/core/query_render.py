@@ -317,13 +317,21 @@ def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=Non
     lines.append(t("query.idle_summary_node", config=config, unlocked_nodes=unlocked_nodes, free_nodes=free_nodes))
 
     # ── tip (right under the summary) ────────────────────────────────────
-    lines.append(t("query.status_tip", config=config))
+    lines.append(t("query.status_tip_node", config=config))
     tip = config.get_val("QUERY_TIP") if config else ""
     if tip:
         lines.append(tip + "\n")
 
-    xpu_on = memory_based and xpu_usage is not None
-    header_key = "query.table_header_node_xpu" if xpu_on else "query.table_header_node"
+    xpu_on = xpu_usage is not None
+    is_queue = not memory_based
+    if is_queue and xpu_on:
+        header_key = "query.table_header_queue_xpu"
+    elif is_queue:
+        header_key = "query.table_header_queue"
+    elif xpu_on:
+        header_key = "query.table_header_node_xpu"
+    else:
+        header_key = "query.table_header_node"
     lines.append(t(header_key, config=config))
     cluster_configs = config.get_val("CLUSTER_CONFIGS") if config else {}
     entries = []
@@ -342,7 +350,10 @@ def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=Non
         node_label = _node_label(cluster_configs, node_key)
         usage = xpu_usage.get(node_key) if xpu_on else None
         if ns["status"] == "idle":
-            cells = [node_label, idle_lock_cell, status_badge, "--"]
+            if is_queue:
+                cells = [node_label, idle_lock_cell, "--", status_badge, "--"]
+            else:
+                cells = [node_label, idle_lock_cell, status_badge, "--"]
             lines.append(_md_row(*_with_xpu(cells, usage, first_row=True, xpu_on=xpu_on)))
         else:
             first_row = True
@@ -354,7 +365,18 @@ def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=Non
                 user_cell = f"{user_info['user_id']}（{mode_str}）"
                 node_cell = node_label if first_row else ""
                 node_st_cell = status_badge if first_row else ""
-                cells = [node_cell, user_cell, node_st_cell, dur_str or "--"]
+                if is_queue:
+                    if first_row:
+                        queue_parts = [
+                            f"{b['user_id']}({format_duration(b['duration'], config=config)})"
+                            for b in ns.get("booking_list", [])
+                        ]
+                        queue_cell = "、".join(queue_parts) if queue_parts else "--"
+                    else:
+                        queue_cell = ""
+                    cells = [node_cell, user_cell, queue_cell, node_st_cell, dur_str or "--"]
+                else:
+                    cells = [node_cell, user_cell, node_st_cell, dur_str or "--"]
                 lines.append(_md_row(*_with_xpu(cells, usage, first_row=first_row, xpu_on=xpu_on)))
                 first_row = False
 
