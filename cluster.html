@@ -1,0 +1,1705 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开发机集群资源监控</title>
+<link rel="stylesheet" href="./styles.css">
+<style>
+.cluster-filter-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin: 8px 0 14px; }
+.cluster-filter-title { font-size: 22px; font-weight: 700; color: #1e293b; }
+.cluster-filter-desc { font-size: 13px; color: #64748b; margin-top: 4px; }
+.cluster-range-panel { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(15,23,42,.04); overflow: hidden; }
+.cluster-range-grid { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); }
+.cluster-range-absolute { padding: 20px 24px; border-right: 1px solid #e2e8f0; }
+.cluster-range-quick { padding: 20px 24px; }
+.cluster-range-title { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 14px; }
+.cluster-field { margin-bottom: 12px; }
+.cluster-field label { display: block; font-size: 12px; color: #64748b; margin-bottom: 6px; font-weight: 600; }
+.cluster-field input { width: 100%; padding: 8px 10px; border: 1px solid #dbe3ef; border-radius: 7px; font-size: 13px; color: #111827; font-family: "SF Mono","JetBrains Mono",Consolas,monospace; outline: none; background: #fff; }
+.cluster-field input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+.cluster-range-actions { display: grid; grid-template-columns: 44px 44px 1fr; gap: 8px; margin-top: 14px; }
+.cluster-icon-btn, .cluster-apply-btn { border: 1px solid #dbe3ef; border-radius: 7px; background: #fff; color: #64748b; cursor: pointer; font-size: 13px; transition: all .15s; }
+.cluster-icon-btn { height: 36px; }
+.cluster-icon-btn:hover, .cluster-quick-item:hover { border-color: #4f46e5; color: #4f46e5; }
+.cluster-apply-btn { background: #4f46e5; color: #fff; border-color: #4f46e5; font-weight: 600; }
+.cluster-apply-btn:hover { background: #4338ca; }
+.cluster-quick-search { width: 100%; padding: 8px 10px; border: 1px solid #dbe3ef; border-radius: 7px; font-size: 13px; margin-bottom: 12px; outline: none; }
+.cluster-quick-list { max-height: 190px; overflow: auto; display: grid; gap: 4px; }
+.cluster-quick-item { border: 1px solid transparent; background: transparent; text-align: left; padding: 7px 10px; border-radius: 7px; color: #1e293b; font-size: 13px; cursor: pointer; }
+.cluster-quick-item.active { background: #eef2ff; border-color: #c7d2fe; color: #4f46e5; font-weight: 600; }
+.cluster-range-foot { display: flex; align-items: center; gap: 10px; padding: 10px 24px; border-top: 1px solid #e2e8f0; background: #f8fafc; font-size: 12px; color: #64748b; }
+.cluster-range-foot code { padding: 2px 8px; border: 1px solid #dbe3ef; border-radius: 6px; background: #fff; color: #111827; font-family: "SF Mono","JetBrains Mono",Consolas,monospace; }
+@media (max-width: 900px) { .cluster-filter-head, .cluster-range-grid { display: block; } .cluster-range-absolute { border-right: 0; border-bottom: 1px solid #e2e8f0; } }
+</style>
+</head>
+<body>
+
+<!-- ====== Login Form ====== -->
+<div id="login-form" class="login-container" style="display:none">
+  <h1>开发机集群资源监控</h1>
+  <div class="login-card">
+    <h2>Lock Bot 登录</h2>
+    <input id="login-username" type="text" placeholder="用户名" autocomplete="username">
+    <input id="login-password" type="password" placeholder="密码" autocomplete="current-password">
+    <button id="login-btn">登 录</button>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-hint">登录后自动接入 Lock Bot + 监控数据</div>
+  </div>
+</div>
+
+<!-- ====== Dashboard ====== -->
+<div id="dashboard" style="display:block">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+    <h1 style="margin:0">开发机集群资源监控</h1>
+  </div>
+  <div id="loading-msg" style="text-align:center;padding:60px;color:#64748b;font-size:15px;">正在加载…</div>
+  <div class="stats-bar" id="stats-bar">
+    <div class="stats-bar-row" id="stats-row-1"></div>
+    <div class="stats-bar-row" id="stats-row-2"></div>
+  </div>
+  <div class="status-bar" id="status-bar" style="display:none"></div>
+
+  <div class="view-bar">
+    <div class="legend-items" id="legend-items" style="display:none">
+      <div class="legend-item"><span class="legend-line" style="background:#4f46e5"></span><span>XPU 使用率</span></div>
+      <div class="legend-item"><span class="legend-line" style="background:#ea580c"></span><span>显存利用率</span></div>
+      <div class="legend-item"><span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:rgba(220,38,38,.2);border:1px solid rgba(220,38,38,.35)"></span><span>Lock Bot 锁记录</span></div>
+      <div class="legend-item"><span style="width:1px;height:14px;background:#dc2626;display:inline-block;"></span><span>当前时间</span></div>
+    </div>
+    <div class="personal-search" id="personal-search" style="display:none">
+      <input class="search-input" id="search" placeholder="搜索节点...">
+    </div>
+    <span id="status-mini" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px;"></span>
+  </div>
+
+  <div id="personal-view" style="display:none" hidden>
+    <div class="filters">
+      <label>状态：</label>
+      <span class="status-btn active" data-status="ALL">全部</span>
+      <span class="status-btn" data-status="FREE">FREE</span>
+      <span class="status-btn" data-status="PARTIAL">PARTIAL</span>
+      <span class="status-btn" data-status="BUSY">BUSY</span>
+      <label>排序：</label>
+      <span class="status-btn" data-sort="util-desc">XPU利用率 ↓</span>
+      <span class="status-btn" data-sort="mem-desc">显存 ↓</span>
+    </div>
+    <div id="node-list" style="position:relative;padding-top:18px;"></div>
+  </div>
+
+  <!-- Average View -->
+  <div id="average-view">
+    <div class="cluster-filter-head">
+      <div>
+        <div class="cluster-filter-title">全集群趋势筛选</div>
+        <div class="cluster-filter-desc">按开始～结束看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
+      </div>
+      <div class="window-toggles" id="avg-window-toggles" title="移动平均窗口">
+        <span class="win-btn" data-window="1">5m</span>
+        <span class="win-btn active" data-window="2">10m</span>
+        <span class="win-btn" data-window="6">30m</span>
+        <span class="win-btn" data-window="12">1h</span>
+      </div>
+    </div>
+    <div class="cluster-range-panel">
+      <div class="cluster-range-grid">
+        <div class="cluster-range-absolute">
+          <div class="cluster-range-title">Absolute time range</div>
+          <div class="cluster-field">
+            <label for="cluster-start-time">From</label>
+            <input id="cluster-start-time" type="datetime-local" step="1">
+          </div>
+          <div class="cluster-field">
+            <label for="cluster-end-time">To</label>
+            <input id="cluster-end-time" type="datetime-local" step="1">
+          </div>
+          <div class="cluster-range-actions">
+            <button type="button" class="cluster-icon-btn" id="cluster-copy-range" title="复制时间范围">Copy</button>
+            <button type="button" class="cluster-icon-btn" id="cluster-reset-range" title="重置为最近 24 小时">Reset</button>
+            <button type="button" class="cluster-apply-btn" id="cluster-apply-range">Apply time range</button>
+          </div>
+        </div>
+        <div class="cluster-range-quick">
+          <input id="cluster-quick-search" class="cluster-quick-search" type="search" placeholder="Search quick ranges">
+          <div id="cluster-quick-list" class="cluster-quick-list"></div>
+        </div>
+      </div>
+      <div class="cluster-range-foot">
+        <span>Browser Time China, CST</span>
+        <code>UTC+08:00</code>
+        <span id="cluster-range-summary"></span>
+      </div>
+    </div>
+    <div class="charts-row" id="avg-charts-row">
+      <div class="chart-panel">
+        <div class="chart-panel-head">
+          <div class="chart-panel-title">XPU利用率趋势</div>
+          <button class="avg-mean-toggle active" id="avg-mean-toggle" type="button" aria-pressed="true">今日均值</button>
+        </div>
+        <div class="chart-wrap" id="avg-xpu-chart-wrap"><canvas id="avg-xpu-chart"></canvas></div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-panel-title">显存利用率趋势</div>
+        <div class="chart-wrap" id="avg-mem-chart-wrap"><canvas id="avg-mem-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== Error Overlay ====== -->
+<div class="error-overlay hidden" id="error-overlay">
+  <div class="error-card">
+    <div class="error-icon">⚠️</div>
+    <div class="error-title">数据加载失败</div>
+    <div class="error-detail" id="error-detail">Lock Bot 和监控数据均无法获取<br>请检查网络连接或联系管理员</div>
+    <div class="error-meta" id="error-meta"></div>
+    <div class="error-actions">
+      <button class="primary" id="error-retry-btn">&#x21bb; 重新加载</button>
+      <button id="error-logout-btn">返回登录</button>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { loginLockBot, fetchLockBotList, fetchLockBotState, fetchLockBotOccupancy, fetchMonqueryUtilization, fetchMonqueryNodeUtilization, fetchMonqueryCardUtilizationBatches, isAbortError, MONITORED_NODES } from './api.js';
+import { adaptNodeData, mergeMonqueryData } from './adapter.js';
+import { drawUtilLine, captureLayerSnapshot, bindCanvasHover as bindTimelineCanvasHover } from './timeline.js';
+
+const SLOT_COUNT = 288; // 24h / 5min = 288 槽
+const CARD_COUNT = 8;    // 单个节点 8 张卡
+const tooltip = document.getElementById('tooltip');
+
+const now = new Date();
+let nowIdx = now.getHours() * 12 + Math.floor(now.getMinutes() / 5);
+
+let nodes = [];
+let activeType = 'ALL';
+let activeStatus = 'ALL';
+let activeSort = '';
+let token = null;
+const expandedNodes = new Set(); // NODE 类型展开的节点名
+let refreshTimer = null;
+let allBots = [];
+let consecutiveFailures = 0;
+let lastSuccessTime = null;
+let loadSeq = 0;
+let monqueryMergedData = [];
+let currentLoadPhase = 'idle';
+
+// Average view state
+let viewType = 'all';
+let avgWindow = 2;
+let avgTodayXpuMA = [], avgTodayMemMA = [];
+let avgTodayTimes = [];
+let avgShowTodayMean = true;
+let avgTodayNodes = [];
+let avgCutoffSlot = 287;
+let avgRefreshTimer = null;
+let clusterRangeStart = null;
+let clusterRangeEnd = null;
+let clusterRangeInitialized = false;
+const CLUSTER_QUICK_RANGES = [
+  { label: 'Last 5 minutes', minutes: 5 },
+  { label: 'Last 15 minutes', minutes: 15 },
+  { label: 'Last 30 minutes', minutes: 30 },
+  { label: 'Last 1 hour', minutes: 60 },
+  { label: 'Last 3 hours', minutes: 180 },
+  { label: 'Last 6 hours', minutes: 360 },
+  { label: 'Last 12 hours', minutes: 720 },
+  { label: 'Last 24 hours', minutes: 1440 },
+  { label: 'Last 3 days', minutes: 4320 },
+  { label: 'Last 7 days', minutes: 10080 },
+];
+const AVG_MARGIN = { top: 10, right: 16, bottom: 20, left: 48 };
+const XPU_TICKS = [0, 5, 10, 15, 20, 25, 30, 35];
+const MEM_TICKS = [0, 10, 20, 30, 40, 50, 60, 70];
+
+// ---- 工具函数 ----
+
+function formatDateStart(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}000000`;
+}
+
+function formatDateTime(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${y}${m}${day}${h}${min}${s}`;
+}
+
+function floorToFiveMinute(date) {
+  const d = new Date(date);
+  d.setSeconds(0, 0);
+  d.setMinutes(d.getMinutes() - (d.getMinutes() % 5));
+  return d;
+}
+
+function normalizeTrendQueryRange(start, end) {
+  const queryEnd = floorToFiveMinute(end || new Date());
+  let queryStart = floorToFiveMinute(start || queryEnd);
+  if (queryStart >= queryEnd) queryStart = new Date(queryEnd.getTime() - 5 * 60 * 1000);
+  return { queryStart, queryEnd };
+}
+
+function formatDateEnd(d) {
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}${m}${day}235959`;
+}
+
+function avgGetTodayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function avgGetSelectedDate() {
+  return clusterRangeStart || new Date();
+}
+
+function toDatetimeLocalValue(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day}T${hh}:${mm}:${ss}`;
+}
+
+function parseDatetimeLocalValue(v) {
+  return v ? new Date(v) : null;
+}
+
+function formatDateTimeLabel(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
+
+function renderClusterRangeSummary() {
+  const el = document.getElementById('cluster-range-summary');
+  if (!el || !clusterRangeStart || !clusterRangeEnd) return;
+  el.textContent = `${formatDateTimeLabel(clusterRangeStart)} to ${formatDateTimeLabel(clusterRangeEnd)}`;
+}
+
+function setClusterRange(start, end) {
+  clusterRangeStart = start;
+  clusterRangeEnd = end;
+  document.getElementById('cluster-start-time').value = toDatetimeLocalValue(start);
+  document.getElementById('cluster-end-time').value = toDatetimeLocalValue(end);
+  renderClusterRangeSummary();
+}
+
+function renderQuickRanges(filter = '') {
+  const list = document.getElementById('cluster-quick-list');
+  const q = filter.trim().toLowerCase();
+  const activeMinutes = clusterRangeStart && clusterRangeEnd ? Math.round((clusterRangeEnd - clusterRangeStart) / 60000) : null;
+  list.innerHTML = CLUSTER_QUICK_RANGES
+    .filter(item => !q || item.label.toLowerCase().includes(q))
+    .map(item => '<button type="button" class="cluster-quick-item' + (activeMinutes === item.minutes ? ' active' : '') + '" data-minutes="' + item.minutes + '">' + item.label + '</button>')
+    .join('');
+  list.querySelectorAll('.cluster-quick-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setQuickRange(Number(btn.dataset.minutes));
+      avgLoadAndRender();
+    });
+  });
+}
+
+function setQuickRange(minutes) {
+  const end = floorToFiveMinute(new Date());
+  const start = new Date(end.getTime() - minutes * 60 * 1000);
+  setClusterRange(start, end);
+  document.querySelectorAll('.cluster-quick-item').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.minutes) === minutes);
+  });
+}
+
+function initClusterRangeControls() {
+  if (clusterRangeInitialized) return;
+  clusterRangeInitialized = true;
+  setQuickRange(1440);
+  renderQuickRanges();
+  document.getElementById('cluster-quick-search').addEventListener('input', e => renderQuickRanges(e.target.value));
+  document.getElementById('cluster-reset-range').addEventListener('click', () => { setQuickRange(1440); avgLoadAndRender(); });
+  document.getElementById('cluster-copy-range').addEventListener('click', async () => {
+    const text = `${formatDateTimeLabel(clusterRangeStart)} to ${formatDateTimeLabel(clusterRangeEnd)}`;
+    try { await navigator.clipboard.writeText(text); showToast('时间范围已复制'); }
+    catch (e) { showToast(text); }
+  });
+  document.getElementById('cluster-apply-range').addEventListener('click', () => {
+    const start = parseDatetimeLocalValue(document.getElementById('cluster-start-time').value);
+    const end = parseDatetimeLocalValue(document.getElementById('cluster-end-time').value);
+    if (!start || !end || start >= end) { showToast('请选择有效的开始和结束时间'); return; }
+    setClusterRange(start, end);
+    document.querySelectorAll('.cluster-quick-item').forEach(btn => btn.classList.remove('active'));
+    avgLoadAndRender();
+  });
+}
+
+// ---- Average view data processing ----
+
+function normalizeMonqueryEntries(monqueryData) {
+  if (Array.isArray(monqueryData)) return monqueryData;
+  if (Array.isArray(monqueryData?.data)) return monqueryData.data;
+  if (Array.isArray(monqueryData?.Data)) return monqueryData.Data;
+  return [];
+}
+
+function processMonqueryData(monqueryData) {
+  const entries = normalizeMonqueryEntries(monqueryData);
+  if (!entries.length) return { xpu: [], mem: [], times: [] };
+
+  const byTime = new Map();
+  const addPoint = (pt, type) => {
+    const ts = Number(pt?.Timestamp ?? pt?.timestamp ?? pt?.time);
+    const value = Number(pt?.Value ?? pt?.value);
+    if (!Number.isFinite(ts) || !Number.isFinite(value)) return;
+    const key = ts > 1e12 ? Math.floor(ts / 1000) : ts;
+    const bucket = byTime.get(key) || { ts: key, xpuSum: 0, xpuCount: 0, memSum: 0, memCount: 0 };
+    if (type === 'xpu') { bucket.xpuSum += value; bucket.xpuCount += 1; }
+    else { bucket.memSum += value; bucket.memCount += 1; }
+    byTime.set(key, bucket);
+  };
+
+  for (const entry of entries) {
+    const items = entry?.Items || entry?.items || {};
+
+    // 处理 XPU 平均利用率
+    for (const point of items.XPU_AVERAGE_UTILIZATION || items.xpu_average_utilization || []) {
+      addPoint(point, 'xpu');
+    }
+
+    // 处理卡级 XPU 利用率（作为备选）
+    for (let c = 0; c < CARD_COUNT; c++) {
+      const key = 'XPU' + c + '_XPU_UTILIZATION';
+      const keyLower = 'xpu' + c + '_xpu_utilization';
+      for (const point of items[key] || items[keyLower] || []) {
+        addPoint(point, 'xpu');
+      }
+    }
+
+    // 处理卡级显存利用率（多种指标名兼容）
+    for (let c = 0; c < CARD_COUNT; c++) {
+      const memKeys = [
+        'XPU' + c + '_MEM_UTILIZATION',
+        'xpu' + c + '_mem_utilization',
+        'XPU' + c + '_MEMORY_UTILIZATION',
+        'xpu' + c + '_memory_utilization',
+        'XPU' + c + '_MEM_USAGE',
+        'xpu' + c + '_mem_usage'
+      ];
+      for (const memKey of memKeys) {
+        for (const point of items[memKey] || []) {
+          addPoint(point, 'mem');
+        }
+      }
+    }
+
+    // 如果没有卡级显存数据，尝试整机级显存利用率作为备选
+    if (!Object.keys(items).some(k => k.includes('MEM') && k.includes('XPU'))) {
+      const fallbackMemKeys = [
+        'MEM_AVERAGE_UTILIZATION',
+        'mem_average_utilization',
+        'MEMORY_AVERAGE_UTILIZATION',
+        'memory_average_utilization'
+      ];
+      for (const memKey of fallbackMemKeys) {
+        for (const point of items[memKey] || []) {
+          addPoint(point, 'mem');
+        }
+      }
+    }
+  }
+
+  const ordered = Array.from(byTime.values()).sort((a, b) => a.ts - b.ts);
+  return {
+    xpu: ordered.map(p => p.xpuCount ? p.xpuSum / p.xpuCount : 0),
+    mem: ordered.map(p => p.memCount ? p.memSum / p.memCount : 0),
+    times: ordered.map(p => p.ts),
+  };
+}
+
+function computeMA(series, windowSize) {
+  const xpu = Array.isArray(series?.xpu) ? series.xpu : [];
+  const mem = Array.isArray(series?.mem) ? series.mem : [];
+  const smooth = values => values.map((_, i) => {
+    const start = Math.max(0, i - windowSize + 1);
+    let sum = 0;
+    for (let j = start; j <= i; j++) sum += values[j] || 0;
+    return sum / (i - start + 1);
+  });
+  return { xpu: smooth(xpu), mem: smooth(mem), times: series?.times || [] };
+}
+
+function saveSession() {
+  try {
+    const username = document.getElementById('login-username').value.trim();
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ token, username, savedAt: Date.now() }));
+  } catch (e) { /* localStorage 不可用则跳过 */ }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
+}
+function restoreSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (Date.now() - data.savedAt > 4 * 3600 * 1000) { clearSession(); return null; } // 4 小时过期
+    return data;
+  } catch (e) { clearSession(); return null; }
+}
+
+async function handleLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const loginBtn = document.getElementById('login-btn');
+  const errorEl = document.getElementById('login-error');
+
+  if (!username || !password) {
+    errorEl.textContent = '请输入用户名和密码';
+    return;
+  }
+
+  loginBtn.disabled = true;
+  errorEl.textContent = '';
+
+  try {
+    token = await loginLockBot(username, password);
+    const bots = await fetchLockBotList(token);
+
+    if (!bots || !bots.length) throw new Error('无可用 Bot，请先创建');
+
+    allBots = bots;
+    saveSession();
+    document.getElementById('loading-msg').remove();
+
+    // 首次加载
+    const status = await loadAllData();
+    renderStatusBar(status);
+
+    // 定时器
+    startAutoRefresh();
+    startNowLineTimer();
+  } catch (err) {
+    // 认证成功但数据拉取失败 → 仍然进入仪表盘，显示错误状态
+    if (token) {
+      saveSession();
+      document.getElementById('loading-msg').remove();
+      renderStatusBar({
+        lockBot: { ok: false, failedBotIds: [0], totalBots: 0 },
+        monquery: { ok: false, errorMessage: err.message },
+        nodeDataQuality: {},
+        lastUpdated: Date.now(),
+      });
+      startAutoRefresh();
+      startNowLineTimer();
+      return;
+    }
+    // 认证失败 → 留在登录页
+    clearSession();
+    loginBtn.disabled = false;
+    errorEl.textContent = `登录失败：${err.message}`;
+  }
+}
+
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(async () => {
+    if (document.hidden) return;
+    // Refresh active view
+    if (viewType === 'all') {
+      try { await avgLoadAndRender(); } catch(e) { console.error('Avg auto-refresh:', e); }
+    } else {
+      try {
+        const status = await loadAllData();
+        renderStatusBar(status);
+      } catch (e) {
+        if (!isAbortError(e)) {
+          console.error('Auto-refresh failed:', e);
+          showToast('数据刷新失败：' + e.message, 5000);
+        }
+      }
+    }
+  }, 60000);
+}
+
+// ---- Now Line 动态更新 ----
+
+let nowLineTimer = null;
+
+function startNowLineTimer() {
+  if (nowLineTimer) clearInterval(nowLineTimer);
+  nowLineTimer = setInterval(() => {
+    updateNowIdx();
+  }, 60000);
+}
+
+function updateNowIdx() {
+  const prevIdx = nowIdx;
+  nowIdx = calcNowIdx();
+
+  // 如果跨了 5 分钟槽，更新 currentUtil
+  if (nowIdx !== prevIdx) {
+    const effectiveIdx = Math.max(0, nowIdx - 1);
+    for (const node of nodes) {
+      node.currentUtil = node.avgUtil[effectiveIdx];
+      node.currentMemUtil = node.avgMemUtil[effectiveIdx];
+    }
+    renderStats();
+  }
+
+  repositionNowLine();
+}
+
+function calcNowIdx() {
+  const d = new Date();
+  return d.getHours() * 12 + Math.floor(d.getMinutes() / 5);
+}
+
+function repositionNowLine() {
+  const container = document.getElementById('node-list');
+  const line = container.querySelector('.global-now-line');
+  if (!line) return;
+  const firstTimeline = container.querySelector('.timeline-container');
+  if (!firstTimeline) return;
+  const containerRect = container.getBoundingClientRect();
+  const timelineRect = firstTimeline.getBoundingClientRect();
+  const offsetLeft = timelineRect.left - containerRect.left;
+  const timelineWidth = timelineRect.width;
+  const lineLeft = offsetLeft + (nowIdx / SLOT_COUNT) * timelineWidth;
+  const timeH = Math.floor(nowIdx / 12);
+  const timeM = (nowIdx % 12) * 5;
+  const timeStr = `${timeH}:${String(timeM).padStart(2, '0')}`;
+  line.style.left = lineLeft + 'px';
+  const label = line.querySelector('.global-now-label');
+  if (label) label.textContent = timeStr;
+}
+
+async function loadAllData() {
+  const seq = ++loadSeq;
+  monqueryMergedData = [];
+  currentLoadPhase = 'lockbot';
+  const status = {
+    lockBot: { ok: true, failedBotIds: [], totalBots: allBots.length },
+    monquery: { ok: true, errorMessage: '', phase: 'lockbot', cardLoading: false },
+    nodeDataQuality: {},
+    lastUpdated: Date.now(),
+  };
+
+  const now = new Date();
+  const start = formatDateStart(now);
+  const end = formatDateTime(now);
+
+  // 1. 拉取 Lock Bot 状态 + 历史占用记录（并行，都很快）
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const [stateResults, occupancyResults] = await Promise.all([
+    Promise.all(
+      allBots.map(bot =>
+        fetchLockBotState(bot.id, token)
+          .then(state => ({ state, botType: bot.bot_type }))
+          .catch(err => {
+            console.error(`Bot ${bot.id} fetch failed:`, err);
+            status.lockBot.failedBotIds.push(bot.id);
+            return null;
+          })
+      )
+    ),
+    Promise.all(
+      allBots.map(bot =>
+        fetchLockBotOccupancy(bot.id, today, token).catch(() => [])
+      )
+    ),
+  ]);
+  if (status.lockBot.failedBotIds.length === status.lockBot.totalBots) {
+    status.lockBot.ok = false;
+  }
+  // 合并所有 bot 的历史占用记录
+  const occupancyHistory = occupancyResults.flat();
+
+  // 2. 更新当前时间槽 + 先用 Lock Bot 数据渲染
+  nowIdx = calcNowIdx();
+  if (seq !== loadSeq) return status;
+  adaptAndRender(stateResults, null, status, occupancyHistory, { phase: 'lockbot' });
+  renderStatusBar(status);
+
+  // 3. 先拉整机级 XPU 平均利用率，快速补齐主列表
+  try {
+    const nodeMonqueryData = await fetchMonqueryNodeUtilization(start, end);
+    if (seq !== loadSeq) return status;
+    monqueryMergedData = mergeMonqueryData(monqueryMergedData, nodeMonqueryData);
+    status.monquery.ok = true;
+    status.monquery.phase = 'node';
+    status.monquery.cardLoading = true;
+    currentLoadPhase = 'node';
+    adaptAndRender(stateResults, monqueryMergedData, status, occupancyHistory, { phase: 'node', cardLoading: true });
+    renderStatusBar(status);
+  } catch (err) {
+    status.monquery.ok = false;
+    status.monquery.errorMessage = err.message;
+    console.error('Monquery node fetch failed:', err);
+  }
+
+  // 4. 卡级 XPU/显存分批补齐，批次到达即渲染
+  if (status.monquery.ok) {
+    try {
+      for await (const batch of fetchMonqueryCardUtilizationBatches(start, end, { batchSize: 8 })) {
+        if (seq !== loadSeq) return status;
+        monqueryMergedData = mergeMonqueryData(monqueryMergedData, batch.data);
+        status.monquery.phase = 'cards';
+        status.monquery.cardLoading = true;
+        currentLoadPhase = 'cards';
+        adaptAndRender(stateResults, monqueryMergedData, status, occupancyHistory, { phase: 'cards', cardLoading: true });
+        renderStatusBar(status);
+      }
+      if (seq !== loadSeq) return status;
+      status.monquery.phase = 'complete';
+      status.monquery.cardLoading = false;
+      currentLoadPhase = 'complete';
+      adaptAndRender(stateResults, monqueryMergedData, status, occupancyHistory, { phase: 'complete', cardLoading: false });
+    } catch (err) {
+      status.monquery.ok = false;
+      status.monquery.errorMessage = err.message;
+      status.monquery.cardLoading = false;
+      console.error('Monquery card fetch failed:', err);
+      renderStatusBar(status);
+    }
+  }
+
+  status.lastUpdated = Date.now();
+  renderStatusBar(status);
+
+  // 5. 错误覆盖层逻辑：双 API 均失败时计数，连续 3 次以上且有存量数据则弹出
+  const bothFailed = !status.lockBot.ok && !status.monquery.ok;
+  if (bothFailed) {
+    consecutiveFailures++;
+  } else {
+    if (consecutiveFailures > 0) {
+      consecutiveFailures = 0;
+      hideErrorOverlay();
+    }
+    lastSuccessTime = Date.now();
+  }
+
+  if (consecutiveFailures >= 3 && nodes.length > 0) {
+    showErrorOverlay(status);
+  }
+
+  return status;
+}
+
+/**
+ * 合并 Lock Bot 状态 + 可选 Monquery 数据，适配后渲染
+ * @param {Array}  stateResults  - Promise.all 返回的 bot 状态数组
+ * @param {Array|null} monqueryData - Monquery 数据（null 表示还没拿到）
+ * @param {object} status - ApiStatus 对象（in/out）
+ */
+function adaptAndRender(stateResults, monqueryData, status, occupancyHistory = [], options = {}) {
+  currentLoadPhase = options.phase || currentLoadPhase;
+  // 合并：同一节点出现在多个 bot 中时，先到先得
+  const mergedState = {};
+  const nodeBotTypes = {};
+  for (const result of stateResults) {
+    if (!result) continue;
+    for (const [nodeName, nodeData] of Object.entries(result.state)) {
+      if (!mergedState[nodeName]) {
+        mergedState[nodeName] = nodeData;
+        nodeBotTypes[nodeName] = result.botType;
+      }
+    }
+  }
+
+  const deviceState = {}, nodeState = {};
+  for (const [name, data] of Object.entries(mergedState)) {
+    if (nodeBotTypes[name] === 'DEVICE') deviceState[name] = data;
+    else nodeState[name] = data;
+  }
+
+  let allNodes = [];
+  if (Object.keys(deviceState).length) {
+    allNodes.push(...adaptNodeData(deviceState, monqueryData, nowIdx, 'DEVICE', occupancyHistory));
+  }
+  if (Object.keys(nodeState).length) {
+    allNodes.push(...adaptNodeData(nodeState, monqueryData, nowIdx, 'NODE', occupancyHistory));
+  }
+
+  if (allNodes.length > 0) {
+    nodes = allNodes.sort((a, b) => {
+      const parse = name => {
+        if (name.startsWith('bdc')) return { prefix: 'bdc', id: parseInt(name.slice(3), 10) };
+        return { prefix: 'node', id: parseInt(name.slice(4), 10) };
+      };
+      const va = parse(a.name), vb = parse(b.name);
+      if (va.prefix !== vb.prefix) return va.prefix === 'node' ? -1 : 1;
+      return va.id - vb.id;
+    });
+  }
+
+  for (const node of nodes) {
+    status.nodeDataQuality[node.name] = node.hasMonqueryData;
+  }
+
+  renderStats();
+  renderList();
+}
+
+document.getElementById('login-btn').addEventListener('click', handleLogin);
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') handleLogin();
+});
+
+// ---- 页面内刷新（刷新按钮动态渲染，用事件委托） ----
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('#status-refresh-btn');
+  if (!btn) return;
+  e.preventDefault();
+  btn.textContent = '↻ 刷新中…';
+  btn.disabled = true;
+  try {
+    if (viewType === 'all') {
+      await avgLoadAndRender();
+    } else {
+      const status = await loadAllData();
+      renderStatusBar(status);
+    }
+  } catch (err) { /* loadAllData 内部已处理 */ }
+});
+
+// ---- 退出登录 ----
+// ---- 利用率卡片 tooltip 切换 ----
+document.addEventListener('click', e => {
+  const icon = e.target.closest('.tip-icon');
+  if (icon) {
+    const popup = icon.parentElement.querySelector('.tip-popup');
+    if (!popup) return;
+    const wasOpen = popup.classList.contains('show');
+    document.querySelectorAll('.tip-popup.show').forEach(p => p.classList.remove('show'));
+    if (!wasOpen) popup.classList.add('show');
+  } else {
+    document.querySelectorAll('.tip-popup.show').forEach(p => p.classList.remove('show'));
+  }
+});
+
+function doLogout() {
+  hideErrorOverlay();
+  consecutiveFailures = 0;
+  clearSession();
+  loadSeq++;
+  token = null;
+  monqueryMergedData = [];
+  currentLoadPhase = 'idle';
+  nodes = [];
+  avgTodayNodes = [];
+  avgTodayXpuMA = []; avgTodayMemMA = []; avgTodayTimes = [];
+  avgHoverBound = { 'avg-xpu-chart': false, 'avg-mem-chart': false };
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  if (avgRefreshTimer) { clearInterval(avgRefreshTimer); avgRefreshTimer = null; }
+  if (nowLineTimer) { clearInterval(nowLineTimer); nowLineTimer = null; }
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('login-form').style.display = '';
+  const mini = document.getElementById('status-mini'); if (mini) mini.innerHTML = '';
+}
+
+// 错误覆盖层按钮
+document.getElementById('error-retry-btn').addEventListener('click', () => {
+  hideErrorOverlay();
+  consecutiveFailures = 0;
+  if (viewType === 'all') {
+    avgLoadAndRender();
+  } else {
+    loadAllData().then(status => renderStatusBar(status));
+  }
+});
+document.getElementById('error-logout-btn').addEventListener('click', doLogout);
+
+// Initialize cluster range controls before any data load
+initClusterRangeControls();
+
+// ---- 页面加载时自动登录 ----
+(async function autoLogin() {
+  const saved = restoreSession();
+  if (saved && saved.token) {
+    console.log('Restoring session…');
+    try {
+      token = saved.token;
+      const bots = await fetchLockBotList(token);
+      if (bots && bots.length) {
+        allBots = bots;
+        document.getElementById('loading-msg').remove();
+        const status = await loadAllData();
+        renderStatusBar(status);
+        startAutoRefresh();
+        startNowLineTimer();
+        return;
+      }
+    } catch (e) { console.error('Session restore failed:', e); }
+    clearSession();
+    token = null;
+  }
+
+  // 无有效 session → 自动用默认账号登录
+  console.log('Auto-login with default account…');
+  try {
+    token = await loginLockBot('admin', 'admin123');
+    const bots = await fetchLockBotList(token);
+    if (!bots || !bots.length) throw new Error('无可用 Bot');
+    allBots = bots;
+    saveSession();
+    document.getElementById('loading-msg').remove();
+    const status = await loadAllData();
+    renderStatusBar(status);
+    startAutoRefresh();
+    startNowLineTimer();
+  } catch (e) {
+    console.error('Auto-login failed:', e);
+    // 自动登录失败 → 隐藏仪表盘，显示登录表单
+    document.getElementById('dashboard').style.display = 'none';
+    document.getElementById('login-form').style.display = '';
+    document.getElementById('login-error').textContent = '自动登录失败，请手动输入账号密码';
+  }
+})();
+
+// ---- Average View: Init & Event Handlers ----
+
+// Window toggle for average view
+document.getElementById('avg-window-toggles').addEventListener('click', (e) => {
+  const btn = e.target.closest('.win-btn');
+  if (!btn) return;
+  document.querySelectorAll('#avg-window-toggles .win-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  avgWindow = parseInt(btn.dataset.window, 10);
+  if (avgTodayNodes.length) {
+    const td = computeMA(avgTodayNodes, avgWindow);
+    avgTodayXpuMA = td.xpu; avgTodayMemMA = td.mem;
+    avgDrawAllCharts();
+    renderStats();
+    renderStatusBar({ lockBot: { ok: true }, monquery: { ok: true, phase: 'complete' }, lastUpdated: Date.now() });
+  }
+});
+
+const avgMeanToggle = document.getElementById('avg-mean-toggle');
+avgMeanToggle.addEventListener('click', () => {
+  avgShowTodayMean = !avgShowTodayMean;
+  avgMeanToggle.classList.toggle('active', avgShowTodayMean);
+  avgMeanToggle.setAttribute('aria-pressed', String(avgShowTodayMean));
+  avgDrawAllCharts();
+});
+
+// Resize handler for average charts
+window.addEventListener('resize', () => {
+  if (viewType === 'all' && avgTodayXpuMA.length) avgDrawAllCharts();
+});
+
+// Initial average view load (default view is 'all')
+avgLoadAndRender().then(() => {
+  avgBindHover('avg-xpu-chart');
+  avgBindHover('avg-mem-chart');
+});
+
+// ---- 统计卡片 ----
+
+function renderStats() {
+  const effectiveIdx = Math.max(0, nowIdx - 1);
+
+  // --- XPU/显存平均/峰值利用率（仅 node 系列，排除 bdc） ---
+  const SLOT_10AM = 120;
+  const getValidUtilNodes = (metricKey, hasDataKey) =>
+    nodes.filter(node => node[hasDataKey] && Array.isArray(node[metricKey]));
+  const computeClusterAvg = (validNodes, metricKey, startSlot) => {
+    if (effectiveIdx < startSlot || !validNodes.length) return null;
+
+    const slotCount = effectiveIdx - startSlot + 1;
+    let totalSum = 0;
+    for (let i = startSlot; i <= effectiveIdx; i++) {
+      for (const node of validNodes) {
+        totalSum += node[metricKey][i] || 0;
+      }
+    }
+
+    return totalSum / validNodes.length / slotCount;
+  };
+  const computeSeriesAvg = (series) => {
+    const values = (series || []).map(Number).filter(Number.isFinite);
+    if (!values.length) return null;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  };
+  const computeSeriesPeak = (series) => {
+    const values = (series || []).map(Number).filter(Number.isFinite);
+    if (!values.length) return null;
+    return Math.max(...values);
+  };
+  const xpuNodes = getValidUtilNodes('avgUtil', 'hasNodeMonqueryData');
+  const memNodes = getValidUtilNodes('avgMemUtil', 'hasMemMonqueryData');
+  const buildNodeMeanSeries = (validNodes, metricKey) => {
+    if (!validNodes.length) return [];
+    return Array.from({ length: SLOT_COUNT }, (_, i) => {
+      let sum = 0;
+      for (const node of validNodes) sum += node[metricKey][i] || 0;
+      return sum / validNodes.length;
+    });
+  };
+  const xpuSeries = avgTodayXpuMA.length ? avgTodayXpuMA : buildNodeMeanSeries(xpuNodes, 'avgUtil');
+  const memSeries = avgTodayMemMA.length ? avgTodayMemMA : buildNodeMeanSeries(memNodes, 'avgMemUtil');
+  const avgXpu = computeSeriesAvg(xpuSeries) ?? computeClusterAvg(xpuNodes, 'avgUtil', SLOT_10AM);
+  const peakXpu = computeSeriesPeak(xpuSeries);
+  const avgMem = computeSeriesAvg(memSeries) ?? computeClusterAvg(memNodes, 'avgMemUtil', SLOT_10AM);
+  const peakMem = computeSeriesPeak(memSeries);
+  const avgXpuStr = avgXpu != null && peakXpu != null ? avgXpu.toFixed(1) + '%/' + peakXpu.toFixed(1) + '%' : '--/--';
+  const avgMemStr = avgMem != null && peakMem != null ? avgMem.toFixed(1) + '%/' + peakMem.toFixed(1) + '%' : '--/--';
+
+  let busyNodes = 0, freeNodes = 0, busyCards = 0, freeCards = 0;
+  let lockedNodes = 0, lockedCards = 0;
+  for (const node of nodes) {
+    if (node.status === 'FREE') freeNodes++;
+    else busyNodes++;
+    if (node.hasActiveLock) lockedNodes++;
+    for (let c = 0; c < 8; c++) {
+      if (node.hasCardMonqueryData) {
+        const memUtil = (node.cardMemUtils && node.cardMemUtils[c]) ? node.cardMemUtils[c][effectiveIdx] : 0;
+        const util = (node.cardUtils && node.cardUtils[c]) ? node.cardUtils[c][effectiveIdx] : 0;
+        if (memUtil >= 10 || util >= 10) busyCards++; else freeCards++;
+      } else if (!node.hasMonqueryData) {
+        // bdc 等无 Monquery 数据的节点，按 Lock Bot 锁判定
+        if (node.hasActiveLock) busyCards++; else freeCards++;
+      }
+      if (node.cardHasActiveLock && node.cardHasActiveLock[c]) lockedCards++;
+    }
+  }
+  const totalCards = nodes.length * 8;
+
+  const xpuTip = '<div>平均利用率：当日10:00至今，所有node节点XPU平均利用率</div><div>峰值利用率：当日24小时内，所有node节点XPU平均利用率的最高值</div>';
+  const memTip = '<div>平均利用率：当日10:00至今，所有node节点显存平均利用率</div><div>峰值利用率：当日24小时内，所有node节点显存平均利用率的最高值</div>';
+
+  // 第一行：总节点、总卡数、XPU平均/峰值利用率、显存平均/峰值利用率
+  document.getElementById('stats-row-1').innerHTML =
+    '<div class="stat-card total"><div class="label">总节点</div><div class="value total">' + nodes.length + '</div></div>' +
+    '<div class="stat-card total"><div class="label">总卡数</div><div class="value total">' + totalCards + '</div></div>' +
+    '<div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">' + avgXpuStr + '</div><span class="tip-icon">?</span><div class="tip-popup">' + xpuTip + '</div></div>' +
+    '<div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">' + avgMemStr + '</div><span class="tip-icon">?</span><div class="tip-popup">' + memTip + '</div></div>';
+
+  // 第二行：LOCKED节点、BUSY节点、LOCKED卡数、BUSY卡数
+  document.getElementById('stats-row-2').innerHTML =
+    '<div class="stat-card locked"><div class="label">LOCKED 节点</div><div class="value locked">' + lockedNodes + '</div></div>' +
+    '<div class="stat-card busy"><div class="label">BUSY节点</div><div class="value busy">' + busyNodes + '</div></div>' +
+    '<div class="stat-card locked"><div class="label">LOCKED 卡数</div><div class="value locked">' + lockedCards + '</div></div>' +
+    '<div class="stat-card busy"><div class="label">BUSY卡数</div><div class="value busy">' + busyCards + '</div></div>';
+}
+
+// ---- 状态栏 ----
+
+function renderStatusBar(status) {
+  const mini = document.getElementById('status-mini');
+  const hasLockBot = status.lockBot.ok;
+  const hasMonquery = status.monquery.ok;
+  const timeStr = new Date(status.lastUpdated).toLocaleTimeString('zh-CN');
+  const phaseTextMap = {
+    lockbot: '锁状态',
+    node: '整机监控',
+    cards: '卡级加载中',
+    complete: '已完成',
+  };
+  let phaseText = phaseTextMap[status.monquery.phase || currentLoadPhase] || '';
+  if (viewType === 'all') {
+    const winLabel = {1:'5m', 2:'10m', 6:'30m', 12:'1h'}[avgWindow] || '10m';
+    phaseText = phaseText ? phaseText + ' · ' + winLabel : winLabel;
+  }
+
+  let tagCls = '', tagText = '';
+  if (!hasLockBot) {
+    tagCls = 'status-tag-err'; tagText = 'ERROR';
+  } else if (!hasMonquery) {
+    tagCls = 'status-tag-caution'; tagText = 'CAUTION';
+  } else {
+    tagCls = 'status-tag-ok'; tagText = 'NORMAL';
+  }
+
+  mini.innerHTML = `
+    <span class="status-tag ${tagCls}">${tagText}</span>
+    <span class="status-time-mini">${timeStr}${phaseText ? ' · ' + phaseText : ''}</span>
+    <span class="status-retry" id="status-refresh-btn" title="刷新">&#x21bb;</span>
+  `;
+}
+
+// ---- Average View: Chart Drawing ----
+
+// ---- Average View: Helper Functions ----
+
+function computeSeriesMean(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const sum = arr.reduce((a, b) => a + (b || 0), 0);
+  return sum / arr.length;
+}
+
+function findSeriesPeak(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  let max = -Infinity, maxIdx = -1;
+  arr.forEach((v, i) => {
+    if ((v || 0) > max) { max = v || 0; maxIdx = i; }
+  });
+  return max === -Infinity ? null : { value: max, slot: maxIdx };
+}
+
+/**
+ * 按 window.devicePixelRatio 提升 canvas backing store 分辨率，
+ * 同时应用 setTransform(dpr,0,0,dpr,0,0)。返回值仍是 CSS 单位的宽高，
+ * 这样下游所有基于 AVG_MARGIN 等常量计算的几何参数无须改写即可正常工作。
+ */
+function avgSetupHiDPI(canvas, wrap) {
+  const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+  const w = wrap.clientWidth  || wrap.offsetWidth  || 600;
+  const h = wrap.clientHeight || wrap.offsetHeight || 310;
+  canvas.width  = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w, h };
+}
+
+/**
+ * 计算 arr[i], i ∈ [0..end] 的算术平均值。
+ * 区间总和 < 极小阈值视为无有效样本返回 null，
+ * 调用方据此决定是否绘制对应平均水平线。
+ */
+function _meanSlotOf(arr, endInclusive) {
+  if (!arr) return null;
+  const n = Math.min(endInclusive + 1, SLOT_COUNT);
+  if (n <= 0) return null;
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]);
+    if (!isNaN(v)) s += v;
+  }
+  return s < 1e-6 ? null : s / n;
+}
+
+function _peakSlotOf(arr, endInclusive) {
+  if (!arr) return null;
+  const n = Math.min(endInclusive + 1, SLOT_COUNT);
+  if (n <= 0) return null;
+  let peak = null;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]);
+    if (!Number.isFinite(v)) continue;
+    if (!peak || v > peak.value) peak = { slot: i, value: v };
+  }
+  return peak && peak.value >= 1e-6 ? peak : null;
+}
+
+function avgDrawChart(canvasId, series, color, yMax, yTicks, todayAvgColor, showTodayMean = true) {
+  const canvas = document.getElementById(canvasId);
+  const wrap = canvas.parentElement;
+  const { w, h } = avgSetupHiDPI(canvas, wrap);
+  const ctx = canvas.getContext('2d');
+
+  const values = Array.isArray(series) ? series : [];
+  const pointCount = values.length;
+  const plotW = w - AVG_MARGIN.left - AVG_MARGIN.right;
+  const plotH = h - AVG_MARGIN.top - AVG_MARGIN.bottom;
+
+  const xForIndex = i => AVG_MARGIN.left + (i / Math.max(1, pointCount - 1)) * plotW;
+  const yForValue = v => AVG_MARGIN.top + (1 - Math.max(0, Math.min(yMax, v || 0)) / yMax) * plotH;
+  const formatAxisTime = ts => {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    const first = avgTodayTimes[0];
+    const last = avgTodayTimes[avgTodayTimes.length - 1];
+    const sameDay = first && last && new Date(first * 1000).toDateString() === new Date(last * 1000).toDateString();
+    const hhmm = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+    return sameDay ? hhmm : String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + hhmm;
+  };
+
+  ctx.save();
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = .8;
+  ctx.setLineDash([4, 4]);
+  yTicks.forEach(v => {
+    const y = AVG_MARGIN.top + (1 - v / yMax) * plotH;
+    ctx.beginPath(); ctx.moveTo(AVG_MARGIN.left, y); ctx.lineTo(w - AVG_MARGIN.right, y); ctx.stroke();
+  });
+  const gridSteps = Math.min(12, Math.max(1, pointCount - 1));
+  for (let step = 0; step <= gridSteps; step++) {
+    const x = AVG_MARGIN.left + (step / gridSteps) * plotW;
+    ctx.beginPath(); ctx.moveTo(x, AVG_MARGIN.top); ctx.lineTo(x, AVG_MARGIN.top + plotH); ctx.stroke();
+  }
+  ctx.setLineDash([]); ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  ctx.font = '11px "SF Mono","JetBrains Mono",monospace';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  yTicks.forEach(v => {
+    const y = AVG_MARGIN.top + (1 - v / yMax) * plotH;
+    ctx.fillText(v + '%', AVG_MARGIN.left - 8, y);
+  });
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = '#000000'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(AVG_MARGIN.left, AVG_MARGIN.top); ctx.lineTo(AVG_MARGIN.left, AVG_MARGIN.top + plotH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(AVG_MARGIN.left, AVG_MARGIN.top + plotH); ctx.lineTo(w - AVG_MARGIN.right, AVG_MARGIN.top + plotH); ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  ctx.font = '11px "SF Mono","JetBrains Mono",monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const labelSteps = Math.min(6, Math.max(1, pointCount - 1));
+  for (let step = 0; step <= labelSteps; step++) {
+    const i = Math.round((step / labelSteps) * Math.max(0, pointCount - 1));
+    const label = formatAxisTime(avgTodayTimes[i]) || String(i);
+    ctx.fillText(label, xForIndex(i), AVG_MARGIN.top + plotH + 5);
+  }
+  ctx.restore();
+
+  if (!pointCount) {
+    ctx.save();
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 14px -apple-system,"PingFang SC",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('暂无数据', AVG_MARGIN.left + plotW / 2, AVG_MARGIN.top + plotH / 2);
+    ctx.restore();
+    canvas._avglayers = [];
+    canvas._avgshowTodayMean = false;
+    canvas._avgtodayMean = null;
+    canvas._avgtodayPeak = null;
+    const img = new Image(); img.src = canvas.toDataURL(); canvas._avgsnapshot = img;
+    return;
+  }
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(AVG_MARGIN.left, AVG_MARGIN.top, plotW, plotH); ctx.clip();
+
+  const grad = ctx.createLinearGradient(0, AVG_MARGIN.top, 0, AVG_MARGIN.top + plotH);
+  grad.addColorStop(0, color + '26');
+  grad.addColorStop(1, color + '00');
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = xForIndex(i);
+    const y = yForValue(v);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(xForIndex(pointCount - 1), AVG_MARGIN.top + plotH);
+  ctx.lineTo(AVG_MARGIN.left, AVG_MARGIN.top + plotH);
+  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = xForIndex(i);
+    const y = yForValue(v);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  const todayMean = computeSeriesMean(values);
+  const todayPeak = findSeriesPeak(values);
+
+  if (showTodayMean && todayMean != null) {
+    const y = yForValue(todayMean);
+    ctx.save();
+    ctx.strokeStyle = todayAvgColor;
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(AVG_MARGIN.left, y); ctx.lineTo(w - AVG_MARGIN.right, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = todayAvgColor;
+    ctx.font = '700 11px "SF Mono","JetBrains Mono",monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText('均值 ' + todayMean.toFixed(1) + '%', w - AVG_MARGIN.right - 4, y - 4);
+    ctx.restore();
+  }
+
+  if (todayPeak) {
+    const px = xForIndex(todayPeak.slot);
+    const py = yForValue(todayPeak.value);
+    const nearTop = py < AVG_MARGIN.top + 16;
+    const textY = py + (nearTop ? 18 : -10);
+    const textX = Math.max(AVG_MARGIN.left + 42, Math.min(w - AVG_MARGIN.right - 42, px));
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = '700 13px "SF Mono","JetBrains Mono",monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.strokeText('*', px, py);
+    ctx.fillText('*', px, py);
+    ctx.font = '700 10px "SF Mono","JetBrains Mono",monospace';
+    const text = '峰值 ' + todayPeak.value.toFixed(1) + '%';
+    ctx.strokeText(text, textX, textY);
+    ctx.fillText(text, textX, textY);
+    ctx.restore();
+  }
+
+  canvas._avgshowTodayMean = showTodayMean;
+  canvas._avgtodayMean = showTodayMean ? todayMean : null;
+  canvas._avgtodayPeak = todayPeak;
+  ctx.restore();
+
+  const lx = w - 150, ly = AVG_MARGIN.top + 10, lw = 132, lh = showTodayMean ? 70 : 52;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(lx, ly, lw, lh, 4); ctx.fill(); ctx.stroke();
+  const items = [
+    { label: '当前范围', color, dash: false },
+    showTodayMean && { label: '范围均值', color: todayAvgColor, dash: true },
+    todayPeak && { label: '峰值', color, star: true },
+  ].filter(Boolean);
+  items.forEach((it, i) => {
+    const iy = ly + 6 + i * 14;
+    if (it.star) {
+      ctx.fillStyle = it.color;
+      ctx.font = '700 11px "SF Mono","JetBrains Mono",monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('*', lx + 16, iy + 4);
+    } else {
+      ctx.strokeStyle = it.color; ctx.lineWidth = it.label.includes('均值') ? 1.4 : 2;
+      ctx.setLineDash(it.dash ? [4, 3] : []);
+      ctx.beginPath(); ctx.moveTo(lx + 6, iy + 4); ctx.lineTo(lx + 26, iy + 4); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = '#475569'; ctx.font = '10px -apple-system,"PingFang SC",sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(it.label, lx + 34, iy + 4);
+  });
+  ctx.restore();
+
+  canvas._avglayers = [{ data: values, color, label: '当前', tipColor: color }];
+  const img = new Image(); img.src = canvas.toDataURL(); canvas._avgsnapshot = img;
+}
+
+
+function avgDrawAllCharts() {
+  avgDrawChart('avg-xpu-chart', avgTodayXpuMA,
+               '#7c3aed', 35, XPU_TICKS,
+               '#dc2626', avgShowTodayMean);
+  avgDrawChart('avg-mem-chart', avgTodayMemMA,
+               '#ea580c', 70, MEM_TICKS,
+               '#dc2626', false);
+}
+
+function avgRestoreSnapshot(canvas) {
+  if (!canvas._avgsnapshot) return;
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);            // 临时切回原始物理像素模式
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(canvas._avgsnapshot, 0, 0);      // 快照天然等于 backing store 大小正好铺满
+  ctx.restore();                                  // 还原之前活动的 scale(dpr,dpr) 给上层调用方续用
+}
+
+let avgHoverBound = { 'avg-xpu-chart': false, 'avg-mem-chart': false };
+
+function avgBindHover(canvasId) {
+  if (avgHoverBound[canvasId]) return;
+  avgHoverBound[canvasId] = true;
+  const canvas = document.getElementById(canvasId);
+  canvas.addEventListener('mousemove', e => {
+    const layers = canvas._avglayers; if (!layers || !layers.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const m = canvas._avgmargins, pw = canvas._avgplotW, ph = canvas._avgplotH;
+    if (!m) return;
+    const plotX = x - m.left;
+    const pointCount = Math.max(1, layers[0]?.data?.length || 1);
+    const ci = Math.max(0, Math.min(pointCount - 1, Math.round(plotX / pw * (pointCount - 1))));
+    if (plotX < 0 || plotX > pw) { tooltip.style.display = 'none'; avgRestoreSnapshot(canvas); return; }
+
+    avgRestoreSnapshot(canvas);
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.beginPath(); ctx.rect(m.left, m.top, pw, ph); ctx.clip();
+    // Crosshair
+    const cx = m.left + (ci / Math.max(1, pointCount - 1)) * pw;
+    ctx.strokeStyle = 'rgba(100,116,139,0.5)'; ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(cx, m.top); ctx.lineTo(cx, m.top + ph); ctx.stroke();
+    ctx.setLineDash([]);
+    // Dots
+    const yMax = canvas._avgyMax || 100;
+    layers.forEach(l => {
+      const v = l.data[ci], dotX = cx, dotY = m.top + (1 - v / yMax) * ph;
+      ctx.beginPath(); ctx.arc(dotX, dotY, 4, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.strokeStyle = l.color; ctx.lineWidth = 2; ctx.stroke();
+    });
+    ctx.restore();
+
+    const ts = avgTodayTimes[ci];
+    const date = ts ? new Date(ts * 1000) : null;
+    const timeStr = date
+      ? `${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')} ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`
+      : String(ci);
+    let html = `<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">${timeStr}</div>`;
+    layers.forEach(l => {
+      const tc = l.tipColor || l.color;
+      html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;background:${tc};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${l.label}</span><span style="font-weight:600;color:${tc};text-align:right;font-variant-numeric:tabular-nums;">${l.data[ci].toFixed(1)}%</span></div>`;
+    });
+    const avgRows = [
+      { label: '今日均值', value: canvas._avgtodayMean, dash: false }
+    ].filter(row => row.value != null);
+    avgRows.forEach(row => {
+      const line = row.dash
+        ? 'repeating-linear-gradient(90deg,#dc2626 0,#dc2626 5px,transparent 5px,transparent 9px)'
+        : '#dc2626';
+      html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:12px;height:2px;background:${line};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${row.label}</span><span style="font-weight:600;color:#dc2626;text-align:right;font-variant-numeric:tabular-nums;">${row.value.toFixed(1)}%</span></div>`;
+    });
+    const peakRows = [
+      { label: '今日峰值', value: canvas._avgtodayPeak, color: layers[0]?.color || '#7c3aed' }
+    ].filter(row => row.value != null);
+    peakRows.forEach(row => {
+      html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;border:2px solid ${row.color};background:#fff;justify-self:center;box-sizing:border-box;"></span><span style="font-size:10px;color:#cbd5e1;">${row.label}</span><span style="font-weight:600;color:${row.color};text-align:right;font-variant-numeric:tabular-nums;">${row.value.value.toFixed(1)}%</span></div>`;
+    });
+    tooltip.innerHTML = html;
+    tooltip.style.display = 'block';
+    tooltip.style.left = Math.min(rect.left + cx + 14, rect.right - tooltip.offsetWidth - 6) + 'px';
+    tooltip.style.top = Math.max(rect.top, rect.top + m.top + ph * 0.15) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; avgRestoreSnapshot(canvas); });
+}
+
+// ---- Average View: Data Loading ----
+
+async function avgLoadAndRender() {
+  const selDate = avgGetSelectedDate();
+  const rangeEnd = clusterRangeEnd || new Date();
+  const { queryStart, queryEnd } = normalizeTrendQueryRange(selDate, rangeEnd);
+  const isToday = formatDateStart(queryEnd) === formatDateStart(new Date());
+
+  const displayStart = formatDateTime(selDate);
+  const displayEnd = formatDateTime(rangeEnd);
+  const todayStart = formatDateTime(queryStart);
+  const todayEnd = formatDateTime(queryEnd);
+
+  let todayData = null;
+  let fetchError = null;
+  try {
+    todayData = await fetchMonqueryUtilization(todayStart, todayEnd);
+  } catch (e) {
+    fetchError = e;
+    console.error('Cluster trend fetch failed:', e);
+  }
+
+  avgTodayNodes = processMonqueryData(todayData);
+
+  const td = computeMA(avgTodayNodes, avgWindow);
+  avgTodayXpuMA = td.xpu; avgTodayMemMA = td.mem;
+  avgTodayTimes = td.times || [];
+
+  console.info('Cluster trend data summary', {
+    displayStart,
+    displayEnd,
+    queryStart: todayStart,
+    queryEnd: todayEnd,
+    fetchOk: !fetchError,
+    rawShape: Array.isArray(todayData) ? 'array' : (todayData === null ? 'null' : typeof todayData),
+    rawEntries: normalizeMonqueryEntries(todayData).length,
+    parsedTimes: avgTodayTimes.length,
+    xpuPoints: avgTodayXpuMA.length,
+    memPoints: avgTodayMemMA.length,
+  });
+
+  if (isToday) {
+    const now = new Date();
+    avgCutoffSlot = Math.max(0, now.getHours() * 12 + Math.floor(now.getMinutes() / 5) - 1);
+  } else {
+    avgCutoffSlot = 287;
+  }
+
+  renderStatusBar({ lockBot: { ok: true }, monquery: { ok: !!todayData, phase: 'complete' }, lastUpdated: Date.now() });
+  renderStats();
+  avgDrawAllCharts();
+}
+
+function avgStartAutoRefresh() {
+  if (avgRefreshTimer) clearInterval(avgRefreshTimer);
+  avgRefreshTimer = setInterval(async () => {
+    if (document.hidden) return;
+    if (viewType !== 'all') return;
+    try { await avgLoadAndRender(); } catch(e) { console.error('Avg auto-refresh:', e); }
+  }, 60000);
+}
+
+function showToast(message, duration = 5000) {
+  const el = document.getElementById('toast');
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+// ---- 错误覆盖层 ----
+
+function showErrorOverlay(status) {
+  const overlay = document.getElementById('error-overlay');
+  const detail = document.getElementById('error-detail');
+  const meta = document.getElementById('error-meta');
+
+  let detailText = '';
+  if (!status.lockBot.ok && !status.monquery.ok) {
+    detailText = 'Lock Bot 和监控数据均无法获取<br>请检查网络连接或联系管理员';
+  } else if (!status.lockBot.ok) {
+    detailText = '所有 Lock Bot 离线<br>占用数据不可用';
+  } else if (!status.monquery.ok) {
+    detailText = '监控数据获取失败<br>利用率数据暂不可用';
+  }
+
+  const parts = [];
+  if (lastSuccessTime) {
+    parts.push(`上次成功：${new Date(lastSuccessTime).toLocaleTimeString('zh-CN')}`);
+  }
+  parts.push(`连续失败 ${consecutiveFailures} 次`);
+  meta.textContent = parts.join(' · ');
+
+  detail.innerHTML = detailText;
+  overlay.classList.remove('hidden');
+}
+
+function hideErrorOverlay() {
+  document.getElementById('error-overlay').classList.add('hidden');
+}
+
+// ---- 过滤与排序 ----
+
+document.querySelectorAll('.status-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.status !== undefined) {
+      // 状态筛选按钮
+      document.querySelectorAll('.status-btn[data-status]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeStatus = btn.dataset.status;
+      renderList();
+    } else if (btn.dataset.sort !== undefined) {
+      // 排序按钮
+      if (activeSort === btn.dataset.sort) {
+        activeSort = '';
+        btn.classList.remove('active');
+      } else {
+        activeSort = btn.dataset.sort;
+        document.querySelectorAll('.status-btn[data-sort]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+      renderList();
+    }
+  });
+});
+
+document.getElementById('search').addEventListener('input', renderList);
+
+// NODE 节点展开/收起事件委托
+document.getElementById('node-list').addEventListener('click', e => {
+  const toggle = e.target.closest('.expand-toggle');
+  if (!toggle) return;
+  const nodeName = toggle.dataset.node;
+  if (expandedNodes.has(nodeName)) {
+    expandedNodes.delete(nodeName);
+  } else {
+    expandedNodes.add(nodeName);
+  }
+  const scrollY = window.scrollY;
+  renderList();
+  window.scrollTo({ top: scrollY, behavior: 'instant' });
+});
+
+function getFiltered() {
+  const q = document.getElementById('search').value.toLowerCase();
+  let f = nodes.filter(n => {
+    if (activeType !== 'ALL' && n.botType !== activeType) return false;
+    if (activeStatus !== 'ALL' && n.status !== activeStatus) return false;
+    if (q && !n.name.includes(q)) return false;
+    return true;
+  });
+  if (activeSort === 'util-desc') f.sort((a, b) => b.currentUtil - a.currentUtil);
+  else if (activeSort === 'mem-desc') f.sort((a, b) => (b.avgMemUtil[nowIdx] || 0) - (a.avgMemUtil[nowIdx] || 0));
+  return f;
+}
+
+function utilClass(val, hasData) {
+  if (!hasData) return 'nodata';
+  if (val >= 50) return 'high';
+  if (val >= 20) return 'mid';
+  return 'low';
+}
+
+// ---- 节点列表渲染 ----
+
+function fmtSlotTime(slotIdx) {
+  const h = Math.floor(slotIdx / 12);
+  const m = (slotIdx % 12) * 5;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+function makeOccupyBlocks(occs) {
+  return occs.map(o => {
+    const left = (o.start / SLOT_COUNT * 100).toFixed(2);
+    const width = ((o.end - o.start) / SLOT_COUNT * 100).toFixed(2);
+    const user = o.user || '';
+    return `<div class="occupy-block" style="left:${left}%;width:${width}%" data-user="${user}" data-start="${o.start}" data-end="${o.end}"><span class="occupy-user">${user}</span></div>`;
+  }).join('');
+}
+
+function renderList() {
+  const container = document.getElementById('node-list');
+  container.innerHTML = '';
+  const filtered = getFiltered();
+  filtered.forEach(node => {
+    const row = document.createElement('div');
+    const showBadge = node.hasMonqueryData !== false
+      ? `<span class="badge badge-${node.status}">${node.status}</span>`
+      : `<span class="badge badge-NODATA">无数据</span>`;
+    const hasData = node.hasMonqueryData !== false;
+    const hasNodeData = node.hasNodeMonqueryData || hasData;
+    const showUtil = hasNodeData
+      ? `<span class="util-value ${utilClass(node.currentUtil, true)}">${node.currentUtil.toFixed(2)}%</span>`
+      : `<span class="util-value nodata">--</span>`;
+    const memShow = node.hasMemMonqueryData
+      ? `<span class="util-value ${utilClass(node.currentMemUtil || 0, true)}">${(node.currentMemUtil || 0).toFixed(2)}%</span>`
+      : `<span class="util-value nodata">${hasData ? '加载中' : '--'}</span>`;
+
+    // 异常标记：僵尸锁检测
+    let warnBadge = '';
+    if (hasData && node.hasActiveLock) {
+      // 检查最近 2h（24 个 5min 槽）是否持续空闲
+      const windowSlots = 24;
+      const endSlot = Math.max(0, nowIdx - 1);
+      const startSlot = Math.max(0, endSlot - windowSlots + 1);
+      let unused2h = true;
+      for (let s = startSlot; s <= endSlot; s++) {
+        const avgU = node.avgUtil[s] || 0;
+        const avgM = node.avgMemUtil[s] || 0;
+        if (avgU >= 10 || avgM >= 10) {
+          unused2h = false;
+          break;
+        }
+      }
+      if (unused2h) {
+        warnBadge = '<span class="badge-warn-zombie" title="该节点已锁定但近2h内XPU与显存利用率均低于10%">⚠已锁定≥2h未使用</span>';
+      }
+    }
+
+    row.className = 'node-row';
+    const isExpanded = expandedNodes.has(node.name);
+    const expandToggle = `<span class="expand-toggle" data-node="${node.name}">${isExpanded ? '收起' : '展开'}</span>`;
+    row.innerHTML = `
+      <div class="node-header">
+        <span class="node-name">${node.name}</span><span class="type-tag type-tag-${node.botType}">${node.botType}</span>
+        ${showBadge}${warnBadge}
+        <span class="node-stats">XPU ${showUtil} <span style="margin-left:8px;">显存 ${memShow}</span></span>${expandToggle}
+      </div>
+      <div class="timeline-container">
+        ${makeOccupyBlocks(node.occupations)}
+        <canvas class="util-line" width="600" height="40"></canvas>
+      </div>
+      <div class="time-labels"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+    `;
+    container.appendChild(row);
+    drawUtilLine(row.querySelector('.timeline-container canvas'), node.avgUtil, '#4f46e5');
+    if (node.hasMemMonqueryData) {
+      drawUtilLine(row.querySelector('.timeline-container canvas'), node.avgMemUtil, '#ea580c', true);
+    }
+    captureLayerSnapshot(row.querySelector('.timeline-container canvas'));
+
+    if (expandedNodes.has(node.name)) {
+      if (node.hasMonqueryData && !node.hasCardMonqueryData) {
+        const loadingRow = document.createElement('div');
+        loadingRow.className = 'card-loading';
+        loadingRow.textContent = '卡级数据加载中…';
+        container.appendChild(loadingRow);
+        return;
+      }
+      for (let c = 0; c < 8; c++) {
+        const cardRow = document.createElement('div');
+        cardRow.className = 'card-row';
+        const effectiveIdx = Math.max(0, nowIdx - 1);
+        const cu = (node.cardUtils && node.cardUtils[c]) ? node.cardUtils[c][effectiveIdx] : 0;
+        const cm = (node.cardMemUtils && node.cardMemUtils[c]) ? node.cardMemUtils[c][effectiveIdx] : 0;
+        const cardBusy = node.hasCardMonqueryData
+          ? (cm >= 10 || cu >= 10)
+          : (node.cardHasActiveLock && node.cardHasActiveLock[c]);
+        const lockMark = (node.cardOccupations && node.cardOccupations[c] && node.cardOccupations[c].length)
+          ? `<span class="card-lock" title="有 Lock Bot 锁记录">🔒</span>` : '';
+        cardRow.innerHTML = `
+          <span class="card-name">XPU #${c}</span>
+          <span class="badge badge-${cardBusy ? 'BUSY' : 'FREE'}" style="font-size:10px;padding:1px 5px;">${cardBusy ? '占用' : '空闲'}</span>
+          <span class="card-val" style="color:#4f46e5">XPU ${cu.toFixed(1)}%</span>
+          <span class="card-val" style="color:#ea580c">显存 ${cm.toFixed(1)}%</span>
+          ${lockMark}
+        `;
+        container.appendChild(cardRow);
+
+        // 卡片级折线图
+        const cardTimeline = document.createElement('div');
+        cardTimeline.className = 'card-timeline';
+        const cardOccs = (node.cardOccupations && node.cardOccupations[c]) || [];
+        const cardUtil = (node.cardUtils && node.cardUtils[c]) || new Array(SLOT_COUNT).fill(0);
+        const cardMem = (node.cardMemUtils && node.cardMemUtils[c]) || new Array(SLOT_COUNT).fill(0);
+        cardTimeline.innerHTML = `
+          <div class="timeline-container">
+            ${makeOccupyBlocks(cardOccs)}
+            <canvas class="util-line" width="400" height="24"></canvas>
+          </div>
+        `;
+        container.appendChild(cardTimeline);
+        const cardCanvas = cardTimeline.querySelector('canvas');
+        drawUtilLine(cardCanvas, cardUtil, '#4f46e5');
+        if (node.hasMemMonqueryData) {
+          drawUtilLine(cardCanvas, cardMem, '#ea580c', true);
+        }
+        captureLayerSnapshot(cardCanvas);
+      }
+    }
+  });
+  bindTooltips();
+  bindCanvasHover();
+  addGlobalNowLine(container);
+}
+
+function addGlobalNowLine(container) {
+  const firstTimeline = container.querySelector('.timeline-container');
+  if (!firstTimeline) return;
+  const containerRect = container.getBoundingClientRect();
+  const timelineRect = firstTimeline.getBoundingClientRect();
+  const offsetLeft = timelineRect.left - containerRect.left;
+  const timelineWidth = timelineRect.width;
+  const lineLeft = offsetLeft + (nowIdx / SLOT_COUNT) * timelineWidth;
+  const timeH = Math.floor(nowIdx / 12), timeM = (nowIdx % 12) * 5;
+  const timeStr = `${timeH}:${String(timeM).padStart(2, '0')}`;
+  const line = document.createElement('div');
+  line.className = 'global-now-line';
+  line.style.left = lineLeft + 'px';
+  line.innerHTML = `<span class="global-now-label">${timeStr}</span>`;
+  container.appendChild(line);
+}
+
+function bindCanvasHover() {
+  bindTimelineCanvasHover(document.querySelectorAll('.util-line'), tooltip);
+}
+
+function bindTooltips() {
+  document.querySelectorAll('.occupy-block').forEach(block => {
+    block.addEventListener('mouseenter', ev => {
+      const s = parseInt(block.dataset.start, 10), end = parseInt(block.dataset.end, 10);
+      tooltip.textContent = `${block.dataset.user} (${fmtSlotTime(s)} - ${fmtSlotTime(end)})`;
+      tooltip.style.display = 'block';
+    });
+    block.addEventListener('mousemove', e => {
+      tooltip.style.left = e.pageX + 10 + 'px'; tooltip.style.top = e.pageY - 30 + 'px';
+    });
+    block.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  });
+}
+</script>
+</body>
+</html>
