@@ -9,7 +9,41 @@
 .cluster-filter-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin: 8px 0 14px; }
 .cluster-filter-title { font-size: 22px; font-weight: 700; color: #1e293b; }
 .cluster-filter-desc { font-size: 13px; color: #64748b; margin-top: 4px; }
+.gtp-trigger-bar { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
+.gtp-time-label { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1.5px solid #e2e8f0; border-radius: 6px; background: #fff; font-size: 13px; font-weight: 600; color: #1e293b; transition: all .2s; white-space: nowrap; cursor: pointer; }
+.gtp-time-label:hover { border-color: #cbd5e1; background: #f8fafc; }
+.gtp-zoom-btn { width: 36px; height: 36px; border: 1.5px solid #e2e8f0; border-radius: 6px; background: #fff; font-size: 18px; color: #64748b; cursor: pointer; text-align: center; line-height: 33px; transition: all .2s; }
+.gtp-zoom-btn:hover { border-color: #cbd5e1; background: #f8fafc; color: #475569; }
+.gtp-refresh-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1.5px solid #e2e8f0; border-radius: 6px; background: #fff; font-size: 13px; font-weight: 600; color: #1e293b; cursor: pointer; transition: all .2s; white-space: nowrap; }
+.gtp-refresh-btn:hover { border-color: #cbd5e1; background: #f8fafc; }
+#current-time { display: inline-block; padding: 8px 14px; border: 1.5px solid #e2e8f0; border-radius: 6px; background: #f8fafc; font-size: 13px; font-weight: 600; color: #475569; transition: all .2s; }
+.gtp-refresh-btn:hover { border-color: #4f46e5; background: #e8ecf8; }
+.gtp-dropdown { display: none; grid-template-columns: 1fr 1fr; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.08); overflow: hidden; position: absolute; top: 100%; right: 0; z-index: 999; min-width: 700px; margin-top: 4px; }
+.gtp-dropdown.open { display: grid; }
+.gtp-left { padding: 16px; border-right: 1px solid #e5e7eb; }
+.gtp-right { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.gtp-section-title { font-size: 14px; font-weight: 700; color: #111827; margin-bottom: 12px; }
+.gtp-field { margin-bottom: 10px; }
+.gtp-field label { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; }
+.gtp-input-wrap { display: flex; align-items: center; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; overflow: hidden; }
+.gtp-input-wrap input { flex: 1; border: none; padding: 7px 10px; font: 13px "SF Mono", Consolas, monospace; color: #111827; outline: none; background: transparent; }
+.gtp-cal-icon { padding: 0 10px; color: #64748b; font-size: 16px; border-left: 1px solid #e5e7eb; }
+.gtp-actions { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.gtp-copy-btn, .gtp-paste-btn { width: 34px; height: 34px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font-size: 15px; cursor: pointer; text-align: center; line-height: 32px; }
+.gtp-apply-btn { flex: 1; padding: 8px 16px; border: none; border-radius: 4px; background: #3b82f6; color: #fff; font: 600 13px/1 inherit; cursor: pointer; }
+.gtp-recent { margin-top: 16px; }
+.gtp-recent-title { font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 8px; }
+.gtp-recent-item { padding: 6px 0; color: #4b5563; font-size: 12px; border-bottom: 1px solid #f1f5f9; }
+.gtp-search { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 4px; font: 13px inherit; color: #111827; outline: none; }
+.gtp-quick-list { flex: 1; overflow-y: auto; max-height: 240px; }
+.gtp-quick-item { padding: 8px 12px; font-size: 13px; color: #374151; cursor: pointer; border-left: 3px solid transparent; transition: all .15s; }
+.gtp-quick-item:hover { background: #f8fafc; }
+.gtp-quick-item.active { border-left-color: #f97316; background: #f1f5f9; font-weight: 600; }
+.gtp-footer { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid #e5e7eb; background: #f9fafb; font-size: 12px; color: #64748b; }
+.gtp-tz-sub { color: #9ca3af; }
+.gtp-tz-badge { padding: 2px 8px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font: 600 11px "SF Mono", Consolas, monospace; color: #111827; }
 .cluster-range-panel { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(15,23,42,.04); overflow: hidden; }
+.cluster-range-panel.hidden { display: none; }
 .cluster-range-grid { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); }
 .cluster-range-absolute { padding: 20px 24px; border-right: 1px solid #e2e8f0; }
 .cluster-range-quick { padding: 20px 24px; }
@@ -70,7 +104,6 @@
     <div class="personal-search" id="personal-search" style="display:none">
       <input class="search-input" id="search" placeholder="搜索节点...">
     </div>
-    <span id="status-mini" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px;"></span>
   </div>
 
   <div id="personal-view" style="display:none" hidden>
@@ -94,14 +127,14 @@
         <div class="cluster-filter-title">全集群趋势筛选</div>
         <div class="cluster-filter-desc">按开始～结束看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
       </div>
-      <div class="window-toggles" id="avg-window-toggles" title="移动平均窗口">
-        <span class="win-btn" data-window="1">5m</span>
-        <span class="win-btn active" data-window="2">10m</span>
-        <span class="win-btn" data-window="6">30m</span>
-        <span class="win-btn" data-window="12">1h</span>
+      <div class="gtp-trigger-bar">
+        <span class="gtp-time-label" id="cluster-time-label">⏰ Last 24 hours</span>
+        <button class="gtp-zoom-btn" id="cluster-collapse-btn" type="button" title="收缩筛选">−</button>
+        <button class="gtp-refresh-btn" id="cluster-refresh-btn" type="button">⟲ Refresh</button>
+        <span id="current-time" style="margin-left:auto;font-size:13px;color:#64748b;font-weight:600;">00:00</span>
       </div>
     </div>
-    <div class="cluster-range-panel">
+    <div class="cluster-range-panel" id="cluster-range-panel">
       <div class="cluster-range-grid">
         <div class="cluster-range-absolute">
           <div class="cluster-range-title">Absolute time range</div>
@@ -325,6 +358,7 @@ function setQuickRange(minutes) {
   document.querySelectorAll('.cluster-quick-item').forEach(btn => {
     btn.classList.toggle('active', Number(btn.dataset.minutes) === minutes);
   });
+  updateClusterTimeLabel();
 }
 
 function initClusterRangeControls() {
@@ -874,21 +908,53 @@ initClusterRangeControls();
 
 // ---- Average View: Init & Event Handlers ----
 
-// Window toggle for average view
-document.getElementById('avg-window-toggles').addEventListener('click', (e) => {
-  const btn = e.target.closest('.win-btn');
-  if (!btn) return;
-  document.querySelectorAll('#avg-window-toggles .win-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  avgWindow = parseInt(btn.dataset.window, 10);
-  if (avgTodayNodes.length) {
-    const td = computeMA(avgTodayNodes, avgWindow);
-    avgTodayXpuMA = td.xpu; avgTodayMemMA = td.mem;
-    avgDrawAllCharts();
-    renderStats();
-    renderStatusBar({ lockBot: { ok: true }, monquery: { ok: true, phase: 'complete' }, lastUpdated: Date.now() });
+// Time label and controls
+const clusterTimeLabel = document.getElementById('cluster-time-label');
+const clusterCollapseBtn = document.getElementById('cluster-collapse-btn');
+const clusterRefreshBtn = document.getElementById('cluster-refresh-btn');
+const clusterRangePanel = document.getElementById('cluster-range-panel');
+const currentTimeSpan = document.getElementById('current-time');
+
+// Update time label based on quick range selection
+function updateClusterTimeLabel() {
+  const activeBtn = document.querySelector('#cluster-quick-list .cluster-quick-item.active');
+  if (activeBtn) {
+    const label = activeBtn.textContent;
+    clusterTimeLabel.textContent = '⏰ ' + label;
   }
+}
+
+// Time label: toggle cluster-range-panel
+clusterTimeLabel.addEventListener('click', (e) => {
+  e.stopPropagation();
+  clusterRangePanel.classList.toggle('hidden');
 });
+
+// Collapse button: toggle cluster-range-panel and update icon
+clusterCollapseBtn.addEventListener('click', () => {
+  clusterRangePanel.classList.toggle('hidden');
+  clusterCollapseBtn.textContent = clusterRangePanel.classList.contains('hidden') ? '+' : '−';
+});
+
+// Refresh button: reload data and update time
+clusterRefreshBtn.addEventListener('click', () => {
+  updateCurrentTime();
+  loadAllData().then(status => {
+    renderStatusBar({ lockBot: { ok: true }, monquery: { ok: true, phase: 'complete' }, lastUpdated: Date.now() });
+  });
+});
+
+// Update current time display
+function updateCurrentTime() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  currentTimeSpan.textContent = `${hours}:${mins}`;
+}
+
+// Initialize time and update every minute
+updateCurrentTime();
+setInterval(updateCurrentTime, 60000);
 
 const avgMeanToggle = document.getElementById('avg-mean-toggle');
 avgMeanToggle.addEventListener('click', () => {
@@ -1001,36 +1067,7 @@ function renderStats() {
 // ---- 状态栏 ----
 
 function renderStatusBar(status) {
-  const mini = document.getElementById('status-mini');
-  const hasLockBot = status.lockBot.ok;
-  const hasMonquery = status.monquery.ok;
-  const timeStr = new Date(status.lastUpdated).toLocaleTimeString('zh-CN');
-  const phaseTextMap = {
-    lockbot: '锁状态',
-    node: '整机监控',
-    cards: '卡级加载中',
-    complete: '已完成',
-  };
-  let phaseText = phaseTextMap[status.monquery.phase || currentLoadPhase] || '';
-  if (viewType === 'all') {
-    const winLabel = {1:'5m', 2:'10m', 6:'30m', 12:'1h'}[avgWindow] || '10m';
-    phaseText = phaseText ? phaseText + ' · ' + winLabel : winLabel;
-  }
-
-  let tagCls = '', tagText = '';
-  if (!hasLockBot) {
-    tagCls = 'status-tag-err'; tagText = 'ERROR';
-  } else if (!hasMonquery) {
-    tagCls = 'status-tag-caution'; tagText = 'CAUTION';
-  } else {
-    tagCls = 'status-tag-ok'; tagText = 'NORMAL';
-  }
-
-  mini.innerHTML = `
-    <span class="status-tag ${tagCls}">${tagText}</span>
-    <span class="status-time-mini">${timeStr}${phaseText ? ' · ' + phaseText : ''}</span>
-    <span class="status-retry" id="status-refresh-btn" title="刷新">&#x21bb;</span>
-  `;
+  // Status bar is now removed, function kept for compatibility
 }
 
 // ---- Average View: Chart Drawing ----
