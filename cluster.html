@@ -6,9 +6,15 @@
 <title>开发机集群资源监控</title>
 <link rel="stylesheet" href="./styles.css">
 <style>
-.cluster-filter-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin: 8px 0 14px; }
+.cluster-page-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 0 18px; margin-bottom: 28px; border-bottom: 1px solid #cbd5e1; }
+.cluster-page-header h1 { margin: 0; }
+.cluster-filter-head { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin: 8px 0 14px; }
 .cluster-filter-title { font-size: 22px; font-weight: 700; color: #1e293b; }
-.cluster-filter-desc { font-size: 13px; color: #64748b; margin-top: 4px; }
+.chart-title-with-tip { position: relative; display: block; text-align: center; }
+.chart-title-with-tip .tip-icon { position: absolute; top: 50%; left: calc(50% + 56px); width: 18px; height: 18px; transform: translateY(-50%); border-radius: 50%; background: #e2e8f0; color: #64748b; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; line-height: 1; }
+.chart-title-with-tip .tip-icon:hover { background: #4f46e5; color: #fff; }
+.chart-title-with-tip .tip-popup { display: none; position: absolute; top: 28px; left: 50%; transform: translateX(-50%); width: 280px; padding: 8px 12px; border-radius: 6px; background: #1e293b; color: #fff; font-size: 12px; font-weight: 400; line-height: 1.5; text-align: left; white-space: normal; z-index: 50; }
+.chart-title-with-tip .tip-popup.show { display: block; }
 .gtp-trigger-bar { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 .gtp-time-label { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1.5px solid #e2e8f0; border-radius: 6px; background: #fff; font-size: 13px; font-weight: 600; color: #1e293b; transition: all .2s; white-space: nowrap; cursor: pointer; }
 .gtp-time-label:hover { border-color: #cbd5e1; background: #f8fafc; }
@@ -64,7 +70,7 @@
 .cluster-quick-item.active { background: #eef2ff; border-color: #c7d2fe; color: #4f46e5; font-weight: 600; }
 .cluster-range-foot { display: flex; align-items: center; gap: 10px; padding: 10px 24px; border-top: 1px solid #e2e8f0; background: #f8fafc; font-size: 12px; color: #64748b; }
 .cluster-range-foot code { padding: 2px 8px; border: 1px solid #dbe3ef; border-radius: 6px; background: #fff; color: #111827; font-family: "SF Mono","JetBrains Mono",Consolas,monospace; }
-@media (max-width: 900px) { .cluster-filter-head, .cluster-range-grid { display: block; } .cluster-range-absolute { border-right: 0; border-bottom: 1px solid #e2e8f0; } }
+@media (max-width: 900px) { .cluster-page-header { align-items: flex-start; margin-bottom: 20px; } .cluster-filter-head, .cluster-range-grid { display: block; } .cluster-range-absolute { border-right: 0; border-bottom: 1px solid #e2e8f0; } }
 </style>
 </head>
 <body>
@@ -84,8 +90,8 @@
 
 <!-- ====== Dashboard ====== -->
 <div id="dashboard" style="display:block">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-    <h1 style="margin:0">开发机集群资源监控</h1>
+  <div class="cluster-page-header">
+    <h1>开发机资源监控面板</h1>
   </div>
   <div id="loading-msg" style="text-align:center;padding:60px;color:#64748b;font-size:15px;">正在加载…</div>
   <div class="stats-bar" id="stats-bar">
@@ -123,10 +129,7 @@
   <!-- Average View -->
   <div id="average-view">
     <div class="cluster-filter-head">
-      <div>
-        <div class="cluster-filter-title">全集群趋势筛选</div>
-        <div class="cluster-filter-desc">按开始～结束看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
-      </div>
+      <div class="cluster-filter-title">全集群趋势筛选</div>
       <div class="gtp-trigger-bar">
         <span class="gtp-time-label" id="cluster-time-label">⏰ Last 24 hours</span>
         <button class="gtp-zoom-btn" id="cluster-collapse-btn" type="button" title="收缩筛选">−</button>
@@ -167,13 +170,17 @@
       <div class="chart-panel">
         <div class="chart-panel-head">
           <div class="chart-panel-title">XPU利用率趋势</div>
-          <button class="avg-mean-toggle active" id="avg-mean-toggle" type="button" aria-pressed="true">今日均值</button>
+          <button class="avg-mean-toggle active" id="avg-mean-toggle" type="button" aria-pressed="true">均值线</button>
         </div>
         <div class="chart-wrap" id="avg-xpu-chart-wrap"><canvas id="avg-xpu-chart"></canvas></div>
       </div>
       <div class="chart-panel">
         <div class="chart-panel-title">显存利用率趋势</div>
         <div class="chart-wrap" id="avg-mem-chart-wrap"><canvas id="avg-mem-chart"></canvas></div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-panel-title chart-title-with-tip">节点利用率趋势<span class="tip-icon">?</span><div class="tip-popup"><div>节点利用率 = LOCKED 卡数 / 总卡数 × 100%。</div><div>历史点按 Lock Bot 占用记录绘制；所选范围包含当前时间时，最新 5 分钟点按实时 Lock Bot 锁定状态覆盖。</div></div></div>
+        <div class="chart-wrap" id="avg-lock-chart-wrap"><canvas id="avg-lock-chart"></canvas></div>
       </div>
     </div>
   </div>
@@ -225,7 +232,7 @@ let currentLoadPhase = 'idle';
 // Average view state
 let viewType = 'all';
 let avgWindow = 2;
-let avgTodayXpuMA = [], avgTodayMemMA = [];
+let avgTodayXpuMA = [], avgTodayMemMA = [], avgLockUtilSeries = [];
 let avgTodayTimes = [];
 let avgShowTodayMean = true;
 let avgTodayNodes = [];
@@ -392,9 +399,31 @@ function normalizeMonqueryEntries(monqueryData) {
   return [];
 }
 
-function processMonqueryData(monqueryData) {
+function buildTrendBuckets(start, end) {
+  const buckets = [];
+  for (let ts = start.getTime(); ts <= end.getTime(); ts += 5 * 60 * 1000) {
+    buckets.push(Math.floor(ts / 1000));
+  }
+  return buckets;
+}
+
+function buildTrendDates(start, end) {
+  const dates = [];
+  const cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+  while (cursor <= end) {
+    const y = cursor.getFullYear();
+    const m = String(cursor.getMonth() + 1).padStart(2, '0');
+    const d = String(cursor.getDate()).padStart(2, '0');
+    dates.push(`${y}-${m}-${d}`);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function processMonqueryData(monqueryData, trendTimes = []) {
   const entries = normalizeMonqueryEntries(monqueryData);
-  if (!entries.length) return { xpu: [], mem: [], times: [] };
+  if (!entries.length && !trendTimes.length) return { xpu: [], mem: [], times: [] };
 
   const byTime = new Map();
   const addPoint = (pt, type) => {
@@ -458,7 +487,9 @@ function processMonqueryData(monqueryData) {
     }
   }
 
-  const ordered = Array.from(byTime.values()).sort((a, b) => a.ts - b.ts);
+  const ordered = trendTimes.length
+    ? trendTimes.map(ts => byTime.get(ts) || { ts, xpuSum: 0, xpuCount: 0, memSum: 0, memCount: 0 })
+    : Array.from(byTime.values()).sort((a, b) => a.ts - b.ts);
   return {
     xpu: ordered.map(p => p.xpuCount ? p.xpuSum / p.xpuCount : 0),
     mem: ordered.map(p => p.memCount ? p.memSum / p.memCount : 0),
@@ -788,6 +819,7 @@ function adaptAndRender(stateResults, monqueryData, status, occupancyHistory = [
 
   renderStats();
   renderList();
+  if (viewType === 'all') avgDrawAllCharts();
 }
 
 document.getElementById('login-btn').addEventListener('click', handleLogin);
@@ -837,8 +869,8 @@ function doLogout() {
   currentLoadPhase = 'idle';
   nodes = [];
   avgTodayNodes = [];
-  avgTodayXpuMA = []; avgTodayMemMA = []; avgTodayTimes = [];
-  avgHoverBound = { 'avg-xpu-chart': false, 'avg-mem-chart': false };
+  avgTodayXpuMA = []; avgTodayMemMA = []; avgLockUtilSeries = []; avgTodayTimes = [];
+  avgHoverBound = { 'avg-xpu-chart': false, 'avg-mem-chart': false, 'avg-lock-chart': false };
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
   if (avgRefreshTimer) { clearInterval(avgRefreshTimer); avgRefreshTimer = null; }
   if (nowLineTimer) { clearInterval(nowLineTimer); nowLineTimer = null; }
@@ -973,6 +1005,7 @@ window.addEventListener('resize', () => {
 avgLoadAndRender().then(() => {
   avgBindHover('avg-xpu-chart');
   avgBindHover('avg-mem-chart');
+  avgBindHover('avg-lock-chart');
 });
 
 // ---- 统计卡片 ----
@@ -1048,20 +1081,26 @@ function renderStats() {
 
   const xpuTip = '<div>平均利用率：当日10:00至今，所有node节点XPU平均利用率</div><div>峰值利用率：当日24小时内，所有node节点XPU平均利用率的最高值</div>';
   const memTip = '<div>平均利用率：当日10:00至今，所有node节点显存平均利用率</div><div>峰值利用率：当日24小时内，所有node节点显存平均利用率的最高值</div>';
+  const lockUtil = totalCards ? lockedCards / totalCards * 100 : null;
+  const lockUtilStr = lockUtil == null ? '--' : lockUtil.toFixed(1) + '%';
+  const lockUtilTip = '<div>节点利用率按卡计算：当前 LOCKED 卡数 / 总卡数 × 100%</div><div>LOCKED 卡数来自 Lock Bot 当前锁定状态。</div>';
 
-  // 第一行：总节点、总卡数、XPU平均/峰值利用率、显存平均/峰值利用率
+  const busyNodeTip = '<div>BUSY 节点：当前节点的平均 XPU 使用率或平均显存利用率达到 10% 及以上。</div>';
+  const busyCardTip = '<div>BUSY 卡数：当前卡的 XPU 使用率或显存利用率达到 10% 及以上。</div><div>无 Monquery 数据的节点按 Lock Bot 锁定状态统计。</div>';
+
+  // 第一行：总节点、总卡数、LOCKED节点、BUSY节点
   document.getElementById('stats-row-1').innerHTML =
     '<div class="stat-card total"><div class="label">总节点</div><div class="value total">' + nodes.length + '</div></div>' +
     '<div class="stat-card total"><div class="label">总卡数</div><div class="value total">' + totalCards + '</div></div>' +
+    '<div class="stat-card locked"><div class="label">LOCKED 节点</div><div class="value locked">' + lockedNodes + '</div></div>' +
+    '<div class="stat-card busy"><div class="label">BUSY节点</div><div class="value busy">' + busyNodes + '</div><span class="tip-icon">?</span><div class="tip-popup">' + busyNodeTip + '</div></div>';
+
+  // 第二行：BUSY卡数、节点利用率、XPU平均/峰值利用率、显存平均/峰值利用率
+  document.getElementById('stats-row-2').innerHTML =
+    '<div class="stat-card busy"><div class="label">BUSY卡数</div><div class="value busy">' + busyCards + '</div><span class="tip-icon">?</span><div class="tip-popup">' + busyCardTip + '</div></div>' +
+    '<div class="stat-card locked"><div class="label">节点利用率</div><div class="value locked pct">' + lockUtilStr + '</div><span class="tip-icon">?</span><div class="tip-popup">' + lockUtilTip + '</div></div>' +
     '<div class="stat-card xpu-avg"><div class="label">XPU平均利用率/峰值利用率</div><div class="value xpu-avg pct">' + avgXpuStr + '</div><span class="tip-icon">?</span><div class="tip-popup">' + xpuTip + '</div></div>' +
     '<div class="stat-card mem-avg"><div class="label">显存平均利用率/峰值利用率</div><div class="value mem-avg pct">' + avgMemStr + '</div><span class="tip-icon">?</span><div class="tip-popup">' + memTip + '</div></div>';
-
-  // 第二行：LOCKED节点、BUSY节点、LOCKED卡数、BUSY卡数
-  document.getElementById('stats-row-2').innerHTML =
-    '<div class="stat-card locked"><div class="label">LOCKED 节点</div><div class="value locked">' + lockedNodes + '</div></div>' +
-    '<div class="stat-card busy"><div class="label">BUSY节点</div><div class="value busy">' + busyNodes + '</div></div>' +
-    '<div class="stat-card locked"><div class="label">LOCKED 卡数</div><div class="value locked">' + lockedCards + '</div></div>' +
-    '<div class="stat-card busy"><div class="label">BUSY卡数</div><div class="value busy">' + busyCards + '</div></div>';
 }
 
 // ---- 状态栏 ----
@@ -1073,6 +1112,59 @@ function renderStatusBar(status) {
 // ---- Average View: Chart Drawing ----
 
 // ---- Average View: Helper Functions ----
+
+function getTrendNodeName(nodeKey) {
+  const normalized = String(nodeKey || '');
+  const nodeMatch = normalized.match(/^(?:gpu-)?node-?(\d+)$/i);
+  if (nodeMatch) return 'node' + Number(nodeMatch[1]);
+  const bdcMatch = normalized.match(/^bdc-?(\d+)$/i);
+  return bdcMatch ? 'bdc' + Number(bdcMatch[1]) : null;
+}
+
+function getRecordCardIds(record) {
+  const cardId = Number(record.dev_id ?? record.device_id ?? record.card_id);
+  return Number.isInteger(cardId) && cardId >= 0 && cardId < 8 ? [cardId] : [0, 1, 2, 3, 4, 5, 6, 7];
+}
+
+function computeLockUtilSeries(times, occupancyRecords, stateNodes, now) {
+  const totalCards = stateNodes.length * 8;
+  if (!totalCards || !times.length) return [];
+
+  const lockedByBucket = times.map(() => new Set());
+  const startTs = times[0];
+  const endTs = times[times.length - 1] + 5 * 60;
+  const toUnixSeconds = value => {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric > 1e12 ? Math.floor(numeric / 1000) : numeric;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : NaN;
+  };
+  for (const record of occupancyRecords) {
+    const nodeName = getTrendNodeName(record.node_key);
+    const nodeIndex = stateNodes.findIndex(node => node.name === nodeName);
+    const start = toUnixSeconds(record.start_time);
+    const end = record.end_time != null
+      ? toUnixSeconds(record.end_time)
+      : start + Number(record.duration_seconds ?? record.duration ?? 0);
+    if (nodeIndex < 0 || !Number.isFinite(start) || !Number.isFinite(end) || end < startTs || start >= endTs) continue;
+    const first = Math.max(0, Math.floor((start - startTs) / 300));
+    const last = Math.min(times.length - 1, Math.floor((Math.max(start, end - 1) - startTs) / 300));
+    for (let i = first; i <= last; i++) {
+      for (const cardId of getRecordCardIds(record)) lockedByBucket[i].add(nodeIndex * 8 + cardId);
+    }
+  }
+
+  const currentBucket = Math.floor((floorToFiveMinute(now).getTime() / 1000 - startTs) / 300);
+  if (currentBucket >= 0 && currentBucket < times.length) {
+    lockedByBucket[currentBucket].clear();
+    stateNodes.forEach((node, nodeIndex) => {
+      (node.cardHasActiveLock || []).forEach((locked, cardId) => {
+        if (locked) lockedByBucket[currentBucket].add(nodeIndex * 8 + cardId);
+      });
+    });
+  }
+  return lockedByBucket.map(locked => locked.size / totalCards * 100);
+}
 
 function computeSeriesMean(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return null;
@@ -1247,10 +1339,8 @@ function avgDrawChart(canvasId, series, color, yMax, yTicks, todayAvgColor, show
     const y = yForValue(todayMean);
     ctx.save();
     ctx.strokeStyle = todayAvgColor;
-    ctx.lineWidth = 1.4;
-    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(AVG_MARGIN.left, y); ctx.lineTo(w - AVG_MARGIN.right, y); ctx.stroke();
-    ctx.setLineDash([]);
     ctx.fillStyle = todayAvgColor;
     ctx.font = '700 11px "SF Mono","JetBrains Mono",monospace';
     ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
@@ -1291,7 +1381,7 @@ function avgDrawChart(canvasId, series, color, yMax, yTicks, todayAvgColor, show
   ctx.beginPath(); ctx.roundRect(lx, ly, lw, lh, 4); ctx.fill(); ctx.stroke();
   const items = [
     { label: '当前范围', color, dash: false },
-    showTodayMean && { label: '范围均值', color: todayAvgColor, dash: true },
+    showTodayMean && { label: '范围均值', color: todayAvgColor, dash: false },
     todayPeak && { label: '峰值', color, star: true },
   ].filter(Boolean);
   items.forEach((it, i) => {
@@ -1302,7 +1392,7 @@ function avgDrawChart(canvasId, series, color, yMax, yTicks, todayAvgColor, show
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('*', lx + 16, iy + 4);
     } else {
-      ctx.strokeStyle = it.color; ctx.lineWidth = it.label.includes('均值') ? 1.4 : 2;
+      ctx.strokeStyle = it.color; ctx.lineWidth = it.label.includes('均值') ? 1 : 2;
       ctx.setLineDash(it.dash ? [4, 3] : []);
       ctx.beginPath(); ctx.moveTo(lx + 6, iy + 4); ctx.lineTo(lx + 26, iy + 4); ctx.stroke();
       ctx.setLineDash([]);
@@ -1324,7 +1414,10 @@ function avgDrawAllCharts() {
                '#dc2626', avgShowTodayMean);
   avgDrawChart('avg-mem-chart', avgTodayMemMA,
                '#ea580c', 70, MEM_TICKS,
-               '#dc2626', false);
+               '#dc2626', avgShowTodayMean);
+  avgDrawChart('avg-lock-chart', avgLockUtilSeries,
+               '#d97706', 100, [0, 25, 50, 75, 100],
+               '#dc2626', avgShowTodayMean);
 }
 
 function avgRestoreSnapshot(canvas) {
@@ -1429,11 +1522,19 @@ async function avgLoadAndRender() {
     console.error('Cluster trend fetch failed:', e);
   }
 
-  avgTodayNodes = processMonqueryData(todayData);
+  const trendTimes = buildTrendBuckets(queryStart, queryEnd);
+  avgTodayNodes = processMonqueryData(todayData, trendTimes);
 
   const td = computeMA(avgTodayNodes, avgWindow);
   avgTodayXpuMA = td.xpu; avgTodayMemMA = td.mem;
   avgTodayTimes = td.times || [];
+
+  const occupancyResults = await Promise.all(
+    buildTrendDates(queryStart, queryEnd).flatMap(date =>
+      allBots.map(bot => fetchLockBotOccupancy(bot.id, date, token).catch(() => []))
+    )
+  );
+  avgLockUtilSeries = computeLockUtilSeries(avgTodayTimes, occupancyResults.flat(), nodes, new Date());
 
   console.info('Cluster trend data summary', {
     displayStart,

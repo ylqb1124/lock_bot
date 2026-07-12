@@ -38,7 +38,7 @@ h1 { font-size: 22px; margin-bottom: 20px; color: #1e293b; font-weight: 700; }
 .stat-card .value.pct { font-size: 16px; white-space: nowrap; letter-spacing: -0.8px; }
 
 .stat-card .tip-icon { position: absolute; top: 6px; right: 8px; width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; color: #64748b; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; transition: background .15s, color .15s; line-height: 1; font-family: inherit; }
-.stat-card.xpu-avg, .stat-card.mem-avg { padding-right: 40px; }
+.stat-card.xpu-avg, .stat-card.mem-avg, .stat-card.locked, .stat-card.busy { padding-right: 40px; }
 .stat-card .tip-icon:hover { background: #4f46e5; color: #fff; }
 .stat-card .tip-popup { display: none; position: absolute; top: 32px; right: 4px; background: #1e293b; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; white-space: normal; width: 220px; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
 .stat-card .tip-popup.show { display: block; }
