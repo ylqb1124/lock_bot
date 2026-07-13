@@ -17,6 +17,8 @@ ENV/
 
 # Runtime data
 .devdata/
+web/.devdata/
+web/config.json
 
 # IDE
 .vscode/

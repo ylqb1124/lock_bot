@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { fetchLockBotList, loginLockBot } from '@legacy/api.js';
+import { fetchLockBotList, loginLockBot } from './services/api.js';
 import ClusterDashboard from './views/ClusterDashboard.vue';
 
 const SESSION_KEY = 'xpu-monitor-session';

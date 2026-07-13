@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { fetchCachedClusterTrend, fetchLockBotList, fetchLockBotState, fetchMonqueryUtilization } from '@legacy/api.js';
-import { adaptNodeData } from '@legacy/adapter.js';
+import { fetchCachedClusterTrend, fetchLockBotList, fetchLockBotState, fetchMonqueryUtilization } from '../services/api.js';
+import { adaptNodeData } from '../services/adapter.js';
 import '../cluster-dashboard.css';
 
 const props = defineProps({ token: { type: String, required: true } });
