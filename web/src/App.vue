@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { fetchLockBotList, loginLockBot } from '@legacy/api.js';
-import ClusterTrendView from './views/ClusterTrendView.vue';
+import ClusterDashboard from './views/ClusterDashboard.vue';
 
 const SESSION_KEY = 'xpu-monitor-session';
 const SESSION_TTL = 4 * 60 * 60 * 1000;
@@ -68,8 +68,5 @@ async function login() {
       <button class="primary-button login-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '登录中...' : '登录' }}</button>
     </form>
   </div>
-  <template v-else>
-    <button type="button" class="logout-button" @click="logout">退出登录</button>
-    <ClusterTrendView :token="token" @expired="logout" />
-  </template>
+  <ClusterDashboard v-else :token="token" @expired="logout" />
 </template>

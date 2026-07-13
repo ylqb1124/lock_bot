@@ -12,6 +12,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { TrendStore } = require('./trend-store');
+const { createTrendService } = require('./trend-service');
 
 // ---- 加载配置 ----
 let config = {
@@ -44,6 +46,8 @@ if (process.env.MONQUERY_PORT) config.backend.monquery.port = parseInt(process.e
 
 const PORT = config.proxy.port;
 const ROOT = __dirname;
+const trendStore = new TrendStore(path.join(ROOT, '.devdata', 'xpu-monitor.sqlite'));
+const trendService = createTrendService(config, trendStore);
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'application/javascript; charset=utf-8',
@@ -101,6 +105,32 @@ const server = http.createServer((req, res) => {
       'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
     });
     return res.end();
+  }
+
+  // ---- 集群趋势缓存接口 ----
+  if (url.startsWith('/api/cluster-trend')) {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+    const params = new URL(url, 'http://localhost').searchParams;
+    const startAt = Number(params.get('start'));
+    const endAt = Number(params.get('end'));
+    const maxRange = 90 * 24 * 60 * 60;
+    if (!Number.isInteger(startAt) || !Number.isInteger(endAt) || startAt > endAt || endAt - startAt > maxRange) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Invalid trend range' }));
+    }
+    return trendService.query(startAt, endAt, req.headers.authorization)
+      .then(data => {
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.end(JSON.stringify(data));
+      })
+      .catch(error => {
+        console.error('Trend query failed:', error.message);
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Trend query failed', detail: error.message }));
+      });
   }
 
   // ---- 代理路由 ----

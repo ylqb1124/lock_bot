@@ -114,7 +114,15 @@ async function fetchMonqueryItems(start, end, nodeNums, items) {
     `?namespaces=${encodeURIComponent(namespaces)}` +
     `&items=${encodeURIComponent(items.join(','))}` +
     `&start=${start}&end=${end}&interval=300`;
-  const resp = await fetchWithTimeout(url);
+  let resp;
+  try {
+    resp = await fetchWithTimeout(url, {}, 60000);
+  } catch (error) {
+    if (error?.name === 'AbortError' || /aborted/i.test(error?.message || '')) {
+      throw new Error('Monquery 请求超时，请缩短时间范围后重试');
+    }
+    throw error;
+  }
   if (!resp.ok) throw new Error(`Monquery fetch failed: ${resp.status}`);
   const data = await resp.json();
   if (!data.success) throw new Error(`Monquery error: ${data.message}`);
@@ -127,6 +135,72 @@ function makeNodeBatches(batchSize) {
     batches.push(MONITORED_NODES.slice(i, i + batchSize));
   }
   return batches;
+}
+
+function parseMonqueryDateTime(value) {
+  const match = String(value).match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (!match) throw new Error(`Invalid Monquery datetime: ${value}`);
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
+}
+
+function formatMonqueryDateTime(value) {
+  const pad = number => String(number).padStart(2, '0');
+  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}${pad(value.getHours())}${pad(value.getMinutes())}${pad(value.getSeconds())}`;
+}
+
+function makeTimeSlices(start, end, maxDurationMs = 24 * 60 * 60 * 1000) {
+  const slices = [];
+  let cursor = parseMonqueryDateTime(start);
+  const finish = parseMonqueryDateTime(end);
+  while (cursor < finish) {
+    const sliceEnd = new Date(Math.min(cursor.getTime() + maxDurationMs, finish.getTime()));
+    slices.push([formatMonqueryDateTime(cursor), formatMonqueryDateTime(sliceEnd)]);
+    cursor = sliceEnd;
+  }
+  return slices.length ? slices : [[start, end]];
+}
+
+function itemPoints(item) {
+  if (Array.isArray(item)) return item;
+  if (Array.isArray(item?.Data)) return item.Data;
+  if (Array.isArray(item?.data)) return item.data;
+  return [];
+}
+
+function mergeMonquerySlices(results) {
+  const namespaces = new Map();
+  for (const entries of results) {
+    for (const entry of entries || []) {
+      if (!entry?.NameSpace) continue;
+      if (!namespaces.has(entry.NameSpace)) namespaces.set(entry.NameSpace, { ...entry, Items: {} });
+      const target = namespaces.get(entry.NameSpace);
+      for (const [name, item] of Object.entries(entry.Items || {})) {
+        const points = target.Items[name] || new Map();
+        for (const point of itemPoints(item)) {
+          const timestamp = point?.Timestamp ?? point?.timestamp ?? point?.time;
+          if (timestamp != null) points.set(String(timestamp), point);
+        }
+        target.Items[name] = points;
+      }
+    }
+  }
+  return Array.from(namespaces.values(), entry => ({
+    ...entry,
+    Items: Object.fromEntries(Object.entries(entry.Items).map(([name, points]) => [name, Array.from(points.values())])),
+  }));
+}
+
+async function runWithConcurrency(tasks, limit) {
+  const results = new Array(tasks.length);
+  let next = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const index = next++;
+      results[index] = await tasks[index]();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
 }
 
 /**
@@ -164,11 +238,22 @@ export async function* fetchMonqueryCardUtilizationBatches(start, end, options =
  * @param {string} end   - 结束时间 YYYYMMDDHHmmss
  * @returns {Promise<Array>} monquery data[] 数组
  */
+export async function fetchCachedClusterTrend(start, end, token) {
+  const params = new URLSearchParams({ start: String(Math.floor(start.getTime() / 1000)), end: String(Math.floor(end.getTime() / 1000)) });
+  const resp = await fetchWithTimeout(`/api/cluster-trend?${params}`, { headers: { Authorization: `Bearer ${token}` } }, 180_000);
+  if (!resp.ok) throw new Error(`Fetch cached cluster trend failed: ${resp.status}`);
+  return resp.json();
+}
+
 export async function fetchMonqueryUtilization(start, end) {
-  const results = await Promise.all(
-    makeNodeBatches(16).map(nodeNums => fetchMonqueryItems(start, end, nodeNums, MONQUERY_ITEMS))
-  );
-  return results.flat();
+  const tasks = [];
+  for (const [sliceStart, sliceEnd] of makeTimeSlices(start, end)) {
+    for (const nodeNums of makeNodeBatches(16)) {
+      tasks.push(() => fetchMonqueryItems(sliceStart, sliceEnd, nodeNums, MONQUERY_ITEMS));
+    }
+  }
+  const results = await runWithConcurrency(tasks, 6);
+  return mergeMonquerySlices(results);
 }
 
 /**
