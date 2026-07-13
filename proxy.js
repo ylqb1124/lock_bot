@@ -117,21 +117,41 @@ const server = http.createServer((req, res) => {
   }
 
   // ---- 静态文件 ----
-  let filePath = (url === '/' || url === '/demo.html') ? '/index.html' : url;
-  filePath = path.join(ROOT, decodeURIComponent(filePath));
-  // 安全检查：禁止跳出 ROOT
-  if (!filePath.startsWith(ROOT)) {
+  const pathname = new URL(url, 'http://localhost').pathname;
+  const appRequest = pathname === '/app' || pathname === '/app/' || pathname.startsWith('/app/');
+  const relativePath = appRequest
+    ? (pathname === '/app' || pathname === '/app/' ? 'index.html' : pathname.slice('/app/'.length))
+    : (pathname === '/' || pathname === '/demo.html' ? 'index.html' : pathname.slice(1));
+  const staticRoot = appRequest ? path.join(ROOT, 'web', 'dist') : ROOT;
+  let filePath = path.resolve(staticRoot, decodeURIComponent(relativePath));
+
+  // 安全检查：禁止跳出对应静态目录
+  if (filePath !== staticRoot && !filePath.startsWith(staticRoot + path.sep)) {
     res.writeHead(403);
     return res.end('Forbidden');
   }
 
   fs.readFile(filePath, (err, data) => {
+    // /app/ 是单路由 SPA；未来添加前端路由时仍能返回入口文件。
+    if (err && appRequest && !path.extname(relativePath)) {
+      filePath = path.join(staticRoot, 'index.html');
+      return fs.readFile(filePath, (entryError, entryData) => {
+        if (entryError) {
+          res.writeHead(404);
+          return res.end('Not found: ' + url);
+        }
+        res.writeHead(200, { 'content-type': MIME['.html'] });
+        res.end(entryData);
+      });
+    }
     if (err) {
       res.writeHead(404);
       return res.end('Not found: ' + url);
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream' });
+    const headers = { 'content-type': MIME[ext] || 'application/octet-stream' };
+    if (appRequest && pathname.startsWith('/app/assets/')) headers['cache-control'] = 'public, max-age=31536000, immutable';
+    res.writeHead(200, headers);
     res.end(data);
   });
 });
