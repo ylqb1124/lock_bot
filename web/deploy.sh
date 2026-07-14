@@ -17,4 +17,6 @@ npm ci
 npm run build
 
 echo "Build complete. Start with: npm start"
+echo "Cluster view: /app/"
+echo "Personal view: /personal/"
 echo "Runtime configuration is read from ../config.json."

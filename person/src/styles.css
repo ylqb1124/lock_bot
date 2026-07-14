@@ -1,0 +1,16 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root { color: #1e293b; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #eef1f6; }
+body { min-width: 320px; padding: 20px; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .62; }
+
+.login-page { display: grid; min-height: calc(100vh - 40px); place-items: center; }
+.login-card { display: grid; width: min(340px, 100%); gap: 14px; border-radius: 12px; padding: 32px 28px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04); }
+.login-card h1 { color: #64748b; font-size: 17px; text-align: center; }
+.login-card label { display: grid; gap: 6px; color: #475569; font-size: 12px; font-weight: 600; }
+.login-card input { width: 100%; border: 1px solid #cbd5e1; border-radius: 5px; padding: 9px 10px; }
+.primary-button { border: 1px solid #4f46e5; border-radius: 5px; padding: 9px 12px; background: #4f46e5; color: #fff; }
+.form-error { color: #dc2626; font-size: 13px; }
+
+@media (max-width: 760px) { body { padding: 12px; } }

@@ -7,6 +7,7 @@ const { createTrendService } = require('./trend-service.cjs');
 const WEB_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = path.resolve(WEB_ROOT, '..');
 const DIST_ROOT = path.join(WEB_ROOT, 'dist');
+const PERSONAL_DIST_ROOT = path.join(PROJECT_ROOT, 'person', 'dist');
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
 
 let config = {
@@ -68,9 +69,48 @@ function proxyTo(targetHost, targetPort, req, res) {
   else req.pipe(proxyRequest);
 }
 
+function servePersonalStatic(req, res) {
+  const pathname = new URL(req.url, 'http://localhost').pathname;
+  let relativePath;
+  try {
+    relativePath = decodeURIComponent(pathname.slice('/personal/'.length)) || 'index.html';
+  } catch {
+    res.writeHead(400);
+    return res.end('Bad request');
+  }
+  let filePath = path.resolve(PERSONAL_DIST_ROOT, relativePath);
+  if (filePath !== PERSONAL_DIST_ROOT && !filePath.startsWith(PERSONAL_DIST_ROOT + path.sep)) {
+    res.writeHead(403);
+    return res.end('Forbidden');
+  }
+  fs.readFile(filePath, (error, data) => {
+    if (error && !path.extname(relativePath)) {
+      filePath = path.join(PERSONAL_DIST_ROOT, 'index.html');
+      return fs.readFile(filePath, (entryError, entryData) => {
+        if (entryError) {
+          res.writeHead(404);
+          return res.end('Personal build not found. Run npm run build in person/.');
+        }
+        res.writeHead(200, { 'content-type': MIME['.html'] });
+        res.end(entryData);
+      });
+    }
+    if (error) {
+      res.writeHead(404);
+      return res.end('Not found');
+    }
+    const headers = { 'content-type': MIME[path.extname(relativePath)] || 'application/octet-stream' };
+    if (relativePath.startsWith('assets/')) headers['cache-control'] = 'public, max-age=31536000, immutable';
+    res.writeHead(200, headers);
+    res.end(data);
+  });
+}
+
 function serveStatic(req, res) {
   const pathname = new URL(req.url, 'http://localhost').pathname;
-  const relativePath = pathname === '/' ? 'index.html' : pathname.slice(1);
+  const relativePath = pathname === '/' || pathname === '/app/'
+    ? 'index.html'
+    : pathname.startsWith('/app/') ? pathname.slice('/app/'.length) : pathname.slice(1);
   let filePath = path.resolve(DIST_ROOT, decodeURIComponent(relativePath));
   if (filePath !== DIST_ROOT && !filePath.startsWith(DIST_ROOT + path.sep)) {
     res.writeHead(403);
@@ -93,7 +133,7 @@ function serveStatic(req, res) {
       return res.end('Not found');
     }
     const headers = { 'content-type': MIME[path.extname(filePath)] || 'application/octet-stream' };
-    if (pathname.startsWith('/assets/')) headers['cache-control'] = 'public, max-age=31536000, immutable';
+    if (relativePath.startsWith('assets/')) headers['cache-control'] = 'public, max-age=31536000, immutable';
     res.writeHead(200, headers);
     res.end(data);
   });
@@ -140,6 +180,11 @@ const server = http.createServer((req, res) => {
     req.url = req.url.replace('/monquery', '');
     return proxyTo(config.backend.monquery.host, config.backend.monquery.port, req, res);
   }
+  if (new URL(req.url, 'http://localhost').pathname === '/personal') {
+    res.writeHead(302, { location: '/personal/' });
+    return res.end();
+  }
+  if (req.url.startsWith('/personal/')) return servePersonalStatic(req, res);
   return serveStatic(req, res);
 });
 
