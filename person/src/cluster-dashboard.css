@@ -67,6 +67,12 @@
 .cluster-dashboard .chart-tooltip { position: absolute; z-index: 10; display: none; width: max-content; max-width: calc(100% - 12px); overflow: hidden; border-radius: 4px; padding: 6px 8px; background: #1e293b; color: #fff; font: 11px "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 12px rgba(15,23,42,.2); }
 .cluster-dashboard-toast { position: fixed; z-index: 200; top: 16px; right: 16px; border-radius: 8px; padding: 10px 16px; background: #1e293b; color: #fff; font-size: 13px; opacity: 0; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,.15); transition: opacity .3s; }.cluster-dashboard-toast.show { opacity: 1; }
 .cluster-dashboard .error-message { margin-bottom: 16px; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 12px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
+.cluster-dashboard .cluster-node-filter { border-top: 1px solid #e2e8f0; padding: 14px 24px 16px; }
+.cluster-dashboard .cluster-node-filter-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #334155; font-size: 13px; font-weight: 700; }
+.cluster-dashboard .cluster-node-checks { display: flex; flex-wrap: wrap; gap: 6px 10px; max-height: 126px; overflow-y: auto; }
+.cluster-dashboard .cluster-node-check { display: inline-flex; align-items: center; gap: 4px; color: #475569; font-size: 12px; line-height: 18px; cursor: pointer; }
+.cluster-dashboard .cluster-node-check input { width: 14px; height: 14px; margin: 0; accent-color: #2563eb; }
+.cluster-dashboard .cluster-node-check:has(input:disabled) { cursor: default; opacity: .55; }
 
 @media (max-width: 900px) { .cluster-dashboard .cluster-page-header { align-items: flex-start; margin-bottom: 20px; }.cluster-dashboard .cluster-filter-head, .cluster-dashboard .cluster-range-grid { display: block; }.cluster-dashboard .cluster-range-absolute { border-right: 0; border-bottom: 1px solid #e2e8f0; } }
 @media (max-width: 760px) { .cluster-dashboard .stats-bar-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }.cluster-dashboard .stat-card { min-width: 0; }.cluster-dashboard .gtp-trigger-bar { justify-content: flex-start; flex-wrap: wrap; margin-top: 12px; }.cluster-dashboard .current-time { margin-left: 0; } }

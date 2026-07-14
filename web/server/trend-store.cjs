@@ -26,6 +26,16 @@ class TrendStore {
         PRIMARY KEY (cluster_key, start_at, end_at)
       );
       CREATE INDEX IF NOT EXISTS trend_samples_range ON trend_samples (cluster_key, sampled_at);
+      CREATE TABLE IF NOT EXISTS trend_node_samples (
+        cluster_key TEXT NOT NULL,
+        node_name TEXT NOT NULL,
+        sampled_at INTEGER NOT NULL,
+        xpu_avg REAL,
+        memory_avg REAL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (cluster_key, node_name, sampled_at)
+      );
+      CREATE INDEX IF NOT EXISTS trend_node_samples_range ON trend_node_samples (cluster_key, node_name, sampled_at);
       CREATE TABLE IF NOT EXISTS lock_trend_days (
         scope_key TEXT NOT NULL,
         day_start_at INTEGER NOT NULL,
@@ -58,6 +68,21 @@ class TrendStore {
       SELECT sampled_at, xpu_avg, memory_avg
       FROM trend_samples
       WHERE cluster_key = ? AND sampled_at >= ? AND sampled_at <= ?
+      ORDER BY sampled_at
+    `);
+    this.upsertNodeSample = this.db.prepare(`
+      INSERT INTO trend_node_samples (cluster_key, node_name, sampled_at, xpu_avg, memory_avg, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(cluster_key, node_name, sampled_at) DO UPDATE SET
+        xpu_avg = excluded.xpu_avg,
+        memory_avg = excluded.memory_avg,
+        updated_at = excluded.updated_at
+    `);
+    this.readNodeSamples = this.db.prepare(`
+      SELECT sampled_at, xpu_avg, memory_avg
+      FROM trend_node_samples
+      WHERE cluster_key = ? AND node_name IN (SELECT value FROM json_each(?))
+        AND sampled_at >= ? AND sampled_at <= ?
       ORDER BY sampled_at
     `);
     this.readWindows = this.db.prepare(`
@@ -109,6 +134,25 @@ class TrendStore {
 
   readRange(clusterKey, startAt, endAt) {
     return this.readSamples.all(clusterKey, startAt, endAt);
+  }
+
+  saveNodeSamples(clusterKey, nodeSamples) {
+    if (!nodeSamples.length) return;
+    const updatedAt = Math.floor(Date.now() / 1000);
+    this.db.exec('BEGIN');
+    try {
+      for (const sample of nodeSamples) {
+        this.upsertNodeSample.run(clusterKey, sample.node, sample.sampledAt, sample.xpu, sample.memory, updatedAt);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  readNodeRange(clusterKey, nodes, startAt, endAt) {
+    return this.readNodeSamples.all(clusterKey, JSON.stringify(nodes), startAt, endAt);
   }
 
   hasLockDay(scopeKey, dayStartAt) {

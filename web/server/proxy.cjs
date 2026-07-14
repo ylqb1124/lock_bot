@@ -9,6 +9,9 @@ const PROJECT_ROOT = path.resolve(WEB_ROOT, '..');
 const DIST_ROOT = path.join(WEB_ROOT, 'dist');
 const PERSONAL_DIST_ROOT = path.join(PROJECT_ROOT, 'person', 'dist');
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
+const TREND_NODE_NAMES = new Set(Array.from({ length: 51 }, (_, index) => index + 1)
+  .filter(node => ![13, 14, 17].includes(node))
+  .map(node => `node${node}`));
 
 let config = {
   proxy: { port: 8900, bind: '0.0.0.0' },
@@ -161,7 +164,13 @@ const server = http.createServer((req, res) => {
       res.writeHead(400, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Invalid trend range' }));
     }
-    return trendService.query(startAt, endAt, req.headers.authorization)
+    const requestedNodes = params.getAll('nodes').flatMap(value => value.split(',').filter(Boolean));
+    const nodes = params.has('nodes') ? [...new Set(requestedNodes)] : null;
+    if (nodes && (!nodes.length || nodes.length !== requestedNodes.length || nodes.some(node => !TREND_NODE_NAMES.has(node)))) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Invalid trend nodes' }));
+    }
+    return trendService.query(startAt, endAt, req.headers.authorization, nodes)
       .then(data => {
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
         res.end(JSON.stringify(data));

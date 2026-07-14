@@ -85,9 +85,46 @@ function parseSamples(response, startAt, endAt) {
   });
 }
 
+function nodeFromEntry(entry) {
+  const namespaceName = String(entry?.NameSpace ?? entry?.namespace ?? entry?.Namespace ?? entry?.name ?? '');
+  const match = namespaceName.match(/(?:^|-)node(\d+)(?:\.|$)/i);
+  const node = match ? Number(match[1]) : NaN;
+  return MONITORED_NODES.includes(node) ? `node${node}` : null;
+}
+
+function parseNodeSamples(response, startAt, endAt) {
+  const byNode = new Map();
+  for (const entry of normalizeEntries(response)) {
+    const node = nodeFromEntry(entry);
+    if (!node) continue;
+    const byTime = byNode.get(node) || new Map();
+    const add = (point, type) => {
+      const rawTimestamp = Number(point?.Timestamp ?? point?.timestamp ?? point?.time);
+      const value = Number(point?.Value ?? point?.value);
+      if (!Number.isFinite(rawTimestamp) || !Number.isFinite(value)) return;
+      const timestamp = rawTimestamp > 1e12 ? Math.floor(rawTimestamp / 1000) : rawTimestamp;
+      if (timestamp < startAt || timestamp > endAt) return;
+      const bucket = byTime.get(timestamp) || { xpuSum: 0, xpuCount: 0, memorySum: 0, memoryCount: 0 };
+      if (type === 'xpu') { bucket.xpuSum += value; bucket.xpuCount += 1; } else { bucket.memorySum += value; bucket.memoryCount += 1; }
+      byTime.set(timestamp, bucket);
+    };
+    const items = entry?.Items || entry?.items || {};
+    for (const point of items.XPU_AVERAGE_UTILIZATION || items.xpu_average_utilization || []) add(point, 'xpu');
+    for (let card = 0; card < CARD_COUNT; card += 1) for (const point of items[`XPU${card}_MEM_UTILIZATION`] || items[`xpu${card}_mem_utilization`] || []) add(point, 'memory');
+    byNode.set(node, byTime);
+  }
+  return Array.from(byNode, ([node, byTime]) => Array.from(byTime, ([sampledAt, point]) => ({
+    node,
+    sampledAt,
+    xpu: point.xpuCount ? point.xpuSum / point.xpuCount : null,
+    memory: point.memoryCount ? point.memorySum / point.memoryCount : null,
+  }))).flat();
+}
+
 async function fetchMonqueryWindow(config, startAt, endAt) {
   const params = new URLSearchParams({ namespaces: MONITORED_NODES.map(namespace).join(','), items: ITEMS.join(','), start: formatMonqueryDateTime(startAt), end: formatMonqueryDateTime(endAt), interval: '300' });
-  return parseSamples(await requestJson(config.backend.monquery.host, config.backend.monquery.port, `/monquery/getHistoryitemdata?${params}`), startAt, endAt);
+  const response = await requestJson(config.backend.monquery.host, config.backend.monquery.port, `/monquery/getHistoryitemdata?${params}`);
+  return { aggregate: parseSamples(response, startAt, endAt), nodes: parseNodeSamples(response, startAt, endAt) };
 }
 
 function splitByDay(startAt, endAt) {
@@ -198,7 +235,10 @@ function createTrendService(config, store) {
   const backfillMonquery = async windows => {
     let fetchedWindows = 0;
     for (const [startAt, endAt] of windows) for (const [windowStart, windowEnd] of splitByDay(startAt, endAt)) {
-      await shared(`monquery:${windowStart}:${windowEnd}`, async () => store.saveWindow(CLUSTER_KEY, windowStart, windowEnd, await fetchMonqueryWindow(config, windowStart, windowEnd)));
+      await shared(`monquery:${windowStart}:${windowEnd}`, async () => {
+        const samples = await fetchMonqueryWindow(config, windowStart, windowEnd);
+        store.saveWindow(CLUSTER_KEY, windowStart, windowEnd, samples.aggregate);
+      });
       fetchedWindows += 1;
     }
     return fetchedWindows;
@@ -239,10 +279,11 @@ function createTrendService(config, store) {
   }
 
   return {
-    async query(startAt, endAt, authorization) {
+    async query(startAt, endAt, authorization, nodes = null) {
       const todayStart = todayStartCst();
       const historicalEnd = Math.min(endAt, todayStart - STEP_SECONDS);
-      const historicalMissing = historicalEnd >= startAt ? store.missingWindows(CLUSTER_KEY, startAt, historicalEnd) : [];
+      // Node samples start with this feature. Do not reinterpret legacy aggregate rows as node history.
+      const historicalMissing = !nodes && historicalEnd >= startAt ? store.missingWindows(CLUSTER_KEY, startAt, historicalEnd) : [];
       const fetchedWindows = historicalMissing.length ? await backfillMonquery(historicalMissing) : 0;
       const liveSamples = new Map();
       let today = 'not-requested';
@@ -250,13 +291,30 @@ function createTrendService(config, store) {
       if (todayStartAt <= endAt) {
         try {
           const samples = await shared(`live:${todayStartAt}:${endAt}`, () => fetchMonqueryWindow(config, todayStartAt, endAt));
-          store.saveWindow(CLUSTER_KEY, todayStartAt, endAt, samples);
-          samples.forEach(sample => liveSamples.set(sample.sampledAt, sample));
+          store.saveWindow(CLUSTER_KEY, todayStartAt, endAt, samples.aggregate);
+          store.saveNodeSamples(CLUSTER_KEY, samples.nodes);
+          samples.aggregate.forEach(sample => liveSamples.set(sample.sampledAt, sample));
           today = 'live';
         } catch { today = 'stale'; }
       }
-      const samples = new Map(store.readRange(CLUSTER_KEY, startAt, endAt).map(row => [row.sampled_at, row]));
-      liveSamples.forEach((sample, timestamp) => samples.set(timestamp, { xpu_avg: sample.xpu, memory_avg: sample.memory }));
+      const samples = new Map();
+      if (nodes) {
+        for (const row of store.readNodeRange(CLUSTER_KEY, nodes, startAt, endAt)) {
+          const point = samples.get(row.sampled_at) || { xpuSum: 0, xpuCount: 0, memorySum: 0, memoryCount: 0 };
+          if (Number.isFinite(row.xpu_avg)) { point.xpuSum += row.xpu_avg; point.xpuCount += 1; }
+          if (Number.isFinite(row.memory_avg)) { point.memorySum += row.memory_avg; point.memoryCount += 1; }
+          samples.set(row.sampled_at, point);
+        }
+        for (const [timestamp, point] of samples) {
+          samples.set(timestamp, {
+            xpu_avg: point.xpuCount ? point.xpuSum / point.xpuCount : null,
+            memory_avg: point.memoryCount ? point.memorySum / point.memoryCount : null,
+          });
+        }
+      } else {
+        store.readRange(CLUSTER_KEY, startAt, endAt).forEach(row => samples.set(row.sampled_at, row));
+        liveSamples.forEach((sample, timestamp) => samples.set(timestamp, { xpu_avg: sample.xpu, memory_avg: sample.memory }));
+      }
       const times = []; const xpu = []; const memory = [];
       for (let timestamp = startAt; timestamp <= endAt; timestamp += STEP_SECONDS) {
         const sample = samples.get(timestamp);

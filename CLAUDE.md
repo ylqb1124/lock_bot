@@ -6,9 +6,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 开发机集群 XPU 资源监控仪表盘。展示 `wxtky02-p800-backup-8nic-vd` / `wxtky02-p800-8nic-vd` 集群（48 节点 × 8 卡，node1~node51，排除 node13/14/17）的 XPU 使用率、显存占用率、以及 Lock Bot 平台的资源锁定状态。额外展示 bdc9/19/28 节点通过 Lock Bot 白屏。
 
-纯前端，无构建工具，直接 `node proxy.js` 后浏览器打开。
+项目同时保留遗留根目录仪表盘，并提供两个由同一 Node 服务托管的独立 Vue/Vite 应用：
 
-## 启动方式
+- `/app/` — 稳定集群视图；源码在 `web/src/`，构建产物在 `web/dist/`。
+- `/personal/` — 节点视图；源码在 `person/src/`，构建产物在 `person/dist/`。
+
+两个 Vue 应用共享 `web/server/proxy.cjs` 的 Lock Bot、Monquery 和趋势 API，但前端源码必须保持隔离：节点功能只修改 `person/`，不要从 `web/src/` 导入模块或修改它来实现节点需求。
+
+## Vue 构建与运行
+
+Node 运行时默认位于 `/home/users/v_qiujie04/.nvm/versions/node/v22.23.1/bin`；非交互 shell 需要先加入 `PATH`。
+
+```bash
+# 依赖安装与集群视图构建
+cd web && PATH="/home/users/v_qiujie04/.nvm/versions/node/v22.23.1/bin:$PATH" npm ci && npm run build
+
+# 依赖安装与节点视图构建
+cd person && PATH="/home/users/v_qiujie04/.nvm/versions/node/v22.23.1/bin:$PATH" npm ci && npm run build
+
+# 同时托管 /app/ 与 /personal/；PROXY_PORT 可覆盖 config.json 的端口
+cd web && PROXY_PORT=8999 /home/users/v_qiujie04/.nvm/versions/node/v22.23.1/bin/node server/proxy.cjs
+```
+
+两个 package 都没有 lint 或自动化测试脚本。改动后至少执行对应 `npm run build`；共享服务端代码修改后还需执行 `node --check web/server/*.cjs` 并做 HTTP 路由检查。
+
+## 遗留仪表盘启动方式
 
 修改代码后重启代理，请使用 `xpu-monitor-restart` skill（包含完整步骤和常见坑位）。
 
@@ -48,7 +70,13 @@ curl -s "http://localhost:8900/monquery/monquery/getItemList?namespaces=wxtky02-
 
 编辑 `api.js` 的 `MONITORED_NODES` 数组，将新节点编号加入数组（当前排除 `[13, 14, 17]`）。
 
-## 架构
+## Vue 应用与共享服务
+
+`web/server/proxy.cjs` 是 Vue 部署入口：静态托管 `web/dist` 到 `/app/`、`person/dist` 到 `/personal/`，同时代理 `/lockbot`、`/monquery`，并提供 `/api/cluster-trend`。
+
+趋势后端由 `web/server/trend-service.cjs` 和 `trend-store.cjs` 组成，SQLite 数据库位于 `web/.devdata/xpu-monitor.sqlite`。全集群趋势保留既有聚合记录；节点筛选使用 `trend_node_samples` 的节点级数据，该数据从节点采集功能启用后开始存在，不能将旧全集群历史反推为单节点历史。`/api/cluster-trend` 不带 `nodes` 参数时维持 `/app/` 的兼容聚合响应；`nodes=node1,node2` 仅供 `/personal/` 的节点筛选使用。
+
+## 遗留仪表盘架构
 
 ```
 浏览器 (index.html 使用 ES Module type="module")
@@ -207,7 +235,7 @@ Monquery **不支持通配符 namespace**，节点列表必须硬编码维护。
 2. **自动刷新**: 每 60 秒 `loadAllData()` 同时请求 Lock Bot + Monquery（`Promise.all`），仅页面可见时执行
 3. **Token 存储**: localStorage 持久化（4 小时过期），页面加载时自动恢复；退出登录时清除
 4. **节点列表硬编码**（3 个故障节点排除：node13/14/17，实际监控 node1~node51 共 48 个节点；node32/34/35/37~51 使用非 backup namespace）
-5. **代理**：两个 API 均不支持 CORS，必须通过 `proxy.js` 访问（`http.createServer` + Node.js 内置 `http.request`）
+5. **代理**：两个 API 均不支持 CORS；遗留页面通过根目录 `proxy.js`，Vue 应用通过 `web/server/proxy.cjs` 访问（均使用 Node.js 内置 `http.request`）。
 
 ## 文件职责
 

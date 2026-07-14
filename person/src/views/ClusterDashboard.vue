@@ -8,6 +8,9 @@ const props = defineProps({ token: { type: String, required: true } });
 const emit = defineEmits(['expired']);
 
 const CARD_COUNT = 8;
+const TREND_NODE_NAMES = Array.from({ length: 51 }, (_, index) => index + 1)
+  .filter(node => ![13, 14, 17].includes(node))
+  .map(node => `node${node}`);
 const AVG_MARGIN = { top: 10, right: 16, bottom: 20, left: 48 };
 const XPU_TICKS = [0, 5, 10, 15, 20, 25, 30, 35];
 const MEM_TICKS = [0, 10, 20, 30, 40, 50, 60, 70];
@@ -39,6 +42,7 @@ const lastRefreshAt = ref(null);
 const draftStart = ref('');
 const draftEnd = ref('');
 const quickSearch = ref('');
+const selectedNodeNames = ref([...TREND_NODE_NAMES]);
 const panelCollapsed = ref(true);
 const meanVisible = ref(true);
 const openTip = ref('');
@@ -85,7 +89,12 @@ const refreshStatus = computed(() => lastRefreshAt.value ? `已刷新 ${formatCl
 const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
   ? `${formatDateTimeLabel(rangeStart.value)} 至 ${formatDateTimeLabel(rangeEnd.value)}`
   : '');
-const stats = computed(() => buildStats(nodes.value, series.value.xpu, series.value.memory));
+const selectedNodes = computed(() => {
+  const selected = new Set(selectedNodeNames.value);
+  return nodes.value.filter(node => selected.has(node.name));
+});
+const allNodesSelected = computed(() => selectedNodeNames.value.length === TREND_NODE_NAMES.length);
+const stats = computed(() => buildStats(selectedNodes.value, series.value.xpu, series.value.memory));
 
 function floorToFiveMinutes(value) {
   const date = new Date(value);
@@ -425,6 +434,16 @@ function refreshData() {
   load();
 }
 
+function selectAllNodes() {
+  selectedNodeNames.value = [...TREND_NODE_NAMES];
+  load();
+}
+
+function updateNodeFilter() {
+  selectedNodeNames.value = TREND_NODE_NAMES.filter(node => selectedNodeNames.value.includes(node));
+  load();
+}
+
 function resetRange() {
   setQuickRange(3 * 60);
   load();
@@ -476,7 +495,7 @@ async function load() {
         return null;
       }
     }));
-    const trendPromise = fetchCachedClusterTrend(queryStart, queryEnd, props.token);
+    const trendPromise = fetchCachedClusterTrend(queryStart, queryEnd, props.token, selectedNodeNames.value);
     const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(todayStart), formatMonqueryDateTime(today));
     const [stateResults, trendData, currentData] = await Promise.all([statePromise, trendPromise, currentPromise]);
     if (sequence !== requestSequence) return;
@@ -716,6 +735,12 @@ onBeforeUnmount(() => {
             <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围" @click="copyRange">复制区间</button><button type="button" class="cluster-icon-btn" title="重置为最近 3 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
           </div>
           <div class="cluster-range-quick"><input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="搜索快捷时间" /><div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.minutes" type="button" class="cluster-quick-item" :class="{ active: activeMinutes === quick.minutes }" :disabled="loading" @click="setQuickRange(quick.minutes); load()">{{ quick.label }}</button></div></div>
+        </div>
+        <div class="cluster-node-filter" aria-label="节点筛选">
+          <div class="cluster-node-filter-head"><span>节点筛选 {{ selectedNodeNames.length }}/{{ TREND_NODE_NAMES.length }}</span><button type="button" class="cluster-icon-btn" :disabled="loading || allNodesSelected" @click="selectAllNodes">全选</button></div>
+          <div class="cluster-node-checks">
+            <label v-for="node in TREND_NODE_NAMES" :key="node" class="cluster-node-check"><input v-model="selectedNodeNames" type="checkbox" :value="node" :disabled="loading || (selectedNodeNames.length === 1 && selectedNodeNames.includes(node))" @change="updateNodeFilter" /><span>{{ node }}</span></label>
+          </div>
         </div>
       </div>
 
