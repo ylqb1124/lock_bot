@@ -43,16 +43,15 @@
 .cluster-dashboard .cluster-field label { display: block; margin-bottom: 6px; color: #64748b; font-size: 12px; font-weight: 600; }
 .cluster-dashboard .cluster-field input { width: 100%; border: 1px solid #dbe3ef; border-radius: 7px; padding: 8px 10px; outline: none; background: #fff; color: #111827; font: 13px "SF Mono", "JetBrains Mono", Consolas, monospace; }
 .cluster-dashboard .cluster-field input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
-.cluster-dashboard .cluster-range-actions { display: grid; grid-template-columns: 44px 44px 1fr; gap: 8px; margin-top: 14px; }
-.cluster-dashboard .cluster-icon-btn, .cluster-dashboard .cluster-apply-btn { border: 1px solid #dbe3ef; border-radius: 7px; background: #fff; color: #64748b; font-size: 13px; cursor: pointer; transition: all .15s; }
-.cluster-dashboard .cluster-icon-btn { height: 36px; }.cluster-dashboard .cluster-icon-btn:hover, .cluster-dashboard .cluster-quick-item:hover { border-color: #4f46e5; color: #4f46e5; }
-.cluster-dashboard .cluster-apply-btn { border-color: #4f46e5; background: #4f46e5; color: #fff; font-weight: 600; }.cluster-dashboard .cluster-apply-btn:hover { background: #4338ca; }
+.cluster-dashboard .cluster-range-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cluster-dashboard .cluster-icon-btn, .cluster-dashboard .cluster-apply-btn { min-height: 36px; border: 1px solid #dbe3ef; border-radius: 7px; padding: 0 14px; background: #fff; color: #64748b; font-size: 13px; cursor: pointer; transition: all .15s; }
+.cluster-dashboard .cluster-icon-btn:hover, .cluster-dashboard .cluster-quick-item:hover { border-color: #4f46e5; background: #eef2ff; color: #4f46e5; }
+.cluster-dashboard .cluster-icon-btn:focus-visible, .cluster-dashboard .cluster-apply-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(79,70,229,.18); }
+.cluster-dashboard .cluster-apply-btn { min-width: 88px; border-color: #4f46e5; background: #4f46e5; color: #fff; font-weight: 600; }.cluster-dashboard .cluster-apply-btn:hover { background: #4338ca; }
 .cluster-dashboard .cluster-quick-search { width: 100%; margin-bottom: 12px; border: 1px solid #dbe3ef; border-radius: 7px; padding: 8px 10px; outline: none; color: #111827; font-size: 13px; }
 .cluster-dashboard .cluster-quick-list { display: grid; max-height: 190px; gap: 4px; overflow: auto; }
 .cluster-dashboard .cluster-quick-item { border: 1px solid transparent; border-radius: 7px; padding: 7px 10px; background: transparent; color: #1e293b; font-size: 13px; text-align: left; cursor: pointer; }
 .cluster-dashboard .cluster-quick-item.active { border-color: #c7d2fe; background: #eef2ff; color: #4f46e5; font-weight: 600; }
-.cluster-dashboard .cluster-range-foot { display: flex; align-items: center; gap: 10px; border-top: 1px solid #e2e8f0; padding: 10px 24px; background: #f8fafc; color: #64748b; font-size: 12px; }
-.cluster-dashboard .cluster-range-foot code { border: 1px solid #dbe3ef; border-radius: 6px; padding: 2px 8px; background: #fff; color: #111827; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; }
 
 .cluster-dashboard .charts-row { display: flex; flex-direction: column; gap: 16px; }
 .cluster-dashboard .chart-panel { border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; background: #fff; }
@@ -71,4 +70,4 @@
 
 @media (max-width: 900px) { .cluster-dashboard .cluster-page-header { align-items: flex-start; margin-bottom: 20px; }.cluster-dashboard .cluster-filter-head, .cluster-dashboard .cluster-range-grid { display: block; }.cluster-dashboard .cluster-range-absolute { border-right: 0; border-bottom: 1px solid #e2e8f0; } }
 @media (max-width: 760px) { .cluster-dashboard .stats-bar-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }.cluster-dashboard .stat-card { min-width: 0; }.cluster-dashboard .gtp-trigger-bar { justify-content: flex-start; flex-wrap: wrap; margin-top: 12px; }.cluster-dashboard .current-time { margin-left: 0; } }
-@media (max-width: 460px) { .cluster-dashboard .cluster-range-actions { grid-template-columns: 44px 44px 1fr; }.cluster-dashboard .chart-panel { padding: 12px 8px; }.cluster-dashboard .chart-wrap { height: 260px; } }
+@media (max-width: 460px) { .cluster-dashboard .chart-panel { padding: 12px 8px; }.cluster-dashboard .chart-wrap { height: 260px; } }

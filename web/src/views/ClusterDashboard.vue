@@ -12,12 +12,12 @@ const AVG_MARGIN = { top: 10, right: 16, bottom: 20, left: 48 };
 const XPU_TICKS = [0, 5, 10, 15, 20, 25, 30, 35];
 const MEM_TICKS = [0, 10, 20, 30, 40, 50, 60, 70];
 const QUICK_RANGES = [
-  { label: 'Last 15 minutes', minutes: 15 },
-  { label: 'Last 30 minutes', minutes: 30 }, { label: 'Last 1 hour', minutes: 60 },
-  { label: 'Last 3 hours', minutes: 180 }, { label: 'Last 6 hours', minutes: 360 },
-  { label: 'Last 12 hours', minutes: 720 }, { label: 'Last 24 hours', minutes: 1440 },
-  { label: 'Last 2 days', minutes: 2880 }, { label: 'Last 7 days', minutes: 10080 },
-  { label: 'Last 30 days', minutes: 43200 }, { label: 'Last 90 days', minutes: 129600 },
+  { label: '最近 15 分钟', minutes: 15 },
+  { label: '最近 30 分钟', minutes: 30 }, { label: '最近 1 小时', minutes: 60 },
+  { label: '最近 3 小时', minutes: 180 }, { label: '最近 6 小时', minutes: 360 },
+  { label: '最近 12 小时', minutes: 720 }, { label: '最近 24 小时', minutes: 1440 },
+  { label: '最近 2 天', minutes: 2880 }, { label: '最近 7 天', minutes: 10080 },
+  { label: '最近 30 天', minutes: 43200 }, { label: '最近 90 天', minutes: 129600 },
 ];
 const X_AXIS_TICK_INTERVALS = [
   { maxMinutes: 60, seconds: 150 },
@@ -70,7 +70,7 @@ const activeMinutes = computed(() => rangeStart.value && rangeEnd.value
   : null);
 const timeLabel = computed(() => {
   const active = QUICK_RANGES.find(range => range.minutes === activeMinutes.value);
-  return active?.label || 'Custom range';
+  return active?.label || '自定义时间范围';
 });
 function formatClock(value) {
   if (!value) return '--:--';
@@ -83,7 +83,7 @@ const dataAsOf = computed(() => trendDataAsOf.value
   : '数据统计截止 --:--');
 const refreshStatus = computed(() => lastRefreshAt.value ? `已刷新 ${formatClock(lastRefreshAt.value)}` : '尚未刷新');
 const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
-  ? `${formatDateTimeLabel(rangeStart.value)} to ${formatDateTimeLabel(rangeEnd.value)}`
+  ? `${formatDateTimeLabel(rangeStart.value)} 至 ${formatDateTimeLabel(rangeEnd.value)}`
   : '');
 const stats = computed(() => buildStats(nodes.value, series.value.xpu, series.value.memory));
 
@@ -703,21 +703,20 @@ onBeforeUnmount(() => {
         <div class="gtp-trigger-bar">
           <span class="gtp-time-label">{{ timeLabel }}</span>
           <button type="button" class="gtp-zoom-btn" :title="panelCollapsed ? '展开筛选' : '收缩筛选'" :aria-label="panelCollapsed ? '展开时间筛选' : '收缩时间筛选'" aria-controls="cluster-range-panel" :aria-expanded="!panelCollapsed" @click="panelCollapsed = !panelCollapsed">{{ panelCollapsed ? '+' : '−' }}</button>
-          <button type="button" class="gtp-refresh-btn" :disabled="loading" @click="refreshData()">{{ loading ? '正在加载…' : '⟲ Refresh' }}</button>
+          <button type="button" class="gtp-refresh-btn" :disabled="loading" @click="refreshData()">{{ loading ? '正在加载…' : '⟲ 刷新' }}</button>
           <span class="data-as-of"><span class="data-as-of-dot" aria-hidden="true"></span><span>{{ dataAsOf }}</span><span class="refresh-status">{{ refreshStatus }}</span></span>
         </div>
       </div>
       <div id="cluster-range-panel" class="cluster-range-panel" :class="{ hidden: panelCollapsed }">
         <div class="cluster-range-grid">
           <div class="cluster-range-absolute">
-            <div class="cluster-range-title">Absolute time range</div>
-            <div class="cluster-field"><label for="cluster-start-time">From</label><input id="cluster-start-time" v-model="draftStart" type="datetime-local" step="1" /></div>
-            <div class="cluster-field"><label for="cluster-end-time">To</label><input id="cluster-end-time" v-model="draftEnd" type="datetime-local" step="1" /></div>
-            <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围" @click="copyRange">Copy</button><button type="button" class="cluster-icon-btn" title="重置为最近 24 小时" @click="resetRange">Reset</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">Apply time range</button></div>
+            <div class="cluster-range-title">时间范围筛选</div>
+            <div class="cluster-field"><label for="cluster-start-time">开始时间</label><input id="cluster-start-time" v-model="draftStart" type="datetime-local" step="1" /></div>
+            <div class="cluster-field"><label for="cluster-end-time">结束时间</label><input id="cluster-end-time" v-model="draftEnd" type="datetime-local" step="1" /></div>
+            <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围" @click="copyRange">复制区间</button><button type="button" class="cluster-icon-btn" title="重置为最近 3 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
           </div>
-          <div class="cluster-range-quick"><input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="Search quick ranges" /><div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.minutes" type="button" class="cluster-quick-item" :class="{ active: activeMinutes === quick.minutes }" :disabled="loading" @click="setQuickRange(quick.minutes); load()">{{ quick.label }}</button></div></div>
+          <div class="cluster-range-quick"><input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="搜索快捷时间" /><div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.minutes" type="button" class="cluster-quick-item" :class="{ active: activeMinutes === quick.minutes }" :disabled="loading" @click="setQuickRange(quick.minutes); load()">{{ quick.label }}</button></div></div>
         </div>
-        <div class="cluster-range-foot"><span>Browser Time China, CST</span><code>UTC+08:00</code><span>{{ rangeSummary }}</span></div>
       </div>
 
       <section class="charts-row">
