@@ -495,11 +495,16 @@ async function load() {
         return null;
       }
     }));
-    const trendPromise = fetchCachedClusterTrend(queryStart, queryEnd, props.token, selectedNodeNames.value);
     const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(todayStart), formatMonqueryDateTime(today));
-    const [stateResults, trendData, currentData] = await Promise.all([statePromise, trendPromise, currentPromise]);
+    const [stateResults, currentData] = await Promise.all([statePromise, currentPromise]);
     if (sequence !== requestSequence) return;
     const currentNodes = adaptStates(stateResults, currentData);
+    const selected = new Set(selectedNodeNames.value);
+    const trendNodes = currentNodes
+      .map(node => node.name)
+      .filter(name => /^node\d+$/.test(name) && selected.has(name));
+    const trendData = await fetchCachedClusterTrend(queryStart, queryEnd, props.token, trendNodes);
+    if (sequence !== requestSequence) return;
     trendDataAsOf.value = trendData.dataAsOf;
     lastRefreshAt.value = Date.now();
     const rawTrend = trendData;

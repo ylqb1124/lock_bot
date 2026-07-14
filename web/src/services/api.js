@@ -238,8 +238,9 @@ export async function* fetchMonqueryCardUtilizationBatches(start, end, options =
  * @param {string} end   - 结束时间 YYYYMMDDHHmmss
  * @returns {Promise<Array>} monquery data[] 数组
  */
-export async function fetchCachedClusterTrend(start, end, token) {
+export async function fetchCachedClusterTrend(start, end, token, nodes) {
   const params = new URLSearchParams({ start: String(Math.floor(start.getTime() / 1000)), end: String(Math.floor(end.getTime() / 1000)) });
+  if (Array.isArray(nodes)) params.set('nodes', nodes.join(','));
   const resp = await fetchWithTimeout(`/api/cluster-trend?${params}`, { headers: { Authorization: `Bearer ${token}` } }, 180_000);
   if (!resp.ok) throw new Error(`Fetch cached cluster trend failed: ${resp.status}`);
   return resp.json();
