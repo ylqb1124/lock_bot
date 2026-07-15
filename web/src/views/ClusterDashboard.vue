@@ -2,6 +2,18 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { fetchCachedClusterTrend, fetchLockBotList, fetchLockBotState, fetchMonqueryUtilization } from '../services/api.js';
 import { adaptNodeData } from '../services/adapter.js';
+import {
+  chinaSlotIndex,
+  chinaTimeParts,
+  formatChinaClock,
+  formatChinaDate,
+  formatChinaDateTime,
+  formatChinaDatetimeLocal,
+  formatChinaMonqueryDateTime,
+  isSameChinaDay,
+  parseChinaDatetimeLocal,
+  startOfChinaDay,
+} from '../services/china-time.js';
 import '../cluster-dashboard.css';
 
 const props = defineProps({ token: { type: String, required: true } });
@@ -74,8 +86,7 @@ const timeLabel = computed(() => {
 });
 function formatClock(value) {
   if (!value) return '--:--';
-  const date = new Date(value);
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  return formatChinaClock(value);
 }
 
 const dataAsOf = computed(() => trendDataAsOf.value
@@ -88,10 +99,7 @@ const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
 const stats = computed(() => buildStats(nodes.value, series.value.xpu, series.value.memory));
 
 function floorToFiveMinutes(value) {
-  const date = new Date(value);
-  date.setSeconds(0, 0);
-  date.setMinutes(date.getMinutes() - date.getMinutes() % 5);
-  return date;
+  return new Date(Math.floor(new Date(value).getTime() / (5 * 60_000)) * 5 * 60_000);
 }
 
 function normalizeRange(start, end) {
@@ -102,37 +110,19 @@ function normalizeRange(start, end) {
 }
 
 function formatMonqueryDateTime(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
-  const second = String(date.getSeconds()).padStart(2, '0');
-  return `${year}${month}${day}${hour}${minute}${second}`;
+  return formatChinaMonqueryDateTime(date);
 }
 
 function formatDateTimeLabel(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
-  const second = String(date.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  return formatChinaDateTime(date);
 }
 
 function toDatetimeLocalValue(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
-  const second = String(date.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+  return formatChinaDatetimeLocal(date);
 }
 
 function dateKey(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return formatChinaDate(date);
 }
 
 function buildBuckets(start, end) {
@@ -331,8 +321,7 @@ function lockUtilization(times, occupancyRecords, liveIntervals, stateNodes, liv
 }
 
 function currentSlot() {
-  const now = new Date();
-  return now.getHours() * 12 + Math.floor(now.getMinutes() / 5);
+  return chinaSlotIndex();
 }
 
 function botType(bot) {
@@ -431,8 +420,8 @@ function resetRange() {
 }
 
 function applyRange() {
-  const start = new Date(draftStart.value);
-  const end = new Date(draftEnd.value);
+  const start = parseChinaDatetimeLocal(draftStart.value);
+  const end = parseChinaDatetimeLocal(draftEnd.value);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
     showToast('请选择有效的开始和结束时间');
     return;
@@ -467,8 +456,7 @@ async function load() {
     if (!bots.value.length) bots.value = await fetchLockBotList(props.token);
     const { queryStart, queryEnd } = normalizeRange(rangeStart.value, rangeEnd.value);
     const today = new Date();
-    const todayStart = new Date(today);
-    todayStart.setHours(0, 0, 0, 0);
+    const todayStart = startOfChinaDay(today);
     const statePromise = Promise.all(bots.value.map(async bot => {
       try {
         return { bot, type: botType(bot), state: await fetchLockBotState(bot.id, props.token) };
@@ -547,13 +535,13 @@ function drawChart(canvas, values, color, yMax, ticks, label) {
   const tickInterval = xAxisTickSeconds(series.value.times);
   const maxLabels = Math.max(2, Math.floor(plotWidth / 145));
   const labelEvery = Math.max(1, Math.ceil(xTicks.length / maxLabels));
-  const sameDay = series.value.times.length && new Date(rangeStart * 1000).toDateString() === new Date(rangeEnd * 1000).toDateString();
+  const sameDay = series.value.times.length && isSameChinaDay(rangeStart * 1000, rangeEnd * 1000);
   const labelCandidates = xTicks.flatMap((timestamp, index) => {
     if (index % labelEvery !== 0 && index !== xTicks.length - 1) return [];
-    const date = new Date(timestamp * 1000);
-    const seconds = tickInterval < 300 ? `:${String(date.getSeconds()).padStart(2, '0')}` : '';
-    const clock = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}${seconds}`;
-    const text = sameDay ? clock : `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${clock}`;
+    const date = chinaTimeParts(timestamp * 1000);
+    const seconds = tickInterval < 300 ? `:${date.second}` : '';
+    const clock = `${date.hour}:${date.minute}${seconds}`;
+    const text = sameDay ? clock : `${date.month}-${date.day} ${clock}`;
     const x = AVG_MARGIN.left + (timestamp - rangeStart) / rangeSeconds * plotWidth;
     return [{ text, x, width: context.measureText(text).width }];
   });
@@ -641,8 +629,8 @@ function bindHover(canvas, tooltipElement) {
     const crosshairX = meta.margins.left + index / Math.max(1, meta.values.length - 1) * meta.plotWidth;
     restoreSnapshot(canvas);
     const context = canvas.getContext('2d'); context.save(); context.beginPath(); context.rect(meta.margins.left, meta.margins.top, meta.plotWidth, meta.plotHeight); context.clip(); context.strokeStyle = 'rgba(100,116,139,.5)'; context.lineWidth = 1; context.setLineDash([3, 3]); context.beginPath(); context.moveTo(crosshairX, meta.margins.top); context.lineTo(crosshairX, meta.margins.top + meta.plotHeight); context.stroke(); context.setLineDash([]); const value = meta.values[index]; const y = meta.margins.top + (1 - value / meta.yMax) * meta.plotHeight; context.beginPath(); context.arc(crosshairX, y, 4, 0, Math.PI * 2); context.fillStyle = '#fff'; context.fill(); context.strokeStyle = meta.color; context.lineWidth = 2; context.stroke(); context.restore();
-    const date = new Date(series.value.times[index] * 1000);
-    tooltipElement.innerHTML = `<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}</div><div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;background:${meta.color};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${meta.label}</span><span style="font-weight:600;color:${meta.color};text-align:right;font-variant-numeric:tabular-nums;">${value.toFixed(1)}%</span></div>${meta.mean === null ? '' : `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:12px;height:2px;background:#dc2626;justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">范围均值</span><span style="font-weight:600;color:#dc2626;text-align:right;font-variant-numeric:tabular-nums;">${meta.mean.toFixed(1)}%</span></div>`}`;
+    const date = chinaTimeParts(series.value.times[index] * 1000);
+    tooltipElement.innerHTML = `<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">${date.month}-${date.day} ${date.hour}:${date.minute}</div><div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;background:${meta.color};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${meta.label}</span><span style="font-weight:600;color:${meta.color};text-align:right;font-variant-numeric:tabular-nums;">${value.toFixed(1)}%</span></div>${meta.mean === null ? '' : `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:12px;height:2px;background:#dc2626;justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">范围均值</span><span style="font-weight:600;color:#dc2626;text-align:right;font-variant-numeric:tabular-nums;">${meta.mean.toFixed(1)}%</span></div>`}`;
     tooltipElement.style.display = 'block';
     const gap = 10;
     const edge = 6;

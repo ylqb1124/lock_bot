@@ -140,12 +140,13 @@ function makeNodeBatches(batchSize) {
 function parseMonqueryDateTime(value) {
   const match = String(value).match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
   if (!match) throw new Error(`Invalid Monquery datetime: ${value}`);
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6])) - 8 * 60 * 60 * 1000);
 }
 
 function formatMonqueryDateTime(value) {
+  const date = new Date(value.getTime() + 8 * 60 * 60 * 1000);
   const pad = number => String(number).padStart(2, '0');
-  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}${pad(value.getHours())}${pad(value.getMinutes())}${pad(value.getSeconds())}`;
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
 }
 
 function makeTimeSlices(start, end, maxDurationMs = 24 * 60 * 60 * 1000) {

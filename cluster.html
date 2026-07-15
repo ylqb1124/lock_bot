@@ -161,8 +161,7 @@
         </div>
       </div>
       <div class="cluster-range-foot">
-        <span>Browser Time China, CST</span>
-        <code>UTC+08:00</code>
+        <span>中国标准时间</span>
         <span id="cluster-range-summary"></span>
       </div>
     </div>
@@ -207,13 +206,14 @@
 import { loginLockBot, fetchLockBotList, fetchLockBotState, fetchLockBotOccupancy, fetchMonqueryUtilization, fetchMonqueryNodeUtilization, fetchMonqueryCardUtilizationBatches, isAbortError, MONITORED_NODES } from './api.js';
 import { adaptNodeData, mergeMonqueryData } from './adapter.js';
 import { drawUtilLine, captureLayerSnapshot, bindCanvasHover as bindTimelineCanvasHover } from './timeline.js';
+import { chinaDateRange, chinaSlotIndex, chinaTimeParts, formatChinaClock, formatChinaDate, formatChinaDateTime, formatChinaDatetimeLocal, formatChinaMonqueryDateTime, isSameChinaDay, parseChinaDatetimeLocal } from './china-time.js';
 
 const SLOT_COUNT = 288; // 24h / 5min = 288 槽
 const CARD_COUNT = 8;    // 单个节点 8 张卡
 const tooltip = document.getElementById('tooltip');
 
 const now = new Date();
-let nowIdx = now.getHours() * 12 + Math.floor(now.getMinutes() / 5);
+let nowIdx = chinaSlotIndex(now);
 
 let nodes = [];
 let activeType = 'ALL';
@@ -260,27 +260,15 @@ const MEM_TICKS = [0, 10, 20, 30, 40, 50, 60, 70];
 // ---- 工具函数 ----
 
 function formatDateStart(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}${m}${day}000000`;
+  return `${formatChinaDate(d).replaceAll('-', '')}000000`;
 }
 
 function formatDateTime(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  const s = String(d.getSeconds()).padStart(2, '0');
-  return `${y}${m}${day}${h}${min}${s}`;
+  return formatChinaMonqueryDateTime(d);
 }
 
 function floorToFiveMinute(date) {
-  const d = new Date(date);
-  d.setSeconds(0, 0);
-  d.setMinutes(d.getMinutes() - (d.getMinutes() % 5));
-  return d;
+  return new Date(Math.floor(new Date(date).getTime() / (5 * 60 * 1000)) * 5 * 60 * 1000);
 }
 
 function normalizeTrendQueryRange(start, end) {
@@ -291,13 +279,11 @@ function normalizeTrendQueryRange(start, end) {
 }
 
 function formatDateEnd(d) {
-  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
-  return `${y}${m}${day}235959`;
+  return `${formatChinaDate(d).replaceAll('-', '')}235959`;
 }
 
 function avgGetTodayStr() {
-  const d = new Date();
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  return formatChinaDate(new Date());
 }
 
 function avgGetSelectedDate() {
@@ -305,27 +291,15 @@ function avgGetSelectedDate() {
 }
 
 function toDatetimeLocalValue(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${y}-${m}-${day}T${hh}:${mm}:${ss}`;
+  return formatChinaDatetimeLocal(d);
 }
 
 function parseDatetimeLocalValue(v) {
-  return v ? new Date(v) : null;
+  return v ? parseChinaDatetimeLocal(v) : null;
 }
 
 function formatDateTimeLabel(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+  return formatChinaDateTime(d);
 }
 
 function renderClusterRangeSummary() {
@@ -408,17 +382,7 @@ function buildTrendBuckets(start, end) {
 }
 
 function buildTrendDates(start, end) {
-  const dates = [];
-  const cursor = new Date(start);
-  cursor.setHours(0, 0, 0, 0);
-  while (cursor <= end) {
-    const y = cursor.getFullYear();
-    const m = String(cursor.getMonth() + 1).padStart(2, '0');
-    const d = String(cursor.getDate()).padStart(2, '0');
-    dates.push(`${y}-${m}-${d}`);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return dates;
+  return chinaDateRange(start, end);
 }
 
 function processMonqueryData(monqueryData, trendTimes = []) {
@@ -631,8 +595,7 @@ function updateNowIdx() {
 }
 
 function calcNowIdx() {
-  const d = new Date();
-  return d.getHours() * 12 + Math.floor(d.getMinutes() / 5);
+  return chinaSlotIndex();
 }
 
 function repositionNowLine() {
@@ -670,7 +633,7 @@ async function loadAllData() {
   const end = formatDateTime(now);
 
   // 1. 拉取 Lock Bot 状态 + 历史占用记录（并行，都很快）
-  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const today = formatChinaDate(now);
   const [stateResults, occupancyResults] = await Promise.all([
     Promise.all(
       allBots.map(bot =>
@@ -978,10 +941,7 @@ clusterRefreshBtn.addEventListener('click', () => {
 
 // Update current time display
 function updateCurrentTime() {
-  const now = new Date();
-  const hours = String(now.getHours()).padStart(2, '0');
-  const mins = String(now.getMinutes()).padStart(2, '0');
-  currentTimeSpan.textContent = `${hours}:${mins}`;
+  currentTimeSpan.textContent = formatChinaClock(new Date());
 }
 
 // Initialize time and update every minute
@@ -1242,12 +1202,12 @@ function avgDrawChart(canvasId, series, color, yMax, yTicks, todayAvgColor, show
   const yForValue = v => AVG_MARGIN.top + (1 - Math.max(0, Math.min(yMax, v || 0)) / yMax) * plotH;
   const formatAxisTime = ts => {
     if (!ts) return '';
-    const d = new Date(ts * 1000);
+    const d = chinaTimeParts(ts * 1000);
     const first = avgTodayTimes[0];
     const last = avgTodayTimes[avgTodayTimes.length - 1];
-    const sameDay = first && last && new Date(first * 1000).toDateString() === new Date(last * 1000).toDateString();
-    const hhmm = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-    return sameDay ? hhmm : String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + hhmm;
+    const sameDay = first && last && isSameChinaDay(first * 1000, last * 1000);
+    const hhmm = `${d.hour}:${d.minute}`;
+    return sameDay ? hhmm : `${d.month}-${d.day} ${hhmm}`;
   };
 
   ctx.save();
@@ -1468,9 +1428,9 @@ function avgBindHover(canvasId) {
     ctx.restore();
 
     const ts = avgTodayTimes[ci];
-    const date = ts ? new Date(ts * 1000) : null;
+    const date = ts ? chinaTimeParts(ts * 1000) : null;
     const timeStr = date
-      ? `${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')} ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`
+      ? `${date.month}-${date.day} ${date.hour}:${date.minute}`
       : String(ci);
     let html = `<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">${timeStr}</div>`;
     layers.forEach(l => {
@@ -1550,8 +1510,7 @@ async function avgLoadAndRender() {
   });
 
   if (isToday) {
-    const now = new Date();
-    avgCutoffSlot = Math.max(0, now.getHours() * 12 + Math.floor(now.getMinutes() / 5) - 1);
+    avgCutoffSlot = Math.max(0, chinaSlotIndex() - 1);
   } else {
     avgCutoffSlot = 287;
   }
@@ -1596,7 +1555,7 @@ function showErrorOverlay(status) {
 
   const parts = [];
   if (lastSuccessTime) {
-    parts.push(`上次成功：${new Date(lastSuccessTime).toLocaleTimeString('zh-CN')}`);
+    parts.push(`上次成功：${formatChinaClock(lastSuccessTime)}`);
   }
   parts.push(`连续失败 ${consecutiveFailures} 次`);
   meta.textContent = parts.join(' · ');

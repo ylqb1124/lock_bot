@@ -1,15 +1,17 @@
-# PM2 进程守护配置
-# 用法:
-#   npm install -g pm2   (或 nvm 环境)
-#   pm2 start pm2.config.cjs
-#   pm2 save              # 保存进程列表，重启后自动恢复
-#   pm2 startup           # 设置开机自启
+// PM2 进程守护配置
+// 用法:
+//   npm install -g pm2   (或 nvm 环境)
+//   pm2 start pm2.config.cjs
+//   pm2 save              // 保存进程列表，重启后自动恢复
+//   pm2 startup           // 设置开机自启
+
+const path = require('path');
 
 module.exports = {
   apps: [{
     name: "xpu-monitor",
-    script: "proxy.js",
-    cwd: __dirname,
+    script: "server/proxy.cjs",
+    cwd: path.join(__dirname, "web"),
     interpreter: "node",
     env: {
       NODE_ENV: "production",
@@ -26,8 +28,8 @@ module.exports = {
     restart_delay: 5000,
     // 日志
     log_date_format: "YYYY-MM-DD HH:mm:ss",
-    error_file: "logs/pm2-error.log",
-    out_file: "logs/pm2-out.log",
+    error_file: path.join(__dirname, "logs/pm2-error.log"),
+    out_file: path.join(__dirname, "logs/pm2-out.log"),
     merge_logs: true,
   }],
 };
