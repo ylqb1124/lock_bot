@@ -13,8 +13,8 @@ const CST_OFFSET_SECONDS = 8 * 60 * 60;
 const CARD_COUNT = 8;
 
 function formatMonqueryDateTime(timestamp) {
-  const date = new Date(timestamp * 1000);
-  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+  const date = new Date((timestamp + CST_OFFSET_SECONDS) * 1000);
+  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(date.getUTCDate()).padStart(2, '0')}${String(date.getUTCHours()).padStart(2, '0')}${String(date.getUTCMinutes()).padStart(2, '0')}${String(date.getUTCSeconds()).padStart(2, '0')}`;
 }
 
 function cstDateKey(timestamp) {
