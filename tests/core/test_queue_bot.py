@@ -767,7 +767,24 @@ def test_show_error(bot):
 def test_print_help(bot):
     """Test print help."""
     msg = bot.print_help("user1")
-    assert "📖【使用方法】" in msg["message"]["body"][0]["content"], "Help message displayed incorrectly"
+    content = msg["message"]["body"][0]["content"]
+    assert "📖【使用方法】" in content, "Help message displayed incorrectly"
+    assert "当前使用者不可续锁或预约同一节点" in content
+    assert "队首会在节点空闲时自动锁定" in content
+    assert "slock" not in content
+    assert "lock、book 或 take 的时长不能超过3.0 小时" in content
+
+
+def test_print_help_respects_queue_notification_and_relock_config(bot):
+    bot.config.set_val("EARLY_NOTIFY", True)
+    bot.config.set_val("TIME_ALERT", 15 * 60)
+    bot.config.set_val("FORBID_RELOCK", False)
+
+    content = bot.print_help("user1")["message"]["body"][0]["content"]
+
+    assert "当时间剩余15 分钟,会提醒一次" in content
+    assert "资源时间用时耗尽后,会进行提醒" not in content
+    assert "重复lock会增加时长" in content
 
 
 def test_timer_routine_trigger(bot, monkeypatch):

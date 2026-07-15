@@ -233,7 +233,7 @@ class QueueBot(NodeBot):
             return error_reply
 
         content = t("success.take_success_by", config=self.config, user_id=user_id)
-        content += self._msg_with_usage("label.before_take")
+        content += self._msg_with_usage("label.before_take", node_key=node_keys)
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
@@ -284,7 +284,7 @@ class QueueBot(NodeBot):
                 user_info["is_notified"] = False
                 node["current_users"] = [user_info]
 
-            content += self._msg_with_usage("label.after_take")
+            content += self._msg_with_usage("label.after_take", node_key=node_keys)
             reply = self.adapter.build_reply(content, list(users_to_notify))
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
@@ -302,14 +302,14 @@ class QueueBot(NodeBot):
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             users = set([user_id])
             content = t("success.kicklock_cleared", config=self.config, user_id=user_id)
-            content += self._msg_with_usage("label.before_release")
+            content += self._msg_with_usage("label.before_release", node_key=node_keys)
             for node_key, node in zip(node_keys, nodes):
                 for user_info in node["current_users"]:
                     users.add(user_info["user_id"])
                     self._record_occupancy_end(node_key, user_info, node["status"])
                 node["status"] = "idle"
                 node["current_users"] = []
-            content += self._msg_with_usage("label.after_release")
+            content += self._msg_with_usage("label.after_release", node_key=node_keys)
             reply = self.adapter.build_reply(content, list(users))
             log_to_file(user_id, "kicklock", node_keys, config=self.config)
             self._save_and_notify()
@@ -321,13 +321,31 @@ class QueueBot(NodeBot):
         parts.append(t("help.section1_title", config=self.config))
         parts.append(
             t(
-                "help.rule1_default_duration",
+                "help.queue_rule1_forbid_relock"
+                if self.config.get_val("FORBID_RELOCK")
+                else "help.queue_rule1_allow_relock",
                 config=self.config,
                 default_duration=format_duration(self.config.get_val("DEFAULT_DURATION"), config=self.config),
             )
         )
-        parts.append(t("help.rule2_post_expiry_notification", config=self.config))
+        if self.config.get_val("EARLY_NOTIFY"):
+            parts.append(
+                t(
+                    "help.rule2_early_notification",
+                    config=self.config,
+                    time_alert=format_duration(self.config.get_val("TIME_ALERT"), config=self.config),
+                )
+            )
+        else:
+            parts.append(t("help.rule2_post_expiry_notification", config=self.config))
         return "".join(parts)
+
+    def _help_max_duration_warning(self, max_duration):
+        return t(
+            "help.max_duration_warning_queue",
+            config=self.config,
+            max_duration=format_duration(max_duration, config=self.config),
+        )
 
     def _help_commands(self):
         cluster_configs = self.config.get_val("CLUSTER_CONFIGS")
@@ -344,11 +362,23 @@ class QueueBot(NodeBot):
         if example_node1 is not None:
             parts.append(f"    lock {example_node0},{example_node1} 2h\n")
         # 2. Book (queue; directly locks an idle node, default 2h)
-        parts.append(t("help.section_booking_title", config=self.config))
+        parts.append(
+            t(
+                "help.section_booking_title",
+                config=self.config,
+                default_duration=format_duration(self.config.get_val("DEFAULT_DURATION"), config=self.config),
+            )
+        )
         parts.append(f"    book {example_node0}\n")
         parts.append(f"    book {example_node0} 2h\n")
         # 3. Take (preempt current holder)
-        parts.append(t("help.section_take_title", config=self.config))
+        parts.append(
+            t(
+                "help.section_take_title",
+                config=self.config,
+                default_duration=format_duration(self.config.get_val("DEFAULT_DURATION"), config=self.config),
+            )
+        )
         parts.append(f"    take {example_node0} 2h\n")
         # 4. Release own resource / cancel own booking (unlock and free are interchangeable)
         parts.append(t("help.section_release_title", config=self.config))

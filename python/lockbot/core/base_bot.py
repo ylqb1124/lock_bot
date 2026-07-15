@@ -225,11 +225,7 @@ class BaseLockBot:
         # ---- footer ----
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         if max_dur > 0:
-            reply_info += t(
-                "help.max_duration_warning",
-                config=self.config,
-                max_duration=format_duration(max_dur, config=self.config),
-            )
+            reply_info += self._help_max_duration_warning(max_dur)
 
         # Compact footer line
         footer_parts = [f"v{_get_version()}"]
@@ -269,6 +265,14 @@ class BaseLockBot:
     def _help_commands(self):
         """Return the command-section of the help text.  Override in subclasses."""
         return ""
+
+    def _help_max_duration_warning(self, max_duration):
+        """Return the bot-type-specific maximum-duration notice for help."""
+        return t(
+            "help.max_duration_warning",
+            config=self.config,
+            max_duration=format_duration(max_duration, config=self.config),
+        )
 
     _site_cache = {}
     _site_cache_ts = 0.0

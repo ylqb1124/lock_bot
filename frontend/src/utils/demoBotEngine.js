@@ -69,6 +69,8 @@ const _MSGS = {
     'help.section1_title': '1. Request resource\n',
     'help.rule1_default_duration':
       '    Rule 1: Default duration {default_duration}, repeated lock extends time, d(day),h(hour),m(min)\n',
+    'help.rule2_early_notification':
+      '    Rule 2: A reminder will be sent when {time_alert} remaining\n',
     'help.rule2_post_expiry_notification':
       '    Rule 2: A reminder will be sent after resource expires\n',
     'help.rule3_lock_modes':
@@ -80,6 +82,8 @@ const _MSGS = {
     'help.section5_title': '5. Query:\n',
     'help.query_at_bot': '    Just @ the bot\n',
     'help.max_duration_warning': 'Note: consecutive lock/slock cannot exceed {max_duration}\n\n',
+    'help.max_duration_warning_queue':
+      'Note: lock, book, or take duration cannot exceed {max_duration}\n\n',
     'help.bot_version': 'Bot version: {version}\n',
     'help.bot_id': 'Bot ID: {bot_id}\n',
     'help.bot_owner': 'Owner: {owner}\n',
@@ -108,19 +112,27 @@ const _MSGS = {
     'help.resource_list_title': 'Resource list:\n',
     'help.resource_list_item': '    {node_key}: dev_id 0~{max_dev}\n',
     // Help QUEUE extras
-    'help.rule3_lock_exclusive': '    Rule 3: lock for exclusive access\n',
-    'help.section_booking_title': '2. Book\n',
+    'help.queue_rule1_forbid_relock':
+      '    Rule 1: Default duration {default_duration}, d(day),h(hour),m(min); current holders cannot relock or book the same node\n',
+    'help.queue_rule1_allow_relock':
+      '    Rule 1: Default duration {default_duration}, d(day),h(hour),m(min); repeated lock extends time\n',
+    'help.rule3_lock_exclusive':
+      '    Rule 3: lock for exclusive access; allowed only when idle with no queue or when you are the queue head\n',
+    'help.section_booking_title':
+      '2. Book (locks immediately only when idle with no queue; otherwise joins the queue; the head is auto-locked when the node is idle; default {default_duration})\n',
     'help.book_example': '    book {node} (book node {node})\n',
     'help.book_duration_example': '    book {node} {duration} (book node {node} for {duration})\n',
-    'help.section_take_title': '3. Take (preempt)\n',
+    'help.section_take_title':
+      '3. Take (preempts immediately and returns the holder to the queue head; default {default_duration})\n',
     'help.take_example': '    take {node} (take node {node})\n',
     'help.section_release_title': '4. Release resource (unlock and free are interchangeable)\n',
     'help.section_kickout_title':
       "5. Force release others' resource (will notify affected users)\n",
     'help.section_cancel_booking_title': '5. Cancel booking\n',
-    'help.section_kicklock_title': '7. Force release lock (booking info preserved)\n',
-    'help.section_help_title_queue': '6. Help: help or h\n',
-    'help.section_query_title_queue': '7. Query:\n',
+    'help.section_kicklock_title':
+      '6. Force release current lock (keeps the queue; its head is then auto-locked)\n',
+    'help.section_help_title_queue': '7. Help: help or h\n',
+    'help.section_query_title_queue': '8. Query:\n',
   },
   zh: {
     // Duration
@@ -176,6 +188,7 @@ const _MSGS = {
     'help.section1_title': '1. 申请资源\n',
     'help.rule1_default_duration':
       '    规则1: 默认时间{default_duration}, 重复lock增加时间, d(天),h(时),m(分)\n',
+    'help.rule2_early_notification': '    规则2: 当时间剩余{time_alert},会提醒一次\n',
     'help.rule2_post_expiry_notification': '    规则2: 资源时间用时耗尽后,会进行提醒\n',
     'help.rule3_lock_modes': '    规则3: lock申请独占资源, slock申请共享资源(可多人同时slock)\n',
     'help.section2_title': '2. 释放资源 (unlock和free通用)\n',
@@ -185,6 +198,7 @@ const _MSGS = {
     'help.section5_title': '5. 查询:\n',
     'help.query_at_bot': '    直接at机器人\n',
     'help.max_duration_warning': '【注意: 目前禁止连续lock/slock超过{max_duration}】\n\n',
+    'help.max_duration_warning_queue': '【注意: lock、book 或 take 的时长不能超过{max_duration}】\n\n',
     'help.bot_version': '机器人版本: {version}\n',
     'help.bot_id': '机器人ID: {bot_id}\n',
     'help.bot_owner': '管理人: {owner}\n',
@@ -211,18 +225,23 @@ const _MSGS = {
     'help.resource_list_title': '资源列表:\n',
     'help.resource_list_item': '    {node_key}: dev_id 0~{max_dev}\n',
     // Help QUEUE extras
-    'help.rule3_lock_exclusive': '    规则3: lock申请独占资源\n',
-    'help.section_booking_title': '2. 排队\n',
+    'help.queue_rule1_forbid_relock':
+      '    规则1: 默认时长{default_duration}, d(天),h(时),m(分); 当前使用者不可续锁或预约同一节点\n',
+    'help.queue_rule1_allow_relock':
+      '    规则1: 默认时长{default_duration}, d(天),h(时),m(分); 重复lock会增加时长\n',
+    'help.rule3_lock_exclusive':
+      '    规则3: lock申请独占资源; 节点空闲且无人排队或自己为队首时才可申请\n',
+    'help.section_booking_title': '2. 排队 (空闲且无人排队时立即锁定，否则加入队尾; 队首会在节点空闲时自动锁定; 默认{default_duration})\n',
     'help.book_example': '    book {node} (排队等候{node}节点)\n',
     'help.book_duration_example': '    book {node} {duration} (排队等候{node}节点{duration})\n',
-    'help.section_take_title': '3. 抢占\n',
+    'help.section_take_title': '3. 抢占 (立即获得节点，原使用者回到队首; 默认{default_duration})\n',
     'help.take_example': '    take {node} (抢占{node}节点)\n',
     'help.section_release_title': '4. 释放资源 (unlock和free通用)\n',
     'help.section_kickout_title': '5. 强制释放他人资源 (会at相关人员)\n',
     'help.section_cancel_booking_title': '5. 取消排队\n',
-    'help.section_kicklock_title': '7. 强制释放锁(排队信息不清除)\n',
-    'help.section_help_title_queue': '6. 帮助: help或者h\n',
-    'help.section_query_title_queue': '7. 查询:\n',
+    'help.section_kicklock_title': '6. 强制释放当前锁 (保留排队，队首随后自动锁定)\n',
+    'help.section_help_title_queue': '7. 帮助: help或者h\n',
+    'help.section_query_title_queue': '8. 查询:\n',
   },
 }
 
@@ -393,7 +412,7 @@ function nodeUsageText(state, nodeFilter, lang) {
 function queueUsageText(state, nodeFilter, lang) {
   let text = ''
   for (const [key, node] of Object.entries(state)) {
-    if (nodeFilter && key !== nodeFilter) continue
+    if (nodeFilter && (Array.isArray(nodeFilter) ? !nodeFilter.includes(key) : key !== nodeFilter)) continue
     if (node.status === 'idle') {
       text += `${key} ${_t(lang, 'status.idle')}\n`
     } else {
@@ -485,6 +504,9 @@ export function executeCommand(state, userId, command, botType, config, lang = '
   const CLUSTER_CONFIGS = config.CLUSTER_CONFIGS || {}
   const BOT_ID = config.BOT_ID || ''
   const BOT_OWNER = config.BOT_OWNER || ''
+  const FORBID_RELOCK = config.FORBID_RELOCK !== false
+  const EARLY_NOTIFY = config.EARLY_NOTIFY === true
+  const TIME_ALERT = config.TIME_ALERT || 300
   const clusterKeys = Array.isArray(CLUSTER_CONFIGS)
     ? CLUSTER_CONFIGS
     : Object.keys(CLUSTER_CONFIGS)
@@ -534,7 +556,10 @@ export function executeCommand(state, userId, command, botType, config, lang = '
       MAX_LOCK_DURATION,
       lang,
       BOT_ID,
-      BOT_OWNER
+      BOT_OWNER,
+      FORBID_RELOCK,
+      EARLY_NOTIFY,
+      TIME_ALERT
     )
   }
 
@@ -1059,7 +1084,7 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     const timestamp = Math.floor(Date.now() / 1000)
 
     // Capture before state and affected users
-    const beforeText = usageText()
+    const beforeText = usageText(uniqueKeys)
     const preempted = new Set()
 
     for (const nk of uniqueKeys) {
@@ -1100,7 +1125,7 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     }
 
     preempted.delete(userId)
-    let reply = `${_t(lang, 'success.take_success_by', { user_id: userId })}${_t(lang, 'label.before_take')}${beforeText}\n${_t(lang, 'label.after_take')}${usageText()}`
+    let reply = `${_t(lang, 'success.take_success_by', { user_id: userId })}${_t(lang, 'label.before_take')}${beforeText}\n${_t(lang, 'label.after_take')}${usageText(uniqueKeys)}`
     if (preempted.size > 0) {
       reply += [...preempted].map((u) => `@${u}`).join(' ') + '\n'
     }
@@ -1445,7 +1470,10 @@ function _buildHelp(
   MAX_LOCK_DURATION,
   lang,
   botId,
-  botOwner
+  botOwner,
+  forbidRelock = true,
+  earlyNotify = false,
+  timeAlert = 300
 ) {
   const clusterKeys = Array.isArray(CLUSTER_CONFIGS)
     ? CLUSTER_CONFIGS
@@ -1455,10 +1483,19 @@ function _buildHelp(
 
   let text = _t(lang, 'help.title')
   text += _t(lang, 'help.section1_title')
-  text += _t(lang, 'help.rule1_default_duration', {
+  let durationRuleKey = 'help.rule1_default_duration'
+  if (botType === 'QUEUE') {
+    durationRuleKey = forbidRelock ? 'help.queue_rule1_forbid_relock' : 'help.queue_rule1_allow_relock'
+  }
+  text += _t(lang, durationRuleKey, {
     default_duration: formatDuration(DEFAULT_DURATION, lang),
   })
-  text += _t(lang, 'help.rule2_post_expiry_notification')
+  const notificationRuleKey = botType === 'QUEUE' && earlyNotify
+    ? 'help.rule2_early_notification'
+    : 'help.rule2_post_expiry_notification'
+  text += _t(lang, notificationRuleKey, {
+    time_alert: formatDuration(timeAlert, lang),
+  })
 
   if (botType === 'DEVICE') {
     text += _t(lang, 'help.rule3_lock_modes')
@@ -1492,22 +1529,24 @@ function _buildHelp(
     text += _t(lang, 'help.lock_duration_example', { node: ex0, duration: '3d' })
     if (ex1)
       text += _t(lang, 'help.lock_duration_example', { node: `${ex0},${ex1}`, duration: '2h' })
-    text += _t(lang, 'help.slock_example', { node: ex0 })
-    text += _t(lang, 'help.section2_title')
+    text += _t(lang, 'help.section_booking_title', {
+      default_duration: formatDuration(DEFAULT_DURATION, lang),
+    })
+    text += _t(lang, 'help.book_example', { node: ex0 })
+    text += _t(lang, 'help.book_duration_example', { node: ex0, duration: '2h' })
+    text += _t(lang, 'help.section_take_title', {
+      default_duration: formatDuration(DEFAULT_DURATION, lang),
+    })
+    text += _t(lang, 'help.take_example', { node: ex0 })
+    text += _t(lang, 'help.section_release_title')
     text += _t(lang, 'help.unlock_example', { node: ex0 })
     if (ex1) text += _t(lang, 'help.unlock_example', { node: `${ex0},${ex1}` })
     text += _t(lang, 'help.free_all')
     text += _t(lang, 'help.section_kickout_title')
     text += _t(lang, 'help.kickout_example', { node: ex0 })
     if (ex1) text += _t(lang, 'help.kickout_example', { node: `${ex0},${ex1}` })
-    text += _t(lang, 'help.section_booking_title')
-    text += _t(lang, 'help.book_duration_example', { node: ex0, duration: '2h' })
-    text += _t(lang, 'help.section_cancel_booking_title')
-    text += _t(lang, 'help.unlock_example', { node: ex0 })
-    text += _t(lang, 'help.section_take_title')
-    text += _t(lang, 'help.take_example', { node: ex0 })
     text += _t(lang, 'help.section_kicklock_title')
-    text += _t(lang, 'help.kickout_example', { node: ex0 })
+    text += `    kicklock ${ex0}\n`
     text += _t(lang, 'help.section_help_title_queue')
     text += _t(lang, 'help.section_query_title_queue')
     text += _t(lang, 'help.query_at_bot')
@@ -1535,7 +1574,7 @@ function _buildHelp(
 
   text += '\n'
   if (MAX_LOCK_DURATION > 0) {
-    text += _t(lang, 'help.max_duration_warning', {
+    text += _t(lang, botType === 'QUEUE' ? 'help.max_duration_warning_queue' : 'help.max_duration_warning', {
       max_duration: formatDuration(MAX_LOCK_DURATION, lang),
     })
   }

@@ -98,6 +98,7 @@ MESSAGES = {
     "help.section5_title": "5. 查询:\n",
     "help.query_at_bot": "    直接at机器人\n",
     "help.max_duration_warning": "【注意: 目前禁止连续lock/slock超过{max_duration}】\n\n",
+    "help.max_duration_warning_queue": "【注意: lock、book 或 take 的时长不能超过{max_duration}】\n\n",
     "help.bot_version": "机器人版本: {version}\n",
     "help.bot_id": "机器人ID: {bot_id}\n",
     "help.bot_owner": "管理人: {owner}\n",
@@ -127,15 +128,24 @@ MESSAGES = {
     "help.resource_list_title": "资源列表:\n",
     "help.resource_list_item": "    {node_key}: dev_id 0~{max_dev}\n",
     # ── Help text (QUEUE) extras ──
-    "help.section_booking_title": "2. 排队 (机器空闲时直接锁定; 不填时长默认2h)\n",
+    "help.queue_rule1_forbid_relock": (
+        "    规则1: 默认时长{default_duration}, d(天),h(时),m(分); 当前使用者不可续锁或预约同一节点\n"
+    ),
+    "help.queue_rule1_allow_relock": (
+        "    规则1: 默认时长{default_duration}, d(天),h(时),m(分); 重复lock会增加时长\n"
+    ),
+    "help.section_booking_title": (
+        "2. 排队 (空闲且无人排队时立即锁定，否则加入队尾; "
+        "队首会在节点空闲时自动锁定; 默认{default_duration})\n"
+    ),
     "help.book_example": "    book {node} (排队等候{node}节点)\n",
     "help.book_duration_example": "    book {node} {duration} (排队等候{node}节点{duration})\n",
-    "help.section_take_title": "3. 抢占\n",
+    "help.section_take_title": "3. 抢占 (立即获得节点，原使用者回到队首; 默认{default_duration})\n",
     "help.take_example": "    take {node} (抢占{node}节点)\n",
     "help.section_release_title": "4. 释放资源 / 取消排队 (unlock和free通用)\n",
     "help.section_kickout_title": "5. 强制释放他人资源 (会at相关人员)\n",
-    "help.section_kicklock_title": "6. 强制释放锁(排队信息不清除)\n",
-    "help.rule3_lock_exclusive": "    规则3: lock申请独占资源\n",
+    "help.section_kicklock_title": "6. 强制释放当前锁 (保留排队，队首随后自动锁定)\n",
+    "help.rule3_lock_exclusive": "    规则3: lock申请独占资源; 节点空闲且无人排队或自己为队首时才可申请\n",
     "help.section_help_title_queue": "7. 帮助: help或者h\n",
     "help.section_query_title_queue": "8. 查询:\n",
     # ── Notify messages (queue) ──

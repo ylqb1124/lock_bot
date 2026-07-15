@@ -102,6 +102,7 @@ MESSAGES = {
     "help.section5_title": "5. Query:\n",
     "help.query_at_bot": "    Just @ the bot\n",
     "help.max_duration_warning": "Note: consecutive lock/slock cannot exceed {max_duration}\n\n",
+    "help.max_duration_warning_queue": "Note: lock, book, or take duration cannot exceed {max_duration}\n\n",
     "help.bot_version": "Bot version: {version}\n",
     "help.bot_id": "Bot ID: {bot_id}\n",
     "help.bot_owner": "Owner: {owner}\n",
@@ -131,15 +132,30 @@ MESSAGES = {
     "help.resource_list_title": "Resource list:\n",
     "help.resource_list_item": "    {node_key}: dev_id 0~{max_dev}\n",
     # ── Help text (QUEUE) extras ──
-    "help.section_booking_title": "2. Book (locks directly if node is idle; default 2h if no duration)\n",
+    "help.queue_rule1_forbid_relock": (
+        "    Rule 1: Default duration {default_duration}, d(day),h(hour),m(min); "
+        "current holders cannot relock or book the same node\n"
+    ),
+    "help.queue_rule1_allow_relock": (
+        "    Rule 1: Default duration {default_duration}, d(day),h(hour),m(min); repeated lock extends time\n"
+    ),
+    "help.section_booking_title": (
+        "2. Book (locks immediately only when idle with no queue; otherwise joins the queue; "
+        "the head is auto-locked when the node is idle; default {default_duration})\n"
+    ),
     "help.book_example": "    book {node} (book node {node})\n",
     "help.book_duration_example": "    book {node} {duration} (book node {node} for {duration})\n",
-    "help.section_take_title": "3. Take (preempt)\n",
+    "help.section_take_title": (
+        "3. Take (preempts immediately and returns the holder to the queue head; "
+        "default {default_duration})\n"
+    ),
     "help.take_example": "    take {node} (take node {node})\n",
     "help.section_release_title": "4. Release resource / cancel booking (unlock and free are interchangeable)\n",
     "help.section_kickout_title": "5. Force release others' resource (will notify affected users)\n",
-    "help.section_kicklock_title": "6. Force release lock (booking info preserved)\n",
-    "help.rule3_lock_exclusive": "    Rule 3: lock for exclusive access\n",
+    "help.section_kicklock_title": "6. Force release current lock (keeps the queue; its head is then auto-locked)\n",
+    "help.rule3_lock_exclusive": (
+        "    Rule 3: lock for exclusive access; allowed only when idle with no queue or when you are the queue head\n"
+    ),
     "help.section_help_title_queue": "7. Help: help or h\n",
     "help.section_query_title_queue": "8. Query:\n",
     # ── Notify messages (queue) ──

@@ -44,6 +44,8 @@ def execute_command(msg_data, bot):
         return bot.unlock(user_id, rcv_info)
     elif cmd == "kickout":
         return bot.kickout(user_id, rcv_info)
+    elif cmd == "kicklock":
+        return bot.kicklock(user_id, rcv_info)
     elif cmd == "book":
         return bot.book(user_id, rcv_info)
     elif cmd == "take":
