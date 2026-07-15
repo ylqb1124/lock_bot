@@ -25,6 +25,13 @@ class TrendStore {
         fetched_at INTEGER NOT NULL,
         PRIMARY KEY (cluster_key, start_at, end_at)
       );
+      CREATE TABLE IF NOT EXISTS trend_node_windows (
+        cluster_key TEXT NOT NULL,
+        start_at INTEGER NOT NULL,
+        end_at INTEGER NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        PRIMARY KEY (cluster_key, start_at, end_at)
+      );
       CREATE INDEX IF NOT EXISTS trend_samples_range ON trend_samples (cluster_key, sampled_at);
       CREATE TABLE IF NOT EXISTS trend_node_samples (
         cluster_key TEXT NOT NULL,
@@ -64,6 +71,11 @@ class TrendStore {
       VALUES (?, ?, ?, ?)
       ON CONFLICT(cluster_key, start_at, end_at) DO UPDATE SET fetched_at = excluded.fetched_at
     `);
+    this.upsertNodeWindow = this.db.prepare(`
+      INSERT INTO trend_node_windows (cluster_key, start_at, end_at, fetched_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(cluster_key, start_at, end_at) DO UPDATE SET fetched_at = excluded.fetched_at
+    `);
     this.readSamples = this.db.prepare(`
       SELECT sampled_at, xpu_avg, memory_avg
       FROM trend_samples
@@ -79,14 +91,20 @@ class TrendStore {
         updated_at = excluded.updated_at
     `);
     this.readNodeSamples = this.db.prepare(`
-      SELECT sampled_at, xpu_avg, memory_avg
+      SELECT sampled_at, AVG(xpu_avg) AS xpu_avg, AVG(memory_avg) AS memory_avg
       FROM trend_node_samples
       WHERE cluster_key = ? AND node_name IN (SELECT value FROM json_each(?))
         AND sampled_at >= ? AND sampled_at <= ?
+      GROUP BY sampled_at
       ORDER BY sampled_at
     `);
     this.readWindows = this.db.prepare(`
       SELECT start_at, end_at FROM trend_windows
+      WHERE cluster_key = ? AND end_at >= ? AND start_at <= ?
+      ORDER BY start_at
+    `);
+    this.readNodeWindows = this.db.prepare(`
+      SELECT start_at, end_at FROM trend_node_windows
       WHERE cluster_key = ? AND end_at >= ? AND start_at <= ?
       ORDER BY start_at
     `);
@@ -108,15 +126,11 @@ class TrendStore {
   }
 
   missingWindows(clusterKey, startAt, endAt) {
-    const windows = this.readWindows.all(clusterKey, startAt, endAt);
-    const missing = [];
-    let cursor = startAt;
-    for (const window of windows) {
-      if (window.start_at > cursor) missing.push([cursor, Math.min(endAt, window.start_at - STEP_SECONDS)]);
-      cursor = Math.max(cursor, window.end_at + STEP_SECONDS);
-    }
-    if (cursor <= endAt) missing.push([cursor, endAt]);
-    return mergeWindows(missing);
+    return findMissingWindows(this.readWindows.all(clusterKey, startAt, endAt), startAt, endAt);
+  }
+
+  missingNodeWindows(clusterKey, startAt, endAt) {
+    return findMissingWindows(this.readNodeWindows.all(clusterKey, startAt, endAt), startAt, endAt);
   }
 
   saveWindow(clusterKey, startAt, endAt, samples) {
@@ -136,14 +150,14 @@ class TrendStore {
     return this.readSamples.all(clusterKey, startAt, endAt);
   }
 
-  saveNodeSamples(clusterKey, nodeSamples) {
-    if (!nodeSamples.length) return;
+  saveNodeSamples(clusterKey, startAt, endAt, nodeSamples) {
     const updatedAt = Math.floor(Date.now() / 1000);
     this.db.exec('BEGIN');
     try {
       for (const sample of nodeSamples) {
         this.upsertNodeSample.run(clusterKey, sample.node, sample.sampledAt, sample.xpu, sample.memory, updatedAt);
       }
+      this.upsertNodeWindow.run(clusterKey, startAt, endAt, updatedAt);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -176,6 +190,17 @@ class TrendStore {
   }
 }
 
+
+function findMissingWindows(windows, startAt, endAt) {
+  const missing = [];
+  let cursor = startAt;
+  for (const window of windows) {
+    if (window.start_at > cursor) missing.push([cursor, Math.min(endAt, window.start_at - STEP_SECONDS)]);
+    cursor = Math.max(cursor, window.end_at + STEP_SECONDS);
+  }
+  if (cursor <= endAt) missing.push([cursor, endAt]);
+  return mergeWindows(missing);
+}
 
 function mergeWindows(windows) {
   return windows.filter(([start, end]) => start <= end).sort((a, b) => a[0] - b[0]).reduce((merged, [start, end]) => {

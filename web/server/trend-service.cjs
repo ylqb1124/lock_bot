@@ -238,6 +238,7 @@ function createTrendService(config, store) {
       await shared(`monquery:${windowStart}:${windowEnd}`, async () => {
         const samples = await fetchMonqueryWindow(config, windowStart, windowEnd);
         store.saveWindow(CLUSTER_KEY, windowStart, windowEnd, samples.aggregate);
+        store.saveNodeSamples(CLUSTER_KEY, windowStart, windowEnd, samples.nodes);
       });
       fetchedWindows += 1;
     }
@@ -280,10 +281,13 @@ function createTrendService(config, store) {
 
   return {
     async query(startAt, endAt, authorization, nodes = null) {
+      startAt = Math.floor(startAt / STEP_SECONDS) * STEP_SECONDS;
+      endAt = Math.floor(endAt / STEP_SECONDS) * STEP_SECONDS;
       const todayStart = todayStartCst();
       const historicalEnd = Math.min(endAt, todayStart - STEP_SECONDS);
-      // Node samples start with this feature. Do not reinterpret legacy aggregate rows as node history.
-      const historicalMissing = !nodes && historicalEnd >= startAt ? store.missingWindows(CLUSTER_KEY, startAt, historicalEnd) : [];
+      const historicalMissing = historicalEnd >= startAt
+        ? (nodes ? store.missingNodeWindows(CLUSTER_KEY, startAt, historicalEnd) : store.missingWindows(CLUSTER_KEY, startAt, historicalEnd))
+        : [];
       const fetchedWindows = historicalMissing.length ? await backfillMonquery(historicalMissing) : 0;
       const liveSamples = new Map();
       let today = 'not-requested';
@@ -292,25 +296,14 @@ function createTrendService(config, store) {
         try {
           const samples = await shared(`live:${todayStartAt}:${endAt}`, () => fetchMonqueryWindow(config, todayStartAt, endAt));
           store.saveWindow(CLUSTER_KEY, todayStartAt, endAt, samples.aggregate);
-          store.saveNodeSamples(CLUSTER_KEY, samples.nodes);
+          store.saveNodeSamples(CLUSTER_KEY, todayStartAt, endAt, samples.nodes);
           samples.aggregate.forEach(sample => liveSamples.set(sample.sampledAt, sample));
           today = 'live';
         } catch { today = 'stale'; }
       }
       const samples = new Map();
       if (nodes) {
-        for (const row of store.readNodeRange(CLUSTER_KEY, nodes, startAt, endAt)) {
-          const point = samples.get(row.sampled_at) || { xpuSum: 0, xpuCount: 0, memorySum: 0, memoryCount: 0 };
-          if (Number.isFinite(row.xpu_avg)) { point.xpuSum += row.xpu_avg; point.xpuCount += 1; }
-          if (Number.isFinite(row.memory_avg)) { point.memorySum += row.memory_avg; point.memoryCount += 1; }
-          samples.set(row.sampled_at, point);
-        }
-        for (const [timestamp, point] of samples) {
-          samples.set(timestamp, {
-            xpu_avg: point.xpuCount ? point.xpuSum / point.xpuCount : null,
-            memory_avg: point.memoryCount ? point.memorySum / point.memoryCount : null,
-          });
-        }
+        store.readNodeRange(CLUSTER_KEY, nodes, startAt, endAt).forEach(row => samples.set(row.sampled_at, row));
       } else {
         store.readRange(CLUSTER_KEY, startAt, endAt).forEach(row => samples.set(row.sampled_at, row));
         liveSamples.forEach((sample, timestamp) => samples.set(timestamp, { xpu_avg: sample.xpu, memory_avg: sample.memory }));

@@ -477,14 +477,10 @@ async function load() {
       }
     }));
     const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(todayStart), formatMonqueryDateTime(today));
-    const [stateResults, currentData] = await Promise.all([statePromise, currentPromise]);
+    const trendPromise = fetchCachedClusterTrend(queryStart, queryEnd, props.token);
+    const [stateResults, currentData, trendData] = await Promise.all([statePromise, currentPromise, trendPromise]);
     if (sequence !== requestSequence) return;
     const currentNodes = adaptStates(stateResults, currentData);
-    const trendNodes = currentNodes
-      .map(node => node.name)
-      .filter(name => /^node\d+$/.test(name));
-    const trendData = await fetchCachedClusterTrend(queryStart, queryEnd, props.token, trendNodes);
-    if (sequence !== requestSequence) return;
     trendDataAsOf.value = trendData.dataAsOf;
     lastRefreshAt.value = Date.now();
     const rawTrend = trendData;
