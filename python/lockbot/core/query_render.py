@@ -300,12 +300,15 @@ def build_device_query(bot_state, user_id, config, node_filter=None, xpu_usage=N
 def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=None, memory_based=True):
     """Build full markdown query text for a NODE/QUEUE bot.
 
-    memory_based=True (NODE): status badge is driven by GPU memory utilization
-    and the lock column shows UNLOCK when free, mirroring DEVICE. When xpu_usage
-    is provided a 7-column table is rendered.
+    Status badge is driven by GPU memory utilization whenever xpu_usage is
+    available (regardless of memory_based), falling back to lock-based status
+    (idle→FREE, locked→BUSY) when no XPU data was collected.
 
-    memory_based=False (QUEUE): legacy lock-based status (idle→FREE, locked→BUSY)
-    with a '--' placeholder lock column; always 5 columns.
+    memory_based=True (NODE): lock column shows UNLOCK when free, mirroring
+    DEVICE. When xpu_usage is provided a 7-column table is rendered.
+
+    memory_based=False (QUEUE): '--' placeholder lock column, plus a 排队同学
+    booking column. 5 columns normally, 7 when xpu_usage is provided.
     """
     if node_filter is not None:
         bot_state = {k: v for k, v in bot_state.items() if k == node_filter}
@@ -338,7 +341,7 @@ def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=Non
     for order, (node_key, ns) in enumerate(bot_state.items()):
         rem = min_remaining(ns)
         is_mine = user_id is not None and any(u["user_id"] == user_id for u in ns.get("current_users", []))
-        if memory_based:
+        if memory_based or xpu_on:
             cat = _mem_category(_node_mem(xpu_usage, node_key), threshold)
         else:
             cat = "free" if ns["status"] == "idle" else "busy"

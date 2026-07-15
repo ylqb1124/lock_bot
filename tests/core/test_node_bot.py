@@ -116,7 +116,9 @@ def test_lock_unlock(bot):
     assert "test" in content and "user1" in content, "lock reply should include usage"
 
     reply2 = bot.unlock("user1", "unlock test")
-    assert reply2["message"]["body"][0]["content"] == "✅【资源释放成功】\n\n", "unlock resource failed"
+    content2 = reply2["message"]["body"][0]["content"]
+    assert "✅【资源释放成功】" in content2, "unlock resource failed"
+    assert "test" in content2 and "空闲" in content2, "unlock reply should include released node"
 
 
 def test_slock(bot):
@@ -129,7 +131,9 @@ def test_unlock_all(bot):
     """Test unlock all."""
     bot.lock("user1", "lock test 1h")
     reply = bot.unlock("user1", "unlock")
-    assert reply["message"]["body"][0]["content"] == "✅【资源释放成功】\n\n", "unlock all resources failed"
+    content = reply["message"]["body"][0]["content"]
+    assert "✅【资源释放成功】" in content, "unlock all resources failed"
+    assert "test" in content and "空闲" in content, "unlock all reply should include released node"
 
 
 def test_usage_display_after_lock_and_slock(bot):

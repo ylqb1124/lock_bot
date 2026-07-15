@@ -210,7 +210,7 @@ class NodeBot(BaseLockBot):
                 node["current_users"] = [user_info]
 
             reply = self.adapter.build_reply(
-                self._msg_with_usage("success.resource_locked", node_key=node_keys), [user_id]
+                t("success.resource_locked", config=self.config) + self._success_usage(node_keys), [user_id]
             )
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
@@ -271,7 +271,7 @@ class NodeBot(BaseLockBot):
                     user_info["is_notified"] = False
 
             reply = self.adapter.build_reply(
-                self._msg_with_usage("success.resource_locked", node_key=node_keys), [user_id]
+                t("success.resource_locked", config=self.config) + self._success_usage(node_keys), [user_id]
             )
             log_to_file(user_id, "slock", node_keys, duration, config=self.config)
             self._save_and_notify()
@@ -283,7 +283,14 @@ class NodeBot(BaseLockBot):
         """
         if re.match(r"^\s*(unlock|free)\s*$", command):
             with self._lock:
+                released_keys = []
                 for node_key, node in self.state.bot_state.items():
+                    had_user = (
+                        find_user_info(node["current_users"], user_id)
+                        or find_user_info(node["booking_list"], user_id)
+                    )
+                    if had_user:
+                        released_keys.append(node_key)
                     remove_user_info(node["booking_list"], user_id)
                     if node["status"] != "idle":
                         for ui in node["current_users"]:
@@ -293,7 +300,7 @@ class NodeBot(BaseLockBot):
                         if len(node["current_users"]) == 0:
                             node["status"] = "idle"
                 reply = self.adapter.build_reply(
-                    t("success.resource_released", config=self.config),
+                    t("success.resource_released", config=self.config) + self._success_usage(released_keys or None),
                     [user_id],
                 )
                 log_to_file(user_id, "unlock", "all", config=self.config)
@@ -320,7 +327,7 @@ class NodeBot(BaseLockBot):
                 if len(node["current_users"]) == 0:
                     node["status"] = "idle"
             reply = self.adapter.build_reply(
-                t("success.resource_released", config=self.config),
+                t("success.resource_released", config=self.config) + self._success_usage(node_keys),
                 [user_id],
             )
             log_to_file(user_id, "unlock", node_keys, config=self.config)
@@ -473,6 +480,9 @@ class NodeBot(BaseLockBot):
             if (node_filter is None or node_key == node_filter) and node_status["status"] == "idle"
         )
         return t("query.idle_summary_node", config=self.config, unlocked_nodes=idle_nodes, free_nodes=idle_nodes)
+
+    def _success_usage(self, node_keys):
+        return self._current_usage(node_keys)
 
     def _current_usage(self, node_filter=None, user_id=None):
         """Render NODE usage honoring USAGE_* layout config."""
