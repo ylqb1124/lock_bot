@@ -101,7 +101,8 @@ def main() -> int:
     db_url = database_url(args.data_dir, args.database_url)
     connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
     engine = create_engine(db_url, connect_args=connect_args)
-    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    # Keep the validated source configuration available after --apply commits.
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)()
     try:
         source, target, changed = sync_cluster_configs(session, args.source, args.target, args.apply)
     except SyncError as exc:

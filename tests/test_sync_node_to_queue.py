@@ -70,3 +70,31 @@ def test_sync_requires_node_source_and_queue_target(tmp_path):
         assert "must be NODE" in str(exc)
     else:
         raise AssertionError("Expected source type validation to fail")
+
+
+def test_main_apply_keeps_source_config_available_after_commit(tmp_path, monkeypatch, capsys):
+    session, user = _session(tmp_path)
+    session.add_all(
+        [
+            _bot(user.id, "lock-node", "NODE", {"node-a": "10.0.0.1"}),
+            _bot(user.id, "lock-queue", "QUEUE", {}),
+        ]
+    )
+    session.commit()
+    database_url = f"sqlite:///{tmp_path / 'lockbot.db'}"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "sync_node_to_queue.py",
+            "--source",
+            "lock-node",
+            "--target",
+            "lock-queue",
+            "--database-url",
+            database_url,
+            "--apply",
+        ],
+    )
+
+    assert sync_tool.main() == 0
+    assert "Updated 'lock-queue' with 1 node(s)" in capsys.readouterr().out
