@@ -13,7 +13,6 @@ from lockbot.core.i18n import t
 from lockbot.core.io import (
     create_or_load_device_state,
     log_to_file,
-    save_bot_state_to_file,
 )
 from lockbot.core.query_render import _get_ip, build_device_query
 from lockbot.core.utils import (
@@ -266,6 +265,7 @@ class DeviceBot(BaseLockBot):
                     user_info = find_user_info(device["current_users"], user_id)
                     if not user_info:
                         user_info = create_user_info(user_id, total_duration, timestamp, config=self.config)
+                        self._start_occupancy(user_info)
                     else:
                         total_duration += user_info["duration"]
 
@@ -339,6 +339,7 @@ class DeviceBot(BaseLockBot):
                     user_info = find_user_info(device["current_users"], user_id)
                     if not user_info:
                         user_info = create_user_info(user_id, duration, timestamp, config=self.config)
+                        self._start_occupancy(user_info)
                         device["current_users"].append(user_info)
                     else:
                         user_info["duration"] += duration
@@ -361,16 +362,15 @@ class DeviceBot(BaseLockBot):
 
         if re.match(r"^\s*(unlock|free)\s*$", command):
             with self._lock:
-                seen = set()
+                ended_at = int(time.time())
                 for node_key, devices in self.state.bot_state.items():
                     for device in devices:
                         if device["status"] != "idle":
                             for ui in device["current_users"]:
                                 if ui["user_id"] == user_id:
-                                    dedup_key = (node_key, ui["user_id"])
-                                    if dedup_key not in seen:
-                                        seen.add(dedup_key)
-                                        self._record_occupancy_end(node_key, ui, device["status"])
+                                    self._record_occupancy_end(
+                                        node_key, ui, device["status"], device_id=device["dev_id"], ended_at=ended_at
+                                    )
                             remove_user_info(device["current_users"], user_id)
                             if len(device["current_users"]) == 0:
                                 device["status"] = "idle"
@@ -399,17 +399,16 @@ class DeviceBot(BaseLockBot):
                     )
 
             with self._lock:
-                seen = set()
+                ended_at = int(time.time())
                 for node_key in node_key_list:
                     devices = self.state.bot_state[node_key]
                     for device in devices:
                         if device["status"] != "idle":
                             for ui in device["current_users"]:
                                 if ui["user_id"] == user_id:
-                                    dedup_key = (node_key, ui["user_id"])
-                                    if dedup_key not in seen:
-                                        seen.add(dedup_key)
-                                        self._record_occupancy_end(node_key, ui, device["status"])
+                                    self._record_occupancy_end(
+                                        node_key, ui, device["status"], device_id=device["dev_id"], ended_at=ended_at
+                                    )
                             remove_user_info(device["current_users"], user_id)
                             if len(device["current_users"]) == 0:
                                 device["status"] = "idle"
@@ -432,17 +431,16 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_not_requested", node_key=node_key)
                     )
 
-            seen = set()
+            ended_at = int(time.time())
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
                 for device in devices:
                     for ui in device["current_users"]:
                         if ui["user_id"] == user_id:
-                            dedup_key = (node_key, ui["user_id"])
-                            if dedup_key not in seen:
-                                seen.add(dedup_key)
-                                self._record_occupancy_end(node_key, ui, device["status"])
+                            self._record_occupancy_end(
+                                node_key, ui, device["status"], device_id=device["dev_id"], ended_at=ended_at
+                            )
                     remove_user_info(device["current_users"], user_id)
                     if len(device["current_users"]) == 0:
                         device["status"] = "idle"
@@ -468,17 +466,16 @@ class DeviceBot(BaseLockBot):
             content = t("success.resource_force_released", config=self.config, user_id=user_id)
             content += self._msg_with_usage("label.before_release", node_key=node_key_list)
 
-            seen = set()
+            ended_at = int(time.time())
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
                 for device in devices:
                     for user_info in device["current_users"]:
                         users.add(user_info["user_id"])
-                        dedup_key = (node_key, user_info["user_id"])
-                        if dedup_key not in seen:
-                            seen.add(dedup_key)
-                            self._record_occupancy_end(node_key, user_info, device["status"])
+                        self._record_occupancy_end(
+                            node_key, user_info, device["status"], device_id=device["dev_id"], ended_at=ended_at
+                        )
                     device["status"] = "idle"
                     device["current_users"] = []
 
@@ -539,7 +536,6 @@ class DeviceBot(BaseLockBot):
         alert_tuples = []
 
         with self._lock:
-            seen = set()
             for node_key, devices in self.state.bot_state.items():
                 for device in devices:
                     if device["status"] != "idle":
@@ -547,10 +543,9 @@ class DeviceBot(BaseLockBot):
                         for user_info in device["current_users"]:
                             remaining_time = remaining_duration(user_info["start_time"], user_info["duration"])
                             if remaining_time <= 0:
-                                dedup_key = (node_key, user_info["user_id"])
-                                if dedup_key not in seen:
-                                    seen.add(dedup_key)
-                                    self._record_occupancy_end(node_key, user_info, device["status"])
+                                self._record_occupancy_end(
+                                    node_key, user_info, device["status"], device_id=device["dev_id"]
+                                )
                                 removed_users_id.append(user_info["user_id"])
                                 state_changed = True
 
@@ -593,7 +588,7 @@ class DeviceBot(BaseLockBot):
                             device["status"] = "idle"
 
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state()
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")

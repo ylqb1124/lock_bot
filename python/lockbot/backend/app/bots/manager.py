@@ -39,6 +39,13 @@ def _make_occupancy_handler(bot_id: int):
     return _on_occupancy_end
 
 
+def _make_occupancy_flush_handler(bot_id: int):
+    """Return an idempotent durable outbox delivery callback."""
+    from lockbot.backend.app.bots.occupancy import record_occupancy_events
+
+    return lambda events: record_occupancy_events(bot_id, events)
+
+
 class BotManager:
     """
     Manages bot instances running in the FastAPI process.
@@ -98,7 +105,9 @@ class BotManager:
         # scheduler may release already-expired locks as soon as it runs, and
         # those releases must have occupancy recording wired up.
         instance.bot._on_state_changed = lambda: self._scheduler.reschedule_soon(bot_id)
-        instance.bot._on_occupancy_end = _make_occupancy_handler(bot_id)
+        instance.bot._on_occupancy_flush = _make_occupancy_flush_handler(bot_id)
+        # Flush events recovered from a previous process before scheduling.
+        instance.bot._persist_state()
 
         # Schedule first check immediately (outside _lock to avoid lock ordering issues)
         self._scheduler.add(

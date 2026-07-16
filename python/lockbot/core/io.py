@@ -90,6 +90,17 @@ def _load_state_from_file(state_filename):
         return {}
 
 
+def load_pending_occupancy_events(config=None):
+    """Load durable occupancy outbox entries from the bot state file."""
+    state_filename = os.path.join(_bot_dir(config), "bot_state.json")
+    try:
+        with open(state_filename, encoding="utf-8") as f:
+            events = json.load(f).get("pending_occupancy_events", [])
+        return events if isinstance(events, list) else []
+    except Exception:
+        return []
+
+
 # ── Operation logging ──────────────────────────────────────────
 
 
@@ -226,7 +237,7 @@ def create_or_load_node_state(config=None):
 # ── State persistence ──────────────────────────────────────────
 
 
-def save_bot_state_to_file(data, config=None):
+def save_bot_state_to_file(data, config=None, pending_occupancy_events=None):
     """Persist bot state to file using atomic write."""
     file_path = os.path.join(_bot_dir(config), "bot_state.json")
     dir_name = os.path.dirname(file_path)
@@ -237,7 +248,10 @@ def save_bot_state_to_file(data, config=None):
     fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"bot_state": data}, f, ensure_ascii=False, indent=4)
+            payload = {"bot_state": data}
+            if pending_occupancy_events is not None:
+                payload["pending_occupancy_events"] = pending_occupancy_events
+            json.dump(payload, f, ensure_ascii=False, indent=4)
         os.replace(tmp_path, file_path)
     except BaseException:
         with contextlib.suppress(OSError):

@@ -4,10 +4,7 @@ import re
 import time
 
 from lockbot.core.i18n import t
-from lockbot.core.io import (
-    log_to_file,
-    save_bot_state_to_file,
-)
+from lockbot.core.io import log_to_file
 from lockbot.core.node_bot import NodeBot
 from lockbot.core.query_render import build_node_query
 from lockbot.core.usage_render import (
@@ -17,7 +14,6 @@ from lockbot.core.usage_render import (
     render_line,
     sort_and_group,
 )
-from lockbot.core.xpu_collector import collect_node_usage
 from lockbot.core.utils import (
     create_user_info,
     find_user_info,
@@ -27,6 +23,7 @@ from lockbot.core.utils import (
     remaining_duration,
     remove_user_info,
 )
+from lockbot.core.xpu_collector import collect_node_usage
 
 
 class QueueBot(NodeBot):
@@ -96,7 +93,7 @@ class QueueBot(NodeBot):
                 # If any node fails the above conditions, return error
                 return self.show_error(
                     user_id,
-                    self._msg_with_usage("error.node_in_use_or_not_your_turn", sep="\n\n"),
+                    self._msg_with_usage("error.node_in_use_or_not_your_turn", node_key=node_keys, sep="\n\n"),
                 )
 
             timestamp = int(time.time())
@@ -143,6 +140,7 @@ class QueueBot(NodeBot):
                 user_info = find_user_info(node["current_users"], user_id)
                 if not user_info:
                     user_info = create_user_info(user_id, total_duration, timestamp, config=self.config)
+                    self._start_occupancy(user_info)
                 else:
                     total_duration += user_info["duration"]
                     for booking_user in node["booking_list"]:
@@ -203,6 +201,7 @@ class QueueBot(NodeBot):
                 # book an idle node with no queue == lock it directly (no waiting).
                 if node["status"] == "idle" and not node["booking_list"]:
                     user_info = create_user_info(user_id, duration, timestamp, config=self.config)
+                    self._start_occupancy(user_info)
                     node["status"] = "exclusive"
                     node["current_users"] = [user_info]
                     locked_any = True
@@ -255,7 +254,7 @@ class QueueBot(NodeBot):
                     ),
                 )
 
-            for node in nodes:
+            for node_key, node in zip(node_keys, nodes, strict=True):
                 node["status"] = "exclusive"
                 remove_user_info(node["booking_list"], user_id)
 
@@ -264,6 +263,7 @@ class QueueBot(NodeBot):
                 user_info = find_user_info(node["current_users"], user_id)
                 if not user_info:
                     user_info = create_user_info(user_id, total_duration, timestamp, config=self.config)
+                    self._start_occupancy(user_info)
                 else:
                     total_duration += user_info["duration"]
 
@@ -271,6 +271,8 @@ class QueueBot(NodeBot):
                 for other_user in reversed(others):
                     rem_dur = remaining_duration(other_user["start_time"], other_user["duration"])
                     if rem_dur > 0:
+                        self._record_occupancy_end(node_key, other_user, node["status"], ended_at=timestamp)
+                        other_user.pop("occupancy_session_id", None)
                         other_user["start_time"] = timestamp
                         other_user["duration"] = rem_dur
                         other_user["is_notified"] = False
@@ -299,14 +301,15 @@ class QueueBot(NodeBot):
             return error_reply
 
         with self._lock:
+            ended_at = int(time.time())
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             users = set([user_id])
             content = t("success.kicklock_cleared", config=self.config, user_id=user_id)
             content += self._msg_with_usage("label.before_release", node_key=node_keys)
-            for node_key, node in zip(node_keys, nodes):
+            for node_key, node in zip(node_keys, nodes, strict=True):
                 for user_info in node["current_users"]:
                     users.add(user_info["user_id"])
-                    self._record_occupancy_end(node_key, user_info, node["status"])
+                    self._record_occupancy_end(node_key, user_info, node["status"], ended_at=ended_at)
                 node["status"] = "idle"
                 node["current_users"] = []
             content += self._msg_with_usage("label.after_release", node_key=node_keys)
@@ -433,6 +436,7 @@ class QueueBot(NodeBot):
             first_user = node["booking_list"].pop(0)
             first_user["start_time"] = timestamp
             first_user["is_notified"] = False
+            self._start_occupancy(first_user)
             node["current_users"] = [first_user]
             node["status"] = "exclusive"
             trigger_notify_alert = True
@@ -488,7 +492,7 @@ class QueueBot(NodeBot):
                     promote_first_booking_user(node_key, node, now)
 
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state()
 
             # Compute next wakeup after mutations
             min_next = float("inf")

@@ -11,7 +11,6 @@ from lockbot.core.i18n import t
 from lockbot.core.io import (
     create_or_load_node_state,
     log_to_file,
-    save_bot_state_to_file,
 )
 from lockbot.core.query_render import _get_ip, build_node_query
 from lockbot.core.usage_render import (
@@ -202,6 +201,7 @@ class NodeBot(BaseLockBot):
                 user_info = find_user_info(node["current_users"], user_id)
                 if not user_info:
                     user_info = create_user_info(user_id, total_duration, timestamp, config=self.config)
+                    self._start_occupancy(user_info)
                 else:
                     total_duration += user_info["duration"]
 
@@ -265,6 +265,7 @@ class NodeBot(BaseLockBot):
                 user_info = find_user_info(node["current_users"], user_id)
                 if not user_info:
                     user_info = create_user_info(user_id, duration, timestamp, config=self.config)
+                    self._start_occupancy(user_info)
                     node["current_users"].append(user_info)
                 else:
                     user_info["duration"] += duration
@@ -283,6 +284,7 @@ class NodeBot(BaseLockBot):
         """
         if re.match(r"^\s*(unlock|free)\s*$", command):
             with self._lock:
+                ended_at = int(time.time())
                 released_keys = []
                 for node_key, node in self.state.bot_state.items():
                     had_user = (
@@ -295,7 +297,7 @@ class NodeBot(BaseLockBot):
                     if node["status"] != "idle":
                         for ui in node["current_users"]:
                             if ui["user_id"] == user_id:
-                                self._record_occupancy_end(node_key, ui, node["status"])
+                                self._record_occupancy_end(node_key, ui, node["status"], ended_at=ended_at)
                         remove_user_info(node["current_users"], user_id)
                         if len(node["current_users"]) == 0:
                             node["status"] = "idle"
@@ -312,6 +314,7 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         with self._lock:
+            ended_at = int(time.time())
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(
                 find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
@@ -321,7 +324,7 @@ class NodeBot(BaseLockBot):
             for node_key, node in zip(node_keys, nodes, strict=True):
                 for ui in node["current_users"]:
                     if ui["user_id"] == user_id:
-                        self._record_occupancy_end(node_key, ui, node["status"])
+                        self._record_occupancy_end(node_key, ui, node["status"], ended_at=ended_at)
                 remove_user_info(node["current_users"], user_id)
                 remove_user_info(node["booking_list"], user_id)
                 if len(node["current_users"]) == 0:
@@ -343,6 +346,7 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         with self._lock:
+            ended_at = int(time.time())
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             users = set([user_id])
             content = t("success.resource_force_released", config=self.config, user_id=user_id)
@@ -350,7 +354,7 @@ class NodeBot(BaseLockBot):
             for node_key, node in zip(node_keys, nodes, strict=True):
                 for user_info in node["current_users"]:
                     users.add(user_info["user_id"])
-                    self._record_occupancy_end(node_key, user_info, node["status"])
+                    self._record_occupancy_end(node_key, user_info, node["status"], ended_at=ended_at)
                 for user_info in node["booking_list"]:
                     users.add(user_info["user_id"])
                 node["status"] = "idle"
@@ -448,7 +452,7 @@ class NodeBot(BaseLockBot):
                         node["status"] = "idle"
 
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state()
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")

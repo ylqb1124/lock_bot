@@ -4,6 +4,7 @@ lockbot - BaseLockBot
 
 import logging
 import threading
+import uuid
 from collections.abc import Callable
 from importlib.metadata import version as _pkg_version
 
@@ -78,6 +79,10 @@ class BaseLockBot:
         # (manual unlock, auto-expiry, or kickout).  Signature:
         #   (node_key: str, user_id: str, start_time: int, end_time: int, lock_mode: str)
         self._on_occupancy_end: Callable[[str, str, int, int, str], None] | None = None
+        # Completed sessions are first persisted with bot state, then delivered
+        # through this callback.  The event id makes retries safe.
+        self._pending_occupancy_events = self._load_pending_occupancy_events()
+        self._on_occupancy_flush: Callable[[list[dict]], set[str]] | None = None
 
         self._notify_clamped_users()
 
@@ -100,17 +105,59 @@ class BaseLockBot:
         if self._on_state_changed is not None:
             self._on_state_changed()
 
-    def _record_occupancy_end(self, node_key: str, user_info: dict, lock_mode: str) -> None:
-        """Call _on_occupancy_end if wired up (no-op otherwise).
+    def _load_pending_occupancy_events(self) -> list[dict]:
+        from lockbot.core.io import load_pending_occupancy_events
 
-        Extracts start_time from user_info and computes end_time from the
-        lock's originally requested duration (start_time + duration).
-        """
+        return load_pending_occupancy_events(self.config)
+
+    @staticmethod
+    def _start_occupancy(user_info: dict) -> None:
+        """Associate a newly acquired resource with one durable session."""
+        user_info.setdefault("occupancy_session_id", uuid.uuid4().hex)
+
+    def _record_occupancy_end(
+        self,
+        node_key: str,
+        user_info: dict,
+        lock_mode: str,
+        *,
+        device_id: int | None = None,
+        ended_at: int | None = None,
+    ) -> None:
+        """Durably queue one completed session; duplicate calls are harmless."""
+        start = int(user_info.get("start_time", 0))
+        planned_end = start + int(user_info.get("duration", 0))
+        end = planned_end if ended_at is None else int(ended_at)
+        session_id = user_info.setdefault("occupancy_session_id", uuid.uuid4().hex)
+        event_id = f"end:{session_id}"
+        if any(event.get("event_id") == event_id for event in self._pending_occupancy_events):
+            return
+        # Retained for standalone integrations that still consume the legacy
+        # callback. Managed mode uses the durable outbox callback below.
         if self._on_occupancy_end is not None:
-            start = user_info.get("start_time", 0)
-            duration = user_info.get("duration", 0)
-            end = start + duration
             self._on_occupancy_end(node_key, user_info["user_id"], start, end, lock_mode)
+        self._pending_occupancy_events.append(
+            {
+                "event_id": event_id,
+                "session_id": session_id,
+                "resource_type": "device" if device_id is not None else "node",
+                "node_key": node_key,
+                "device_id": device_id,
+                "user_id": user_info["user_id"],
+                "lock_mode": lock_mode,
+                "start_time": start,
+                "end_time": max(start, end),
+            }
+        )
+
+    def _flush_pending_occupancy_events(self) -> None:
+        if not self._pending_occupancy_events or self._on_occupancy_flush is None:
+            return
+        delivered = self._on_occupancy_flush(list(self._pending_occupancy_events))
+        if delivered:
+            self._pending_occupancy_events = [
+                event for event in self._pending_occupancy_events if event["event_id"] not in delivered
+            ]
 
     def _cleanup_expired_current_users(self, node_key: str, resource: dict, seen: set | None = None) -> bool:
         if resource["status"] == "idle":
@@ -146,10 +193,22 @@ class BaseLockBot:
         ``_check_and_notify`` loop should still call ``save_bot_state_to_file``
         directly to avoid an unwanted reschedule from the timer thread.
         """
+        self._persist_state()
+        self._notify_state_changed()
+
+    def _persist_state(self) -> None:
+        """Persist state/outbox, then best-effort flush and persist the acknowledgement."""
         from lockbot.core.io import save_bot_state_to_file
 
-        save_bot_state_to_file(self.state.bot_state, config=self.config)
-        self._notify_state_changed()
+        # Persist the outbox before attempting the DB write. A crash at any
+        # point either leaves an event to retry or meets DB's unique event id.
+        save_bot_state_to_file(
+            self.state.bot_state, config=self.config, pending_occupancy_events=self._pending_occupancy_events
+        )
+        self._flush_pending_occupancy_events()
+        save_bot_state_to_file(
+            self.state.bot_state, config=self.config, pending_occupancy_events=self._pending_occupancy_events
+        )
 
     # ---------------------------------------------------------- show_error
     def show_error(self, user_id, error_msg):

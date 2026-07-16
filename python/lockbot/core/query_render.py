@@ -374,7 +374,7 @@ def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=Non
                             f"{b['user_id']}({format_duration(b['duration'], config=config)})"
                             for b in ns.get("booking_list", [])
                         ]
-                        queue_cell = "、".join(queue_parts) if queue_parts else "--"
+                        queue_cell = "<br>".join(queue_parts) if queue_parts else "--"
                     else:
                         queue_cell = ""
                     cells = [node_cell, user_cell, queue_cell, node_st_cell, dur_str or "--"]

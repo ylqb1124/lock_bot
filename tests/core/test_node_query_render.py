@@ -136,8 +136,10 @@ def test_queue_query_shows_booking_users_without_affecting_node_query():
     }
     queue_out = build_node_query(state, None, _config(), memory_based=False, xpu_usage=None)
     assert "排队同学" in queue_out
-    assert "u2(1.0 小时)、u3(2.0 小时)" in queue_out
+    assert "u2(1.0 小时)<br>u3(2.0 小时)" in queue_out
+    queued_row = next(line for line in queue_out.splitlines() if "u2(1.0 小时)<br>u3(2.0 小时)" in line)
+    assert queued_row.count("|") == 6
 
     node_out = build_node_query(state, None, _config(), memory_based=True, xpu_usage=None)
     assert "排队同学" not in node_out
-    assert "u2(1.0 小时)、u3(2.0 小时)" not in node_out
+    assert "u2(1.0 小时)<br>u3(2.0 小时)" not in node_out

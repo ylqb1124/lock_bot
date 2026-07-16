@@ -8,7 +8,7 @@ Data older than 365 days is cleaned up automatically on each write.
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import DateTime, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from lockbot.backend.app.database import Base, SessionLocal
@@ -23,8 +23,12 @@ class OccupancyRecord(Base):
     __tablename__ = "occupancy_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    resource_type: Mapped[str] = mapped_column(String(16), nullable=False, default="node")
     bot_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     node_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     lock_mode: Mapped[str] = mapped_column(String(16), nullable=False)  # exclusive | shared
     start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -32,7 +36,7 @@ class OccupancyRecord(Base):
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
-    __table_args__ = ({"sqlite_autoincrement": True},)
+    __table_args__ = (UniqueConstraint("event_id", name="uq_occupancy_event_id"), {"sqlite_autoincrement": True})
 
 
 def record_occupancy(
@@ -42,6 +46,11 @@ def record_occupancy(
     start_time: int,
     end_time: int,
     lock_mode: str,
+    *,
+    event_id: str | None = None,
+    session_id: str | None = None,
+    resource_type: str = "node",
+    device_id: int | None = None,
 ) -> None:
     """Write one occupancy record and lazily clean up expired records.
 
@@ -53,7 +62,11 @@ def record_occupancy(
             _cleanup_old_records(db, bot_id)
             record = OccupancyRecord(
                 bot_id=bot_id,
+                event_id=event_id,
+                session_id=session_id,
+                resource_type=resource_type,
                 node_key=node_key,
+                device_id=device_id,
                 user_id=user_id,
                 lock_mode=lock_mode,
                 start_time=datetime.fromtimestamp(start_time, tz=timezone.utc),
@@ -72,6 +85,44 @@ def record_occupancy(
             user_id,
             exc_info=True,
         )
+
+
+def record_occupancy_events(bot_id: int, events: list[dict]) -> set[str]:
+    """Store outbox events idempotently; return event ids safely delivered."""
+    delivered: set[str] = set()
+    seen: set[str] = set()
+    db = SessionLocal()
+    try:
+        for event in events:
+            event_id = event["event_id"]
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            existing = db.query(OccupancyRecord.id).filter(OccupancyRecord.event_id == event_id).first()
+            if existing:
+                delivered.add(event_id)
+                continue
+            db.add(
+                OccupancyRecord(
+                    bot_id=bot_id, event_id=event_id, session_id=event["session_id"],
+                    resource_type=event["resource_type"], node_key=event["node_key"],
+                    device_id=event.get("device_id"), user_id=event["user_id"],
+                    lock_mode=event["lock_mode"],
+                    start_time=datetime.fromtimestamp(event["start_time"], tz=timezone.utc),
+                    end_time=datetime.fromtimestamp(event["end_time"], tz=timezone.utc),
+                    duration_seconds=max(0, event["end_time"] - event["start_time"]),
+                )
+            )
+            delivered.add(event_id)
+        _cleanup_old_records(db, bot_id)
+        db.commit()
+        return delivered
+    except Exception:
+        db.rollback()
+        logger.warning("Failed to flush occupancy outbox for bot=%d", bot_id, exc_info=True)
+        return set()
+    finally:
+        db.close()
 
 
 def _cleanup_old_records(db: Session, bot_id: int) -> None:
@@ -117,6 +168,8 @@ def query_occupancy(
                 "node_key": r.node_key,
                 "user_id": r.user_id,
                 "lock_mode": r.lock_mode,
+                "resource_type": r.resource_type,
+                "device_id": r.device_id,
                 "start_time": r.start_time.isoformat(),
                 "end_time": r.end_time.isoformat(),
                 "duration_seconds": r.duration_seconds,

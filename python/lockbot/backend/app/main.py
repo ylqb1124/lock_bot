@@ -110,13 +110,31 @@ def _migrate_users_token_version():
 
 
 def _migrate_occupancy_records():
-    """Create occupancy_records table if it doesn't exist (backward-compatible migration)."""
+    """Create/upgrade occupancy storage used by the durable event outbox."""
     from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
 
     insp = sa_inspect(engine)
     if "occupancy_records" not in insp.get_table_names():
         Base.metadata.tables["occupancy_records"].create(bind=engine)
         logger.info("Created occupancy_records table")
+        return
+    columns = {column["name"] for column in insp.get_columns("occupancy_records")}
+    additions = {
+        "event_id": "VARCHAR(80)",
+        "session_id": "VARCHAR(32)",
+        "resource_type": "VARCHAR(16) NOT NULL DEFAULT 'node'",
+        "device_id": "INTEGER",
+    }
+    with engine.begin() as conn:
+        for name, ddl in additions.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE occupancy_records ADD COLUMN {name} {ddl}"))
+                logger.info("Migrated occupancy_records: added %s", name)
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_occupancy_records_event_id "
+            "ON occupancy_records(event_id)"
+        ))
 
 
 def _migrate_audit_logs():

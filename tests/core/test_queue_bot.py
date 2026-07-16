@@ -200,6 +200,36 @@ def test_lock_then_book(bot):
     )
 
 
+def test_lock_reject_shows_only_requested_nodes(bot):
+    """Queue lock rejection should not dump unrelated cluster usage."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["node1", "node2"])
+    now = int(time.time())
+    bot.state.bot_state = {
+        "node1": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "holder1", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [
+                {"user_id": "queued1", "start_time": now, "duration": 1800, "is_notified": False},
+            ],
+        },
+        "node2": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "holder2", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [],
+        },
+    }
+
+    reply = bot.lock("user2", "lock node1 1h")
+    content = reply["message"]["body"][0]["content"]
+
+    assert "节点正在被他人使用" in content
+    assert "node1" in content
+    assert "holder1" in content
+    assert "queued1" in content
+    assert "node2" not in content
+    assert "holder2" not in content
+
+
 def test_forbid_duplicate_book(bot):
     """Test forbid duplicate book."""
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])
