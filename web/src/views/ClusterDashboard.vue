@@ -1,7 +1,10 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { fetchCachedClusterTrend, fetchLockBotList, fetchLockBotState, fetchMonqueryUtilization } from '../services/api.js';
+import { fetchClusterTrend, fetchLockBotList, fetchLockBotState, fetchMonqueryUtilization } from '../services/api.js';
 import { adaptNodeData } from '../services/adapter.js';
+import { shouldAutoRefresh } from '../services/auto-refresh.js';
+import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../services/chart-data.js';
+import { CARD_COUNT, mergeLockBotStates } from '../services/cluster-state.js';
 import {
   chinaSlotIndex,
   chinaTimeParts,
@@ -19,33 +22,37 @@ import '../cluster-dashboard.css';
 const props = defineProps({ token: { type: String, required: true } });
 const emit = defineEmits(['expired']);
 
-const CARD_COUNT = 8;
 const AVG_MARGIN = { top: 10, right: 16, bottom: 20, left: 48 };
 const XPU_TICKS = [0, 5, 10, 15, 20, 25, 30, 35];
 const MEM_TICKS = [0, 10, 20, 30, 40, 50, 60, 70];
 const QUICK_RANGES = [
-  { label: '最近 15 分钟', minutes: 15 },
-  { label: '最近 30 分钟', minutes: 30 }, { label: '最近 1 小时', minutes: 60 },
-  { label: '最近 3 小时', minutes: 180 }, { label: '最近 6 小时', minutes: 360 },
-  { label: '最近 12 小时', minutes: 720 }, { label: '最近 24 小时', minutes: 1440 },
-  { label: '最近 2 天', minutes: 2880 }, { label: '最近 7 天', minutes: 10080 },
-  { label: '最近 30 天', minutes: 43200 }, { label: '最近 90 天', minutes: 129600 },
+  { id: '15m', label: '最近 15 分钟', minutes: 15 },
+  { id: '30m', label: '最近 30 分钟', minutes: 30 }, { id: '1h', label: '最近 1 小时', minutes: 60 },
+  { id: '3h', label: '最近 3 小时', minutes: 180 }, { id: '6h', label: '最近 6 小时', minutes: 360 },
+  { id: '12h', label: '最近 12 小时', minutes: 720 }, { id: '24h', label: '最近 24 小时', minutes: 1440 },
+  { id: '2d', label: '最近 2 天', minutes: 2880 }, { id: '7d', label: '最近 7 天', minutes: 10080 },
+  { id: '30d', label: '最近 30 天', minutes: 43200 }, { id: '90d', label: '最近 90 天', minutes: 129600 },
+  { id: '6mo', label: '最近 6 个月', months: 6 },
 ];
-const X_AXIS_TICK_INTERVALS = [
-  { maxMinutes: 60, seconds: 150 },
-  { maxMinutes: 180, seconds: 300 },
-  { maxMinutes: 360, seconds: 600 },
-  { maxMinutes: 720, seconds: 1200 },
-  { maxMinutes: 1440, seconds: 3000 },
-  { maxMinutes: 2880, seconds: 6000 },
-  { maxMinutes: 10080, seconds: 18000 },
-  { maxMinutes: 43200, seconds: 72000 },
-  { maxMinutes: Infinity, seconds: 216000 },
+const TREND_INTERVALS = [
+  { maxMinutes: 360, seconds: 60 },
+  { maxMinutes: 720, seconds: 120 },
+  { maxMinutes: 1440, seconds: 240 },
+  { maxMinutes: 2880, seconds: 480 },
+  { maxMinutes: 10080, seconds: 1200 },
+  { maxMinutes: 43200, seconds: 7200 },
+  { maxMinutes: 129600, seconds: 21600 },
+  { maxMinutes: 267840, seconds: 43200 },
 ];
+const X_AXIS_TICK_OPTIONS = [
+  60, 120, 240, 300, 600, 900, 1200, 1800, 3600, 7200, 14400, 21600,
+  28800, 43200, 86400, 172800, 259200, 432000, 604800, 1209600, 1296000,
+];
+const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
 
 const rangeStart = ref(null);
 const rangeEnd = ref(null);
-const quickRangeMinutes = ref(180);
+const quickRangeId = ref('3h');
 const trendDataAsOf = ref(null);
 const lastRefreshAt = ref(null);
 const draftStart = ref('');
@@ -60,6 +67,10 @@ const toast = ref('');
 const nodes = ref([]);
 const bots = ref([]);
 const series = ref({ times: [], xpu: [], memory: [], lock: [] });
+const lockStateComplete = ref(true);
+const failedStateBotIds = ref([]);
+const lockTrendComplete = ref(true);
+const lockTrendFailureCount = ref(0);
 
 const xpuCanvas = ref(null);
 const memoryCanvas = ref(null);
@@ -77,12 +88,8 @@ const filteredQuickRanges = computed(() => {
   const filter = quickSearch.value.trim().toLowerCase();
   return QUICK_RANGES.filter(range => !filter || range.label.toLowerCase().includes(filter));
 });
-const activeMinutes = computed(() => rangeStart.value && rangeEnd.value
-  ? Math.round((rangeEnd.value - rangeStart.value) / 60_000)
-  : null);
 const timeLabel = computed(() => {
-  const active = QUICK_RANGES.find(range => range.minutes === activeMinutes.value);
-  return active?.label || '自定义时间范围';
+  return QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label || '自定义时间范围';
 });
 function formatClock(value) {
   if (!value) return '--:--';
@@ -96,17 +103,63 @@ const refreshStatus = computed(() => lastRefreshAt.value ? `已刷新 ${formatCl
 const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
   ? `${formatDateTimeLabel(rangeStart.value)} 至 ${formatDateTimeLabel(rangeEnd.value)}`
   : '');
-const stats = computed(() => buildStats(nodes.value, series.value.xpu, series.value.memory));
+const stats = computed(() => buildStats(nodes.value, series.value.xpu, series.value.memory, lockStateComplete.value));
+const metricCoverage = computed(() => {
+  const expectedCards = nodes.value.length * CARD_COUNT;
+  const knownCards = nodes.value.reduce((count, node) => count + (node.knownCardCount || 0), 0);
+  const knownNodes = nodes.value.filter(node => node.status !== 'UNKNOWN').length;
+  return { expectedCards, knownCards, knownNodes };
+});
+const dataWarning = computed(() => {
+  const messages = [];
+  if (metricCoverage.value.expectedCards && metricCoverage.value.knownCards < metricCoverage.value.expectedCards) {
+    messages.push(`当前 Monquery 采样不完整（${metricCoverage.value.knownCards}/${metricCoverage.value.expectedCards} 张卡），BUSY 统计仅基于已采样数据`);
+  }
+  if (!lockStateComplete.value) messages.push(`当前 Lock Bot 状态不完整（${failedStateBotIds.value.length} 个 Bot 请求失败），锁定相关统计暂不显示`);
+  if (!lockTrendComplete.value) messages.push(`历史 Lock Bot 数据不完整（${lockTrendFailureCount.value} 个请求失败），锁定趋势暂不显示`);
+  return messages.join('；');
+});
 
-function floorToFiveMinutes(value) {
-  return new Date(Math.floor(new Date(value).getTime() / (5 * 60_000)) * 5 * 60_000);
+function trendIntervalSeconds(minutes) {
+  return TREND_INTERVALS.find(interval => minutes <= interval.maxMinutes).seconds;
+}
+
+function subtractChinaMonths(value, months) {
+  const chinaDate = new Date(new Date(value).getTime() + CHINA_UTC_OFFSET_SECONDS * 1000);
+  const year = chinaDate.getUTCFullYear();
+  const month = chinaDate.getUTCMonth();
+  const targetMonthIndex = month - months;
+  const targetYear = year + Math.floor(targetMonthIndex / 12);
+  const targetMonth = (targetMonthIndex % 12 + 12) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const timestamp = Date.UTC(
+    targetYear,
+    targetMonth,
+    Math.min(chinaDate.getUTCDate(), lastDay),
+    chinaDate.getUTCHours(),
+    chinaDate.getUTCMinutes(),
+    chinaDate.getUTCSeconds(),
+  );
+  return new Date(timestamp - CHINA_UTC_OFFSET_SECONDS * 1000);
+}
+
+function exceedsMaximumTrendRange(start, end) {
+  return start < subtractChinaMonths(end, 6);
+}
+
+function floorToInterval(value, intervalSeconds) {
+  const intervalMs = intervalSeconds * 1000;
+  return new Date(Math.floor(new Date(value).getTime() / intervalMs) * intervalMs);
 }
 
 function normalizeRange(start, end) {
-  const queryEnd = floorToFiveMinutes(end || new Date());
-  let queryStart = floorToFiveMinutes(start || queryEnd);
-  if (queryStart >= queryEnd) queryStart = new Date(queryEnd.getTime() - 5 * 60_000);
-  return { queryStart, queryEnd };
+  const rawEnd = end || new Date();
+  const rawStart = start || rawEnd;
+  const intervalSeconds = trendIntervalSeconds(Math.max(0, (rawEnd - rawStart) / 60_000));
+  const queryEnd = floorToInterval(rawEnd, intervalSeconds);
+  let queryStart = floorToInterval(rawStart, intervalSeconds);
+  if (queryStart >= queryEnd) queryStart = new Date(queryEnd.getTime() - intervalSeconds * 1000);
+  return { queryStart, queryEnd, intervalSeconds };
 }
 
 function formatMonqueryDateTime(date) {
@@ -118,7 +171,7 @@ function formatDateTimeLabel(date) {
 }
 
 function toDatetimeLocalValue(date) {
-  return formatChinaDatetimeLocal(date);
+  return formatChinaDatetimeLocal(date).slice(0, 16);
 }
 
 function dateKey(date) {
@@ -131,21 +184,33 @@ function buildBuckets(start, end) {
   return buckets;
 }
 
-function xAxisTickSeconds(times) {
-  if (times.length < 2) return 150;
-  const rangeMinutes = (times[times.length - 1] - times[0]) / 60;
-  return X_AXIS_TICK_INTERVALS.find(interval => rangeMinutes <= interval.maxMinutes).seconds;
+function pointIntervalSeconds(times) {
+  const intervals = times.slice(1).map((timestamp, index) => timestamp - times[index]).filter(interval => interval > 0);
+  return intervals.length ? Math.min(...intervals) : 60;
 }
 
-function buildXAxisTicks(times) {
-  if (times.length < 2) return times;
+function xAxisTickSeconds(times, maxLabels) {
+  if (times.length < 2) return 60;
   const start = times[0];
   const end = times[times.length - 1];
-  const interval = xAxisTickSeconds(times);
-  const ticks = [];
-  for (let timestamp = start; timestamp <= end; timestamp += interval) ticks.push(timestamp);
-  if (ticks[ticks.length - 1] !== end) ticks.push(end);
-  return ticks;
+  const pointInterval = pointIntervalSeconds(times);
+  const target = Math.max((end - start) / Math.max(1, maxLabels - 1), pointInterval <= 60 ? 300 : pointInterval);
+  return X_AXIS_TICK_OPTIONS.find(interval => interval >= target && interval % pointInterval === 0)
+    || Math.ceil(target / pointInterval) * pointInterval;
+}
+
+function buildXAxisTicks(times, maxLabels) {
+  if (times.length < 2) return { ticks: times, interval: 60 };
+  const start = times[0];
+  const end = times[times.length - 1];
+  const interval = xAxisTickSeconds(times, maxLabels);
+  const firstAligned = Math.ceil((start + CHINA_UTC_OFFSET_SECONDS) / interval) * interval - CHINA_UTC_OFFSET_SECONDS;
+  const ticks = [start];
+  for (let timestamp = firstAligned; timestamp < end; timestamp += interval) {
+    if (timestamp > start) ticks.push(timestamp);
+  }
+  if (ticks.at(-1) !== end) ticks.push(end);
+  return { ticks, interval };
 }
 
 function normalizeEntries(response) {
@@ -189,171 +254,21 @@ function processMonqueryData(response, times) {
   };
 }
 
-function smooth(values, windowSize = 2) {
-  return values.map((value, index) => {
-    if (!Number.isFinite(value)) return null;
-    const start = Math.max(0, index - windowSize + 1);
-    const windowValues = values.slice(start, index + 1).filter(Number.isFinite);
-    return windowValues.reduce((sum, item) => sum + item, 0) / windowValues.length;
-  });
-}
-
-function displayBucketSize(times) {
-  const minutes = times.length > 1 ? (times.at(-1) - times[0]) / 60 : 0;
-  if (minutes <= 2 * 24 * 60) return 1;
-  if (minutes <= 7 * 24 * 60) return 3;
-  if (minutes <= 30 * 24 * 60) return 24;
-  return 72;
-}
-
 function aggregateSeries(times, xpu, memory, lock) {
-  const bucketSize = displayBucketSize(times);
-  if (bucketSize === 1) return { times, xpu: smooth(xpu), memory: smooth(memory), lock };
-  const aggregated = { times: [], xpu: [], memory: [], lock: [] };
-  for (let start = 0; start < times.length; start += bucketSize) {
-    const end = Math.min(times.length, start + bucketSize);
-    const averageRange = values => average(values.slice(start, end));
-    aggregated.times.push(times[start]);
-    aggregated.xpu.push(averageRange(xpu));
-    aggregated.memory.push(averageRange(memory));
-    aggregated.lock.push(averageRange(lock));
-  }
-  return aggregated;
-}
-
-function nodeName(value) {
-  const normalized = String(value || '');
-  const node = normalized.match(/^(?:gpu-)?node-?(\d+)$/i);
-  if (node) return `node${Number(node[1])}`;
-  const bdc = normalized.match(/^bdc-?(\d+)$/i);
-  return bdc ? `bdc${Number(bdc[1])}` : null;
-}
-
-function recordCards(record) {
-  const card = Number(record?.dev_id ?? record?.device_id ?? record?.card_id);
-  return Number.isInteger(card) && card >= 0 && card < CARD_COUNT
-    ? [card]
-    : Array.from({ length: CARD_COUNT }, (_, index) => index);
-}
-
-function toSeconds(value) {
-  if (value == null || value === '') return NaN;
-  const numeric = Number(value);
-  if (Number.isFinite(numeric)) return numeric > 1e12 ? Math.floor(numeric / 1000) : numeric;
-  const text = String(value).trim();
-  const timestamp = /[Zz]|[+-]\d{2}:\d{2}$/.test(text) ? text : `${text}Z`;
-  const parsed = Date.parse(timestamp);
-  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : NaN;
-}
-
-function firstNodeStates(stateResults) {
-  const states = new Map();
-  for (const result of stateResults) {
-    if (!result) continue;
-    for (const [name, state] of Object.entries(result.state || {})) {
-      const normalized = nodeName(name);
-      if (normalized && !states.has(normalized)) states.set(normalized, { state, type: result.type });
-    }
-  }
-  return states;
-}
-
-function liveLockIntervals(stateResults, todayBoundary, now) {
-  const intervals = [];
-  const boundary = Math.floor(todayBoundary.getTime() / 1000);
-  const current = Math.floor(now.getTime() / 1000);
-  for (const [name, result] of firstNodeStates(stateResults)) {
-    const devices = result.type === 'DEVICE' && Array.isArray(result.state)
-      ? result.state
-      : [{ ...result.state, dev_id: null }];
-    for (const device of devices) {
-      if (device?.status === 'idle' || !device?.current_users?.length) continue;
-      const deviceId = Number(device.dev_id);
-      const cards = device.dev_id != null && Number.isInteger(deviceId) && deviceId >= 0 && deviceId < CARD_COUNT
-        ? [deviceId]
-        : Array.from({ length: CARD_COUNT }, (_, index) => index);
-      for (const user of device.current_users) {
-        const rawStart = toSeconds(user.start_time);
-        const rawEnd = rawStart + Number(user.duration || 0);
-        const start = Math.max(rawStart, boundary);
-        const end = Math.min(rawEnd, current);
-        if (Number.isFinite(start) && Number.isFinite(end) && end > start) intervals.push({ node: name, cards, start, end });
-      }
-    }
-  }
-  return intervals;
-}
-
-function lockUtilization(times, occupancyRecords, liveIntervals, stateNodes, liveBoundary, now) {
-  const totalCards = stateNodes.length * CARD_COUNT;
-  if (!totalCards || !times.length) return [];
-  const locked = times.map(() => new Set());
-  const rangeStart = times[0];
-  const rangeEnd = times.at(-1) + 300;
-  const liveBoundarySeconds = Math.floor(liveBoundary.getTime() / 1000);
-  const nowSeconds = Math.floor(now.getTime() / 1000);
-  const nodeIndices = new Map(stateNodes.map((node, index) => [node.name, index]));
-
-  for (const record of occupancyRecords) {
-    const index = nodeIndices.get(nodeName(record.node_key ?? record.node ?? record.node_name));
-    const start = toSeconds(record.start_time ?? record.start);
-    const knownEnd = toSeconds(record.end_time ?? record.end);
-    const recordedEnd = Number.isFinite(knownEnd) ? knownEnd : start + Number(record.duration_seconds ?? record.duration ?? 0);
-    const end = recordedEnd > nowSeconds ? Math.min(recordedEnd, liveBoundarySeconds) : recordedEnd;
-    if (index === undefined || !Number.isFinite(start) || !Number.isFinite(end) || end <= start || end < rangeStart || start >= rangeEnd) continue;
-    const first = Math.max(0, Math.floor((start - rangeStart) / 300));
-    const last = Math.min(times.length - 1, Math.floor((Math.max(start, end - 1) - rangeStart) / 300));
-    for (let bucket = first; bucket <= last; bucket += 1) {
-      for (const card of recordCards(record)) locked[bucket].add(index * CARD_COUNT + card);
-    }
-  }
-
-  for (const interval of liveIntervals) {
-    const index = nodeIndices.get(interval.node);
-    if (index === undefined || interval.end <= rangeStart || interval.start >= rangeEnd) continue;
-    const first = Math.max(0, Math.floor((interval.start - rangeStart) / 300));
-    const last = Math.min(times.length - 1, Math.ceil((interval.end - rangeStart) / 300) - 1);
-    for (let bucket = first; bucket <= last; bucket += 1) {
-      for (const card of interval.cards) locked[bucket].add(index * CARD_COUNT + card);
-    }
-  }
-  return locked.map(cards => cards.size / totalCards * 100);
+  return { times, xpu, memory, lock };
 }
 
 function currentSlot() {
   return chinaSlotIndex();
 }
 
-function botType(bot) {
-  return String(bot.bot_type || bot.type || 'NODE').toUpperCase();
-}
-
-function sortNodes(list) {
-  return [...list].sort((first, second) => {
-    const parse = name => name.startsWith('bdc') ? { prefix: 'bdc', id: Number(name.slice(3)) } : { prefix: 'node', id: Number(name.slice(4)) };
-    const a = parse(first.name); const b = parse(second.name);
-    if (a.prefix !== b.prefix) return a.prefix === 'node' ? -1 : 1;
-    return a.id - b.id;
-  });
-}
-
 function adaptStates(stateResults, monqueryData) {
-  const firstStates = new Map();
-  for (const result of stateResults) {
-    if (!result) continue;
-    for (const [name, state] of Object.entries(result.state || {})) {
-      if (!firstStates.has(name)) firstStates.set(name, { state, type: result.type });
-    }
-  }
-  const deviceState = {}; const nodeState = {};
-  for (const [name, result] of firstStates) {
-    if (result.type === 'DEVICE') deviceState[name] = result.state;
-    else nodeState[name] = result.state;
-  }
-  return sortNodes([
-    ...adaptNodeData(deviceState, monqueryData, currentSlot(), 'DEVICE'),
-    ...adaptNodeData(nodeState, monqueryData, currentSlot(), 'NODE'),
-  ]);
+  const merged = mergeLockBotStates(stateResults);
+  return {
+    nodes: adaptNodeData(merged.deviceState, monqueryData, currentSlot(), 'DEVICE'),
+    lockStateComplete: merged.lockStateComplete,
+    failedBotIds: merged.failedBotIds,
+  };
 }
 
 function average(values) {
@@ -361,21 +276,20 @@ function average(values) {
   return populated.length ? populated.reduce((sum, value) => sum + value, 0) / populated.length : null;
 }
 
-function buildStats(currentNodes, xpu, memory) {
-  const effectiveSlot = Math.max(0, currentSlot() - 1);
+function buildStats(currentNodes, xpu, memory, isLockStateComplete) {
   let busyNodes = 0;
   let busyCards = 0;
+  let knownNodes = 0;
+  let knownCards = 0;
   let lockedNodes = 0;
   let lockedCards = 0;
   for (const node of currentNodes) {
-    if (node.status !== 'FREE') busyNodes += 1;
+    if (node.status === 'BUSY' || node.status === 'PARTIAL') busyNodes += 1;
+    if (node.status !== 'UNKNOWN') knownNodes += 1;
     if (node.hasActiveLock) lockedNodes += 1;
-    for (let card = 0; card < CARD_COUNT; card += 1) {
-      const xpuValue = node.cardUtils?.[card]?.[effectiveSlot] || 0;
-      const memoryValue = node.cardMemUtils?.[card]?.[effectiveSlot] || 0;
-      if (node.hasCardMonqueryData ? xpuValue >= 10 || memoryValue >= 10 : node.hasActiveLock) busyCards += 1;
-      if (node.cardHasActiveLock?.[card]) lockedCards += 1;
-    }
+    busyCards += node.busyCards || 0;
+    knownCards += node.knownCardCount || 0;
+    lockedCards += node.cardHasActiveLock?.filter(Boolean).length || 0;
   }
   const totalCards = currentNodes.length * CARD_COUNT;
   const percent = value => Number.isFinite(value) ? `${value.toFixed(1)}%` : '--';
@@ -387,11 +301,11 @@ function buildStats(currentNodes, xpu, memory) {
   return [
     { label: '总节点', value: String(currentNodes.length), tone: 'total' },
     { label: '总卡数', value: String(totalCards), tone: 'total' },
-    { label: 'LOCKED 节点', value: String(lockedNodes), tone: 'locked' },
-    { label: 'BUSY节点', value: String(busyNodes), tone: 'busy', tip: '当前存在实际计算任务的节点数。节点的 XPU 或显存利用率达到 10% 及以上时计入。' },
-    { label: 'BUSY卡数', value: String(busyCards), tone: 'busy', tip: '当前存在实际计算任务的 XPU 卡数。单卡的 XPU 或显存利用率达到 10% 及以上时计入。' },
-    { label: '节点利用率', value: percent(totalCards ? lockedCards / totalCards * 100 : null), tone: 'locked', tip: '当前已通过 Lock Bot 锁定的 XPU 卡占全集群总卡数的比例，反映资源已分配给任务的规模。' },
+    { label: 'LOCKED 节点', value: isLockStateComplete ? String(lockedNodes) : '--', tone: 'locked' },
     { label: 'XPU平均利用率/峰值利用率', value: pair(xpu), tone: 'xpu-avg', tip: '平均利用率反映所选时段内集群整体计算负载；峰值利用率反映该时段最高负载水平。' },
+    { label: 'BUSY卡数', value: knownCards === totalCards ? String(busyCards) : knownCards ? `${busyCards}/${knownCards}` : '--', tone: 'busy', tip: '最近一个已完成的 5 分钟采样周期内，XPU 或显存利用率达到 10% 及以上的 XPU 卡数。存在缺失采样时，数值格式为 BUSY 卡数/已采样卡数。' },
+    { label: '节点使用率', value: isLockStateComplete ? percent(totalCards ? lockedCards / totalCards * 100 : null) : '--', tone: 'locked', tip: '当前已通过 Lock Bot 锁定的 XPU 卡占全集群总卡数的比例，反映资源已分配给任务的规模。' },
+    { label: 'BUSY节点', value: knownNodes === currentNodes.length ? String(busyNodes) : knownNodes ? `${busyNodes}/${knownNodes}` : '--', tone: 'busy', tip: '最近一个已完成的 5 分钟采样周期内，XPU 或显存利用率达到 10% 及以上的节点数。存在缺失采样时，数值格式为 BUSY 节点数/已采样节点数。' },
     { label: '显存平均利用率/峰值利用率', value: pair(memory), tone: 'mem-avg', tip: '平均利用率反映所选时段内集群整体显存压力；峰值利用率反映该时段最高显存压力。' },
   ];
 }
@@ -403,19 +317,24 @@ function setRange(start, end) {
   draftEnd.value = toDatetimeLocalValue(end);
 }
 
-function setQuickRange(minutes) {
-  quickRangeMinutes.value = minutes;
-  const end = floorToFiveMinutes(new Date());
-  setRange(new Date(end.getTime() - minutes * 60_000), end);
+function setQuickRange(range) {
+  quickRangeId.value = range.id;
+  const intervalSeconds = range.months ? 43200 : trendIntervalSeconds(range.minutes);
+  const end = floorToInterval(new Date(), intervalSeconds);
+  const start = range.months
+    ? subtractChinaMonths(end, range.months)
+    : new Date(end.getTime() - range.minutes * 60_000);
+  setRange(start, end);
 }
 
 function refreshData() {
-  if (quickRangeMinutes.value) setQuickRange(quickRangeMinutes.value);
+  const quickRange = QUICK_RANGES.find(range => range.id === quickRangeId.value);
+  if (quickRange) setQuickRange(quickRange);
   load();
 }
 
 function resetRange() {
-  setQuickRange(3 * 60);
+  setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
   load();
 }
 
@@ -426,8 +345,17 @@ function applyRange() {
     showToast('请选择有效的开始和结束时间');
     return;
   }
-  setRange(start, end);
-  quickRangeMinutes.value = null;
+  if (start.getSeconds() || end.getSeconds()) {
+    showToast('时间范围仅支持分钟精度');
+    return;
+  }
+  if (exceedsMaximumTrendRange(start, end)) {
+    showToast('时间范围最长为 6 个月');
+    return;
+  }
+  const { queryStart, queryEnd } = normalizeRange(start, end);
+  setRange(queryStart, queryEnd);
+  quickRangeId.value = null;
   load();
 }
 
@@ -454,25 +382,29 @@ async function load() {
   error.value = '';
   try {
     if (!bots.value.length) bots.value = await fetchLockBotList(props.token);
-    const { queryStart, queryEnd } = normalizeRange(rangeStart.value, rangeEnd.value);
+    const { queryStart, queryEnd, intervalSeconds } = normalizeRange(rangeStart.value, rangeEnd.value);
     const today = new Date();
     const todayStart = startOfChinaDay(today);
     const statePromise = Promise.all(bots.value.map(async bot => {
       try {
-        return { bot, type: botType(bot), state: await fetchLockBotState(bot.id, props.token) };
-      } catch {
-        return null;
+        return { bot, ok: true, state: await fetchLockBotState(bot.id, props.token) };
+      } catch (caught) {
+        return { bot, ok: false, error: caught?.message || '状态请求失败' };
       }
     }));
     const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(todayStart), formatMonqueryDateTime(today));
-    const trendPromise = fetchCachedClusterTrend(queryStart, queryEnd, props.token);
+    const trendPromise = fetchClusterTrend(queryStart, queryEnd, props.token, intervalSeconds);
     const [stateResults, currentData, trendData] = await Promise.all([statePromise, currentPromise, trendPromise]);
     if (sequence !== requestSequence) return;
-    const currentNodes = adaptStates(stateResults, currentData);
+    const currentState = adaptStates(stateResults, currentData);
     trendDataAsOf.value = trendData.dataAsOf;
     lastRefreshAt.value = Date.now();
     const rawTrend = trendData;
-    nodes.value = currentNodes;
+    nodes.value = currentState.nodes;
+    lockStateComplete.value = currentState.lockStateComplete;
+    failedStateBotIds.value = currentState.failedBotIds;
+    lockTrendComplete.value = trendData.lockStatus?.complete !== false;
+    lockTrendFailureCount.value = trendData.lockStatus?.failureCount || 0;
     series.value = aggregateSeries(
       rawTrend.times,
       rawTrend.xpu,
@@ -495,10 +427,10 @@ async function load() {
 function drawAllCharts() {
   drawChart(xpuCanvas.value, series.value.xpu, '#7c3aed', 35, XPU_TICKS, 'XPU 利用率');
   drawChart(memoryCanvas.value, series.value.memory, '#ea580c', 70, MEM_TICKS, '显存利用率');
-  drawChart(lockCanvas.value, series.value.lock, '#d97706', 100, [0, 25, 50, 75, 100], '节点利用率');
+  drawChart(lockCanvas.value, series.value.lock, '#d97706', 100, [0, 25, 50, 75, 100], '节点使用率');
 }
 
-function drawChart(canvas, values, color, yMax, ticks, label) {
+function drawChart(canvas, values, color, defaultYMax, defaultTicks, label) {
   if (!canvas) return;
   const wrap = canvas.parentElement;
   const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
@@ -509,6 +441,10 @@ function drawChart(canvas, values, color, yMax, ticks, label) {
   const context = canvas.getContext('2d');
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   const count = values.length;
+  const yAxis = resolveYAxis(values, defaultYMax, defaultTicks);
+  const yMax = yAxis.yMax;
+  const ticks = yAxis.ticks;
+  const hasSamples = hasFiniteSamples(values);
   const plotWidth = width - AVG_MARGIN.left - AVG_MARGIN.right;
   const plotHeight = height - AVG_MARGIN.top - AVG_MARGIN.bottom;
   const xFor = index => AVG_MARGIN.left + index / Math.max(1, count - 1) * plotWidth;
@@ -517,7 +453,9 @@ function drawChart(canvas, values, color, yMax, ticks, label) {
   context.save();
   context.strokeStyle = '#94a3b8'; context.lineWidth = .8; context.setLineDash([4, 4]);
   ticks.forEach(value => { const y = yFor(value); context.beginPath(); context.moveTo(AVG_MARGIN.left, y); context.lineTo(width - AVG_MARGIN.right, y); context.stroke(); });
-  const xTicks = buildXAxisTicks(series.value.times);
+  const maxLabels = Math.max(3, Math.floor(plotWidth / 95) + 1);
+  const xAxis = buildXAxisTicks(series.value.times, maxLabels);
+  const xTicks = xAxis.ticks;
   const rangeStart = series.value.times[0];
   const rangeEnd = series.value.times[series.value.times.length - 1];
   const rangeSeconds = Math.max(1, rangeEnd - rangeStart);
@@ -532,18 +470,15 @@ function drawChart(canvas, values, color, yMax, ticks, label) {
   context.save(); context.strokeStyle = '#000'; context.lineWidth = 2; context.beginPath(); context.moveTo(AVG_MARGIN.left, AVG_MARGIN.top); context.lineTo(AVG_MARGIN.left, AVG_MARGIN.top + plotHeight); context.stroke(); context.beginPath(); context.moveTo(AVG_MARGIN.left, AVG_MARGIN.top + plotHeight); context.lineTo(width - AVG_MARGIN.right, AVG_MARGIN.top + plotHeight); context.stroke(); context.restore();
 
   context.save(); context.fillStyle = '#000'; context.font = '11px "SF Mono","JetBrains Mono",monospace'; context.textAlign = 'center'; context.textBaseline = 'top';
-  const tickInterval = xAxisTickSeconds(series.value.times);
-  const maxLabels = Math.max(2, Math.floor(plotWidth / 145));
-  const labelEvery = Math.max(1, Math.ceil(xTicks.length / maxLabels));
+  const tickInterval = xAxis.interval;
   const sameDay = series.value.times.length && isSameChinaDay(rangeStart * 1000, rangeEnd * 1000);
-  const labelCandidates = xTicks.flatMap((timestamp, index) => {
-    if (index % labelEvery !== 0 && index !== xTicks.length - 1) return [];
+  const labelCandidates = xTicks.map(timestamp => {
     const date = chinaTimeParts(timestamp * 1000);
     const seconds = tickInterval < 300 ? `:${date.second}` : '';
     const clock = `${date.hour}:${date.minute}${seconds}`;
     const text = sameDay ? clock : `${date.month}-${date.day} ${clock}`;
     const x = AVG_MARGIN.left + (timestamp - rangeStart) / rangeSeconds * plotWidth;
-    return [{ text, x, width: context.measureText(text).width }];
+    return { text, x, width: context.measureText(text).width };
   });
   const lastLabel = labelCandidates.at(-1);
   const lastLabelLeft = lastLabel ? width - AVG_MARGIN.right - lastLabel.width : Infinity;
@@ -560,8 +495,8 @@ function drawChart(canvas, values, color, yMax, ticks, label) {
   });
   context.restore();
 
-  if (!count) {
-    context.save(); context.fillStyle = '#94a3b8'; context.font = '600 14px -apple-system,"PingFang SC",sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText('暂无数据', AVG_MARGIN.left + plotWidth / 2, AVG_MARGIN.top + plotHeight / 2); context.restore();
+  if (!hasSamples) {
+    context.save(); context.fillStyle = '#94a3b8'; context.font = '600 14px -apple-system,"PingFang SC",sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText('暂无有效采样', AVG_MARGIN.left + plotWidth / 2, AVG_MARGIN.top + plotHeight / 2); context.restore();
     storeCanvasMeta(canvas, values, color, yMax, label, null, null, width, height, plotWidth, plotHeight);
     snapshot(canvas);
     return;
@@ -625,7 +560,9 @@ function bindHover(canvas, tooltipElement) {
     const x = event.clientX - bounds.left;
     const plotX = x - meta.margins.left;
     if (plotX < 0 || plotX > meta.plotWidth) { tooltipElement.style.display = 'none'; restoreSnapshot(canvas); return; }
-    const index = Math.max(0, Math.min(meta.values.length - 1, Math.round(plotX / meta.plotWidth * (meta.values.length - 1))));
+    const targetIndex = plotX / meta.plotWidth * (meta.values.length - 1);
+    const index = nearestFiniteIndex(meta.values, targetIndex);
+    if (index < 0) { tooltipElement.style.display = 'none'; restoreSnapshot(canvas); return; }
     const crosshairX = meta.margins.left + index / Math.max(1, meta.values.length - 1) * meta.plotWidth;
     restoreSnapshot(canvas);
     const context = canvas.getContext('2d'); context.save(); context.beginPath(); context.rect(meta.margins.left, meta.margins.top, meta.plotWidth, meta.plotHeight); context.clip(); context.strokeStyle = 'rgba(100,116,139,.5)'; context.lineWidth = 1; context.setLineDash([3, 3]); context.beginPath(); context.moveTo(crosshairX, meta.margins.top); context.lineTo(crosshairX, meta.margins.top + meta.plotHeight); context.stroke(); context.setLineDash([]); const value = meta.values[index]; const y = meta.margins.top + (1 - value / meta.yMax) * meta.plotHeight; context.beginPath(); context.arc(crosshairX, y, 4, 0, Math.PI * 2); context.fillStyle = '#fff'; context.fill(); context.strokeStyle = meta.color; context.lineWidth = 2; context.stroke(); context.restore();
@@ -653,8 +590,10 @@ function closeTips(event) {
 }
 
 onMounted(async () => {
-  setQuickRange(3 * 60);
-  refreshTimer = window.setInterval(() => { if (!document.hidden) refreshData(); }, 60_000);
+  setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
+  refreshTimer = window.setInterval(() => {
+    if (!document.hidden && !loading.value && shouldAutoRefresh(rangeStart.value, rangeEnd.value)) refreshData();
+  }, 60_000);
   resizeHandler = () => { if (series.value.xpu.length || series.value.lock.length) drawAllCharts(); };
   window.addEventListener('resize', resizeHandler);
   document.addEventListener('click', closeTips);
@@ -686,6 +625,7 @@ onBeforeUnmount(() => {
     </section>
 
     <p v-if="error" class="error-message">{{ error }}</p>
+    <p v-if="dataWarning" class="data-warning">{{ dataWarning }}</p>
     <section id="average-view">
       <div class="cluster-filter-head">
         <div class="gtp-trigger-bar">
@@ -699,18 +639,18 @@ onBeforeUnmount(() => {
         <div class="cluster-range-grid">
           <div class="cluster-range-absolute">
             <div class="cluster-range-title">时间范围筛选</div>
-            <div class="cluster-field"><label for="cluster-start-time">开始时间</label><input id="cluster-start-time" v-model="draftStart" type="datetime-local" step="1" /></div>
-            <div class="cluster-field"><label for="cluster-end-time">结束时间</label><input id="cluster-end-time" v-model="draftEnd" type="datetime-local" step="1" /></div>
+            <div class="cluster-field"><label for="cluster-start-time">开始时间</label><input id="cluster-start-time" v-model="draftStart" type="datetime-local" step="60" /></div>
+            <div class="cluster-field"><label for="cluster-end-time">结束时间</label><input id="cluster-end-time" v-model="draftEnd" type="datetime-local" step="60" /></div>
             <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围" @click="copyRange">复制区间</button><button type="button" class="cluster-icon-btn" title="重置为最近 3 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
           </div>
-          <div class="cluster-range-quick"><input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="搜索快捷时间" /><div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.minutes" type="button" class="cluster-quick-item" :class="{ active: activeMinutes === quick.minutes }" :disabled="loading" @click="setQuickRange(quick.minutes); load()">{{ quick.label }}</button></div></div>
+          <div class="cluster-range-quick"><input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="搜索快捷时间" /><div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.id" type="button" class="cluster-quick-item" :class="{ active: quickRangeId === quick.id }" :disabled="loading" @click="setQuickRange(quick); load()">{{ quick.label }}</button></div></div>
         </div>
       </div>
 
       <section class="charts-row">
         <article class="chart-panel"><div class="chart-panel-head"><div class="chart-panel-title">XPU利用率趋势</div><button type="button" class="avg-mean-toggle" :class="{ active: meanVisible }" :aria-pressed="meanVisible" @click="meanVisible = !meanVisible; drawAllCharts()">均值线</button></div><div class="chart-wrap"><canvas ref="xpuCanvas"></canvas><div ref="xpuTooltip" class="chart-tooltip"></div></div></article>
         <article class="chart-panel"><div class="chart-panel-title">显存利用率趋势</div><div class="chart-wrap"><canvas ref="memoryCanvas"></canvas><div ref="memoryTooltip" class="chart-tooltip"></div></div></article>
-        <article class="chart-panel"><div class="chart-panel-title chart-title-with-tip">节点利用率趋势<button type="button" class="tip-icon" aria-label="查看绘图规则" @click.stop="openTip = openTip === 'lock-chart' ? '' : 'lock-chart'">?</button><div class="tip-popup" :class="{ show: openTip === 'lock-chart' }"><div>展示所选时段内已锁定 XPU 卡占全集群总卡数的变化。</div><div>用于观察资源分配规模及任务排期趋势。</div></div></div><div class="chart-wrap"><canvas ref="lockCanvas"></canvas><div ref="lockTooltip" class="chart-tooltip"></div></div></article>
+        <article class="chart-panel"><div class="chart-panel-title chart-title-with-tip">节点使用率趋势<button type="button" class="tip-icon" aria-label="查看绘图规则" @click.stop="openTip = openTip === 'lock-chart' ? '' : 'lock-chart'">?</button><div class="tip-popup" :class="{ show: openTip === 'lock-chart' }"><div>展示所选时段内已锁定 XPU 卡占全集群总卡数的变化。</div><div>用于观察资源分配规模及任务排期趋势。</div></div></div><div class="chart-wrap"><canvas ref="lockCanvas"></canvas><div ref="lockTooltip" class="chart-tooltip"></div></div></article>
       </section>
     </section>
   </main>

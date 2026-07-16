@@ -1,17 +1,33 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { TrendStore } = require('./trend-store.cjs');
 const { createTrendService } = require('./trend-service.cjs');
+const clusterScope = require('../shared/cluster-scope.json');
 
 const WEB_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = path.resolve(WEB_ROOT, '..');
 const DIST_ROOT = path.join(WEB_ROOT, 'dist');
 const PERSONAL_DIST_ROOT = path.join(PROJECT_ROOT, 'person', 'dist');
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
-const TREND_NODE_NAMES = new Set(Array.from({ length: 51 }, (_, index) => index + 1)
-  .filter(node => ![13, 14, 17].includes(node))
-  .map(node => `node${node}`));
+const TREND_NODE_NAMES = new Set(clusterScope.nodeIds.map(node => `node${node}`));
+const TREND_INTERVALS = new Set([60, 120, 240, 300, 480, 1200, 7200, 21600, 43200]);
+const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
+
+function addChinaMonths(timestamp, months) {
+  const chinaDate = new Date((timestamp + CHINA_UTC_OFFSET_SECONDS) * 1000);
+  const targetMonthIndex = chinaDate.getUTCMonth() + months;
+  const targetYear = chinaDate.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
+  const targetMonth = (targetMonthIndex % 12 + 12) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  return Math.floor((Date.UTC(
+    targetYear,
+    targetMonth,
+    Math.min(chinaDate.getUTCDate(), lastDay),
+    chinaDate.getUTCHours(),
+    chinaDate.getUTCMinutes(),
+    chinaDate.getUTCSeconds(),
+  ) - CHINA_UTC_OFFSET_SECONDS * 1000) / 1000);
+}
 
 let config = {
   proxy: { port: 8900, bind: '0.0.0.0' },
@@ -38,8 +54,7 @@ if (process.env.LOCKBOT_PORT) config.backend.lockbot.port = Number.parseInt(proc
 if (process.env.MONQUERY_HOST) config.backend.monquery.host = process.env.MONQUERY_HOST;
 if (process.env.MONQUERY_PORT) config.backend.monquery.port = Number.parseInt(process.env.MONQUERY_PORT, 10);
 
-const trendStore = new TrendStore(path.join(WEB_ROOT, '.devdata', 'xpu-monitor.sqlite'));
-const trendService = createTrendService(config, trendStore);
+const trendService = createTrendService(config);
 const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -159,10 +174,10 @@ const server = http.createServer((req, res) => {
     const params = new URL(req.url, 'http://localhost').searchParams;
     const startAt = Number(params.get('start'));
     const endAt = Number(params.get('end'));
-    const maxRange = 90 * 24 * 60 * 60;
-    if (!Number.isInteger(startAt) || !Number.isInteger(endAt) || startAt > endAt || endAt - startAt > maxRange) {
+    const intervalSeconds = Number(params.get('interval') || 300);
+    if (!Number.isInteger(startAt) || !Number.isInteger(endAt) || startAt > endAt || endAt > addChinaMonths(startAt, 6) || !TREND_INTERVALS.has(intervalSeconds)) {
       res.writeHead(400, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Invalid trend range' }));
+      return res.end(JSON.stringify({ error: 'Invalid trend range or interval' }));
     }
     const requestedNodes = params.getAll('nodes').flatMap(value => value.split(',').filter(Boolean));
     const nodes = params.has('nodes') ? [...new Set(requestedNodes)] : null;
@@ -170,7 +185,7 @@ const server = http.createServer((req, res) => {
       res.writeHead(400, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Invalid trend nodes' }));
     }
-    return trendService.query(startAt, endAt, req.headers.authorization, nodes)
+    return trendService.query(startAt, endAt, req.headers.authorization, nodes, intervalSeconds)
       .then(data => {
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
         res.end(JSON.stringify(data));

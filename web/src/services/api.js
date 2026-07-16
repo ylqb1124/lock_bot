@@ -13,9 +13,10 @@ const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
 // 非 backup namespace 的节点
 const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51];
 
-// 有监控数据的节点（排除 node13, node14, node17 为故障机）
-const MONITORED_NODES = Array.from({ length: 51 }, (_, i) => i + 1)
-  .filter(n => ![13, 14, 17].includes(n));
+import clusterScope from '../../shared/cluster-scope.json' with { type: 'json' };
+
+const MONITORED_NODES = clusterScope.nodeIds;
+const CARDS_PER_NODE = clusterScope.cardsPerNode;
 
 function buildNamespace(nodeNum) {
   const cluster = NON_BACKUP_NODES.includes(nodeNum) ? CLUSTER_NON_BACKUP : CLUSTER_BACKUP;
@@ -24,8 +25,8 @@ function buildNamespace(nodeNum) {
 
 // 核心指标：整机级先展示，卡级指标后续渐进补齐
 const MONQUERY_NODE_ITEMS = ['XPU_AVERAGE_UTILIZATION'];
-const MONQUERY_CARD_XPU_ITEMS = Array.from({ length: 8 }, (_, c) => `XPU${c}_XPU_UTILIZATION`);
-const MONQUERY_CARD_MEM_ITEMS = Array.from({ length: 8 }, (_, c) => `XPU${c}_MEM_UTILIZATION`);
+const MONQUERY_CARD_XPU_ITEMS = Array.from({ length: CARDS_PER_NODE }, (_, c) => `XPU${c}_XPU_UTILIZATION`);
+const MONQUERY_CARD_MEM_ITEMS = Array.from({ length: CARDS_PER_NODE }, (_, c) => `XPU${c}_MEM_UTILIZATION`);
 const MONQUERY_CARD_ITEMS = [...MONQUERY_CARD_XPU_ITEMS, ...MONQUERY_CARD_MEM_ITEMS];
 const MONQUERY_ITEMS = [...MONQUERY_NODE_ITEMS, ...MONQUERY_CARD_ITEMS];
 
@@ -234,16 +235,20 @@ export async function* fetchMonqueryCardUtilizationBatches(start, end, options =
 }
 
 /**
- * 批量查询 48 个节点的完整监控数据（保留兼容 average.html 等旧调用）
+ * 批量查询 46 个固定监控节点的完整数据（保留兼容 average.html 等旧调用）
  * @param {string} start - 起始时间 YYYYMMDDHHmmss
  * @param {string} end   - 结束时间 YYYYMMDDHHmmss
  * @returns {Promise<Array>} monquery data[] 数组
  */
-export async function fetchCachedClusterTrend(start, end, token, nodes) {
-  const params = new URLSearchParams({ start: String(Math.floor(start.getTime() / 1000)), end: String(Math.floor(end.getTime() / 1000)) });
+export async function fetchClusterTrend(start, end, token, intervalSeconds, nodes) {
+  const params = new URLSearchParams({
+    start: String(Math.floor(start.getTime() / 1000)),
+    end: String(Math.floor(end.getTime() / 1000)),
+    interval: String(intervalSeconds),
+  });
   if (Array.isArray(nodes)) params.set('nodes', nodes.join(','));
   const resp = await fetchWithTimeout(`/api/cluster-trend?${params}`, { headers: { Authorization: `Bearer ${token}` } }, 180_000);
-  if (!resp.ok) throw new Error(`Fetch cached cluster trend failed: ${resp.status}`);
+  if (!resp.ok) throw new Error(`Fetch cluster trend failed: ${resp.status}`);
   return resp.json();
 }
 
@@ -265,4 +270,4 @@ export function isAbortError(err) {
   return err && err.name === 'AbortError';
 }
 
-export { MONITORED_NODES, MONQUERY_ITEMS, MONQUERY_NODE_ITEMS, MONQUERY_CARD_ITEMS };
+export { CARDS_PER_NODE, MONITORED_NODES, MONQUERY_ITEMS, MONQUERY_NODE_ITEMS, MONQUERY_CARD_ITEMS };
