@@ -524,7 +524,7 @@ function drawChart(canvas, values, color, defaultYMax, defaultTicks, label) {
   const context = canvas.getContext('2d');
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   const count = values.length;
-  const yAxis = resolveYAxis(values, defaultYMax, defaultTicks);
+  const yAxis = resolveYAxis(values, defaultYMax, defaultTicks, 100);
   const yMax = yAxis.yMax;
   const ticks = yAxis.ticks;
   const hasSamples = hasFiniteSamples(values);

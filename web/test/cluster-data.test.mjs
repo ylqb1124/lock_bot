@@ -118,7 +118,7 @@ test('DEVICE live locks use bot_type and are counted once with NODE locks', () =
   assert.equal(sample.lockedCards, CARD_COUNT);
 });
 
-test('chart helpers skip empty points and expand only beyond the default scale', () => {
+test('chart helpers skip empty points, expand the scale, and cap percentage axes at 100%', () => {
   assert.equal(hasFiniteSamples([null, undefined, Number.NaN]), false);
   assert.equal(nearestFiniteIndex([null, 4, null, 7], 2), 1);
   assert.equal(nearestFiniteIndex([null, 4, null, 7], 3), 3);
@@ -130,6 +130,14 @@ test('chart helpers skip empty points and expand only beyond the default scale',
   assert.deepEqual(resolveYAxis([0, 36], 35, [0, 5, 10, 15, 20, 25, 30, 35]), {
     yMax: 40,
     ticks: [0, 5, 10, 15, 20, 25, 30, 35, 40],
+  });
+  assert.deepEqual(resolveYAxis([0, 93], 70, [0, 10, 20, 30, 40, 50, 60, 70], 100), {
+    yMax: 100,
+    ticks: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+  });
+  assert.deepEqual(resolveYAxis([0, 150], 35, [0, 5, 10, 15, 20, 25, 30, 35], 100), {
+    yMax: 100,
+    ticks: Array.from({ length: 21 }, (_, index) => index * 5),
   });
 });
 
