@@ -88,7 +88,7 @@ export async function fetchAllBotStates(token) {
  * @param {number} botId - Bot ID
  * @param {string} date - 日期 "YYYY-MM-DD"
  * @param {string} token - JWT token
- * @returns {Promise<Array>} 占用记录数组 [{node_key, user_id, lock_mode, start_time, end_time, duration_seconds}]
+ * @returns {Promise<Array>} 占用记录数组 [{node_key, user_id, lock_mode, start_time, end_time, duration_seconds, resource_type, device_id}]
  */
 export async function fetchLockBotOccupancy(botId, date, token) {
   const resp = await fetchWithTimeout(

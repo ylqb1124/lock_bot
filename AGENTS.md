@@ -2,27 +2,27 @@
 
 ## Project Structure & Module Organization
 
-The root application is a static dashboard backed by a Node proxy: `index.html`, `cluster.html`, and `value.html` contain page orchestration; `api.js`, `adapter.js`, and `timeline.js` hold data and canvas logic; `proxy.js` serves files and proxies Lock Bot/Monquery requests. Trend persistence lives in `trend-store.js` and `trend-service.js`.
+The current production dashboard is `web/`, a Vue 3/Vite app. `web/src/views/ClusterDashboard.vue` orchestrates the UI; `src/services/` owns API calls, data adaptation, time handling, charts, refresh policy, and Lock Bot state merging. `web/server/` provides the Node proxy plus persisted cluster trends and Lock Bot history cache. The fixed 46-node, 8-card scope is in `web/shared/cluster-scope.json`.
 
-`web/` and `person/` are separate Vue 3/Vite applications. Their feature code is organized as `src/views/`, `src/services/`, and component-specific CSS. Deployment definitions live in `pm2.config.cjs` and `xpu-monitor.service`. Start configuration from `config.example.json`; do not commit environment-specific endpoints or credentials.
+The repository root retains the legacy static dashboard (`index.html`, `api.js`, `adapter.js`, `timeline.js`, `proxy.js`). `person/` is a separate personal Vue dashboard. Deployment files include `web/pm2.config.cjs` and `web/xpu-monitor.service`.
 
 ## Build, Test, and Development Commands
 
-- `node proxy.js`: run the root dashboard and proxy on the configured port (default `8900`).
-- `cd web && npm install && npm run dev`: run the Vue web application with Vite.
-- `cd web && npm run build`: produce the web production bundle; use `npm start` to run its proxy.
-- `cd person && npm install && npm run dev` or `npm run build`: develop or build the personal Vue variant.
+- `cd web && npm run dev` starts Vite development.
+- `cd web && npm test` runs `node:test` coverage for metrics, Lock Bot merging, trend queries, caching, and refresh behavior.
+- `cd web && npm run build` creates the production bundle; `npm start` serves it with the proxy.
+- `cd person && npm run dev` or `npm run build` develops or builds the personal view.
 
-No automated test or lint command is configured. For each change, run the relevant production build and manually verify login, refresh/error states, and the affected dashboard view against the local proxy.
+Run the relevant test suite and production build for every change. Manually verify login, loading/error handling, refresh behavior, and the modified dashboard path against the local proxy.
 
 ## Coding Style & Naming Conventions
 
-Follow the surrounding file's formatting: JavaScript and Vue files use two-space indentation, semicolons, and single quotes in the Vue code. Use descriptive camelCase for variables/functions (`fetchLockBotList`), PascalCase for Vue components (`ClusterDashboard.vue`), and lowercase kebab-case for multiword file names (`trend-service.js`). Keep API fetching in `services/api.js` or root `api.js`, transformations in adapters, and rendering code in views/pages.
+Use two-space indentation, semicolons, and single quotes in Vue/JavaScript. Use camelCase for functions (`fetchLockBotList`), PascalCase for components (`ClusterDashboard.vue`), and kebab-case for multiword files (`trend-service.cjs`). Keep fetches in `services/api.js`, response transformations in adapters, and rendering in views. Preserve China-time conversion and the shared cluster scope instead of duplicating constants.
 
-## Commit & Pull Request Guidelines
+## Testing Guidelines
 
-Recent commits use concise Chinese, imperative summaries such as `集群、节点视图解耦` or `提交历史数据显示`. Keep each commit focused and name the affected behavior. Pull requests should state the user-visible change, configuration or API implications, commands run, and include screenshots for dashboard/UI changes. Link the relevant issue or task when one exists.
+Add focused cases to `web/test/cluster-data.test.mjs` for changes to aggregation, lock coverage, ranges, or cache behavior. Use descriptive `node:test` names that state the business rule. No lint task is configured.
 
-## Security & Configuration
+## Commit, Security & Configuration
 
-The proxy handles internal service requests and browser tokens. Keep tokens out of source control and do not log authorization headers. Prefer environment overrides (`PROXY_PORT`, `LOCKBOT_HOST`, `MONQUERY_HOST`) for deployment-specific values.
+Use concise imperative Chinese commits, such as `修复趋势节点范围校验`. PRs should describe user-visible behavior, API/configuration effects, validation commands, related issues, and screenshots for UI work. Start from `config.example.json`; never commit endpoints, credentials, tokens, or authorization headers. Prefer `PROXY_PORT`, `LOCKBOT_HOST`, and `MONQUERY_HOST` overrides for deployment-specific configuration.

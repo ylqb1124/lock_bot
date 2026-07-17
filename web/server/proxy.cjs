@@ -181,7 +181,7 @@ const server = http.createServer((req, res) => {
     }
     const requestedNodes = params.getAll('nodes').flatMap(value => value.split(',').filter(Boolean));
     const nodes = params.has('nodes') ? [...new Set(requestedNodes)] : null;
-    if (nodes !== null && (nodes.length !== requestedNodes.length || nodes.some(node => !TREND_NODE_NAMES.has(node)))) {
+    if (nodes !== null && (!nodes.length || nodes.length !== requestedNodes.length || nodes.some(node => !TREND_NODE_NAMES.has(node)))) {
       res.writeHead(400, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Invalid trend nodes' }));
     }

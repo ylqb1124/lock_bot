@@ -190,8 +190,8 @@ export function mergeMonqueryData(existing = [], incoming = []) {
 
 /**
  * 将历史占用记录按节点名分组并转为 occupation 数组
- * @param {Array} occupancyHistory - [{node_key, user_id, start_time, end_time, duration_seconds, ...}]
- * @returns {object} { nodeName: [{start, end, user}] }
+ * @param {Array} occupancyHistory - [{node_key, user_id, start_time, end_time, duration_seconds, resource_type, device_id, ...}]
+ * @returns {object} { nodeName: { nodeOccupations, cardOccupations } }
  */
 function groupHistoryOccupations(occupancyHistory) {
   const map = {};
@@ -200,7 +200,12 @@ function groupHistoryOccupations(occupancyHistory) {
     const nodeId = extractNodeId(rec.node_key);
     if (!nodeId) continue;
     const name = nodeId.prefix + nodeId.id;
-    if (!map[name]) map[name] = [];
+    if (!map[name]) {
+      map[name] = {
+        nodeOccupations: [],
+        cardOccupations: Array.from({ length: CARD_COUNT }, () => []),
+      };
+    }
     const start = parseSlotFromTimestamp(rec.start_time);
     // end_time 可能不存在，从 duration_seconds 推算
     let end;
@@ -215,11 +220,23 @@ function groupHistoryOccupations(occupancyHistory) {
     } else {
       end = start;
     }
-    map[name].push({
+    const occupation = {
       start: Math.max(0, Math.min(SLOT_COUNT - 1, start)),
       end: Math.max(0, Math.min(SLOT_COUNT - 1, end)),
       user: rec.user_id || '',
-    });
+    };
+    map[name].nodeOccupations.push(occupation);
+
+    // 旧记录没有 resource_type，按节点级记录兼容。新的 device 记录只画到指定卡，
+    // 避免将单卡锁错误扩大为整机 8 卡锁。
+    if (rec.resource_type === 'device') {
+      const deviceId = Number(rec.device_id);
+      if (Number.isInteger(deviceId) && deviceId >= 0 && deviceId < CARD_COUNT) {
+        map[name].cardOccupations[deviceId].push(occupation);
+      }
+    } else {
+      for (let c = 0; c < CARD_COUNT; c++) map[name].cardOccupations[c].push(occupation);
+    }
   }
   return map;
 }
@@ -340,13 +357,17 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
     }
 
     // ---- 合并历史占用记录 ----
-    const historyOccs = historyByNode[name] || [];
-    for (const h of historyOccs) {
+    const history = historyByNode[name];
+    for (const h of history?.nodeOccupations || []) {
       const key = `${h.start},${h.end},${h.user}`;
       if (occKeySet.has(key)) continue;
       occKeySet.add(key);
       occupations.push(h);
-      for (let c = 0; c < CARD_COUNT; c++) {
+    }
+    for (let c = 0; c < CARD_COUNT; c++) {
+      for (const h of history?.cardOccupations[c] || []) {
+        const key = `${h.start},${h.end},${h.user}`;
+        if (cardOccupations[c].some(existing => `${existing.start},${existing.end},${existing.user}` === key)) continue;
         cardOccupations[c].push(h);
       }
     }
