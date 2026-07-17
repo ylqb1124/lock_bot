@@ -3,9 +3,10 @@
 from lockbot.core.query_render import _mem_category, _node_sort_key
 
 
-def _entry(key, rem, is_mine, cat, order):
-    # entry = (key, state, rem, is_mine, cat, order); state is unused by the sort.
-    return (key, None, rem, is_mine, cat, order)
+def _entry(key, rem, is_mine, cat, order, is_booked=False):
+    # entry = (key, state, rem, user_rank, cat, order); state is unused by the sort.
+    user_rank = 0 if is_mine else 1 if is_booked else 2
+    return (key, None, rem, user_rank, cat, order)
 
 
 def _order(entries):
@@ -60,19 +61,21 @@ def test_mine_first():
     assert _order(entries) == ["mine", "unlocked_free"]
 
 
-def test_full_seven_rank_order():
-    """Full ordering across all seven ranks."""
+def test_full_eight_rank_order():
+    """Full ordering across all eight ranks."""
     entries = [
-        _entry("locked_busy", 100, False, "busy", 0),  # rank 6
-        _entry("locked_na", 100, False, "na", 1),  # rank 5
-        _entry("locked_free", 100, False, "free", 2),  # rank 4
-        _entry("unlocked_busy", None, False, "busy", 3),  # rank 3
-        _entry("unlocked_na", None, False, "na", 4),  # rank 2
-        _entry("unlocked_free", None, False, "free", 5),  # rank 1
-        _entry("mine", 100, True, "busy", 6),  # rank 0
+        _entry("locked_busy", 100, False, "busy", 0),  # rank 7
+        _entry("locked_na", 100, False, "na", 1),  # rank 6
+        _entry("locked_free", 100, False, "free", 2),  # rank 5
+        _entry("unlocked_busy", None, False, "busy", 3),  # rank 4
+        _entry("unlocked_na", None, False, "na", 4),  # rank 3
+        _entry("unlocked_free", None, False, "free", 5),  # rank 2
+        _entry("booked", 50, False, "busy", 6, is_booked=True),  # rank 1
+        _entry("mine", 100, True, "busy", 7),  # rank 0
     ]
     assert _order(entries) == [
         "mine",
+        "booked",
         "unlocked_free",
         "unlocked_na",
         "unlocked_busy",

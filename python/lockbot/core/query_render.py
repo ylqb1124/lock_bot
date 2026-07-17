@@ -340,12 +340,17 @@ def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=Non
     entries = []
     for order, (node_key, ns) in enumerate(bot_state.items()):
         rem = min_remaining(ns)
-        is_mine = user_id is not None and any(u["user_id"] == user_id for u in ns.get("current_users", []))
+        user_rank = 2
+        if user_id is not None:
+            if any(u["user_id"] == user_id for u in ns.get("current_users", [])):
+                user_rank = 0
+            elif is_queue and any(u["user_id"] == user_id for u in ns.get("booking_list", [])):
+                user_rank = 1
         if memory_based or xpu_on:
             cat = _mem_category(_node_mem(xpu_usage, node_key), threshold)
         else:
             cat = "free" if ns["status"] == "idle" else "busy"
-        entries.append((node_key, ns, rem, is_mine, cat, order))
+        entries.append((node_key, ns, rem, user_rank, cat, order))
 
     idle_lock_cell = _NODE_UNLOCK if memory_based else "--"
     for node_key, ns, _rem, _mine, cat, _order in sorted(entries, key=_node_sort_key):
@@ -411,22 +416,21 @@ _CAT_RANK = {"free": 0, "na": 1, "busy": 2}
 
 
 def _node_sort_key(entry):
-    """Order nodes by (1) is_mine, (2) lock presence (unlocked first), then
-    (3) memory tier within each lock group (FREE < N/A < BUSY). Within a tier,
-    by remaining lock duration ascending.
+    """Order nodes by user priority, lock presence, then memory tier.
 
     Resulting ranks:
-        0 = @'d (is_mine)
-        1/2/3 = unlocked + FREE / N/A / BUSY
-        4/5/6 = locked  + FREE / N/A / BUSY
-    entry = (key, state, rem, is_mine, cat, order).
+        0 = locked by the querying user
+        1 = booked by the querying user
+        2/3/4 = unlocked + FREE / N/A / BUSY
+        5/6/7 = locked  + FREE / N/A / BUSY
+    entry = (key, state, rem, user_rank, cat, order).
     """
-    _key, _state, rem, is_mine, cat, order = entry
+    _key, _state, rem, user_rank, cat, order = entry
     is_locked = rem is not None
-    if is_mine:
-        rank = 0
+    if user_rank < 2:
+        rank = user_rank
     else:
-        rank = 1 + (3 if is_locked else 0) + _CAT_RANK[cat]
+        rank = 2 + (3 if is_locked else 0) + _CAT_RANK[cat]
     rem_val = rem if rem is not None else 0
     return (rank, rem_val, order)
 
