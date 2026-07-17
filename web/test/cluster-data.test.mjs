@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createRequire } from 'node:module';
 import clusterScope from '../shared/cluster-scope.json' with { type: 'json' };
 import { adaptNodeData } from '../src/services/adapter.js';
-import { shouldAutoRefresh } from '../src/services/auto-refresh.js';
+import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } from '../src/services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../src/services/chart-data.js';
 import { CARD_COUNT, mergeLockBotStates } from '../src/services/cluster-state.js';
 
@@ -15,7 +15,7 @@ function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
 }
 
-test('cluster scope has the fixed 46-node, 368-card denominator', () => {
+test('cluster scope uses the fixed 46-node, 368-card computation denominator', () => {
   assert.equal(clusterScope.nodeIds.length, 46);
   assert.equal(clusterScope.cardsPerNode, 8);
   assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 368);
@@ -50,6 +50,19 @@ test('partial card metrics expose coverage without inventing free cards', () => 
   assert.equal(node.busyCards, 1);
   assert.equal(node.cardMetricStates[0], 'BUSY');
   assert.equal(node.cardMetricStates[1], 'UNKNOWN');
+});
+
+test('missing card metrics remain unknown and never become busy', () => {
+  const [node] = adaptNodeData({ node1: emptyDeviceState() }, [{
+    NameSpace: 'wxtky02-p800-backup-8nic-vd-node1.wxtky02',
+    Items: {
+      XPU0_XPU_UTILIZATION: [{ Timestamp: 0, Value: 20 }],
+      XPU0_MEM_UTILIZATION: [{ Timestamp: 0, Value: 0 }],
+    },
+  }], 97, 'DEVICE');
+
+  assert.equal(node.cardMetricStates.filter(state => state === 'BUSY').length, 1);
+  assert.equal(node.cardMetricStates.filter(state => state === 'UNKNOWN').length, CARD_COUNT - 1);
 });
 
 test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {
@@ -124,9 +137,56 @@ test('automatic refresh only applies to a current range no longer than 24 hours'
   const now = Date.UTC(2026, 6, 16, 8, 0, 0);
   assert.equal(shouldAutoRefresh(now - 3 * 60 * 60 * 1000, now - 60_000, now), true);
   assert.equal(shouldAutoRefresh(now - 24 * 60 * 60 * 1000, now - 4 * 60_000, now), true);
-  assert.equal(shouldAutoRefresh(now - 24 * 60 * 60 * 1000, now - 6 * 60_000, now), false);
+  assert.equal(shouldAutoRefresh(now - 24 * 60 * 60 * 1000, now - 6 * 60_000, now), true);
+  assert.equal(shouldAutoRefresh(now - 24 * 60 * 60 * 1000, now - 6 * 60_000 - 1, now), false);
   assert.equal(shouldAutoRefresh(now - 2 * 24 * 60 * 60 * 1000, now, now), false);
   assert.equal(shouldAutoRefresh(now - 60_000, now + 60_000, now), false);
+  assert.equal(nextAutoRefreshDelay(now), AUTO_REFRESH_INTERVAL_MS);
+  assert.equal(nextAutoRefreshDelay(now + 60_000), 4 * 60 * 1000);
+});
+
+test('Lock Bot BDC cards are excluded from the computation-node trend', async () => {
+  const monqueryNamespaces = [];
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      monqueryNamespaces.push(new URL(request.url, 'http://localhost').searchParams.get('namespaces'));
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'DEVICE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      response.end(JSON.stringify([{
+        node_key: 'bdc9',
+        start_time: 0,
+        end_time: 300,
+      }]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(0, 300, 'Bearer test', null, 300);
+
+    assert.equal(result.targetNodes.length, 46);
+    assert.equal(result.targetNodes.includes('bdc9'), false);
+    assert.equal(result.lock[0], 0);
+    assert.equal(monqueryNamespaces.length, 3);
+    assert.equal(monqueryNamespaces.some(namespaces => /bdc|NaN/i.test(namespaces)), false);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
 });
 
 test('a failed Lock Bot occupancy request produces an unavailable lock trend', async () => {
@@ -209,7 +269,7 @@ test('complete historical Lock Bot days are cached and identical trend requests 
     ]);
     await service.query(0, 300, 'Bearer test', null, 300);
 
-    assert.equal(monqueryCalls, 2);
+    assert.equal(monqueryCalls, 6);
     assert.equal(botCalls, 2);
     assert.equal(occupancyCalls, 1);
     assert.equal(recordsByKey.size, 1);

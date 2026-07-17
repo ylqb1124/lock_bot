@@ -1,5 +1,11 @@
 const MAX_AUTO_REFRESH_RANGE_MS = 24 * 60 * 60 * 1000;
-const CURRENT_END_GRACE_MS = 5 * 60 * 1000;
+export const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const CURRENT_END_GRACE_MS = AUTO_REFRESH_INTERVAL_MS + 60 * 1000;
+
+export function nextAutoRefreshDelay(now = Date.now()) {
+  const remainder = now % AUTO_REFRESH_INTERVAL_MS;
+  return remainder === 0 ? AUTO_REFRESH_INTERVAL_MS : AUTO_REFRESH_INTERVAL_MS - remainder;
+}
 
 export function shouldAutoRefresh(rangeStart, rangeEnd, now = Date.now()) {
   const start = new Date(rangeStart).getTime();

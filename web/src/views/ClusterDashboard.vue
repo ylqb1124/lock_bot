@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { fetchClusterTrend, fetchLockBotList, fetchLockBotState, fetchMonqueryUtilization } from '../services/api.js';
 import { adaptNodeData } from '../services/adapter.js';
-import { shouldAutoRefresh } from '../services/auto-refresh.js';
+import { nextAutoRefreshDelay, shouldAutoRefresh } from '../services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../services/chart-data.js';
 import { CARD_COUNT, mergeLockBotStates } from '../services/cluster-state.js';
 import {
@@ -49,6 +49,7 @@ const X_AXIS_TICK_OPTIONS = [
   28800, 43200, 86400, 172800, 259200, 432000, 604800, 1209600, 1296000,
 ];
 const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
+const CURRENT_METRICS_LOOKBACK_MS = 3 * 60 * 60 * 1000;
 
 const rangeStart = ref(null);
 const rangeEnd = ref(null);
@@ -62,6 +63,8 @@ const panelCollapsed = ref(true);
 const meanVisible = ref(true);
 const openTip = ref('');
 const loading = ref(true);
+const trendLoading = ref(true);
+const currentStatsReady = ref(false);
 const error = ref('');
 const toast = ref('');
 const nodes = ref([]);
@@ -78,10 +81,12 @@ const lockCanvas = ref(null);
 const xpuTooltip = ref(null);
 const memoryTooltip = ref(null);
 const lockTooltip = ref(null);
+const dashboardLoadStartedAt = performance.now();
 let requestSequence = 0;
 let refreshTimer;
 let toastTimer;
 let resizeHandler;
+let initialLoadLogged = false;
 const listenerCleanup = [];
 
 const filteredQuickRanges = computed(() => {
@@ -103,18 +108,11 @@ const refreshStatus = computed(() => lastRefreshAt.value ? `已刷新 ${formatCl
 const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
   ? `${formatDateTimeLabel(rangeStart.value)} 至 ${formatDateTimeLabel(rangeEnd.value)}`
   : '');
-const stats = computed(() => buildStats(nodes.value, series.value.xpu, series.value.memory, lockStateComplete.value));
-const metricCoverage = computed(() => {
-  const expectedCards = nodes.value.length * CARD_COUNT;
-  const knownCards = nodes.value.reduce((count, node) => count + (node.knownCardCount || 0), 0);
-  const knownNodes = nodes.value.filter(node => node.status !== 'UNKNOWN').length;
-  return { expectedCards, knownCards, knownNodes };
-});
+const stats = computed(() => currentStatsReady.value
+  ? buildStats(nodes.value, series.value.xpu, series.value.memory, lockStateComplete.value)
+  : buildLoadingStats());
 const dataWarning = computed(() => {
   const messages = [];
-  if (metricCoverage.value.expectedCards && metricCoverage.value.knownCards < metricCoverage.value.expectedCards) {
-    messages.push(`当前 Monquery 采样不完整（${metricCoverage.value.knownCards}/${metricCoverage.value.expectedCards} 张卡），BUSY 统计仅基于已采样数据`);
-  }
   if (!lockStateComplete.value) messages.push(`当前 Lock Bot 状态不完整（${failedStateBotIds.value.length} 个 Bot 请求失败），锁定相关统计暂不显示`);
   if (!lockTrendComplete.value) messages.push(`历史 Lock Bot 数据不完整（${lockTrendFailureCount.value} 个请求失败），锁定趋势暂不显示`);
   return messages.join('；');
@@ -262,10 +260,10 @@ function currentSlot() {
   return chinaSlotIndex();
 }
 
-function adaptStates(stateResults, monqueryData) {
+function adaptStates(stateResults, monqueryData, sampleSlot) {
   const merged = mergeLockBotStates(stateResults);
   return {
-    nodes: adaptNodeData(merged.deviceState, monqueryData, currentSlot(), 'DEVICE'),
+    nodes: adaptNodeData(merged.deviceState, monqueryData, sampleSlot, 'DEVICE'),
     lockStateComplete: merged.lockStateComplete,
     failedBotIds: merged.failedBotIds,
   };
@@ -276,19 +274,31 @@ function average(values) {
   return populated.length ? populated.reduce((sum, value) => sum + value, 0) / populated.length : null;
 }
 
+function buildLoadingStats() {
+  return [
+    { label: '总节点', value: '--', tone: 'total' },
+    { label: '总卡数', value: '--', tone: 'total' },
+    { label: 'LOCKED 节点', value: '--', tone: 'locked' },
+    { label: 'XPU平均利用率/峰值利用率', value: '--/--', tone: 'xpu-avg' },
+    { label: 'BUSY卡数', value: '--', tone: 'busy' },
+    { label: '节点使用率', value: '--', tone: 'locked' },
+    { label: 'BUSY节点', value: '--', tone: 'busy' },
+    { label: '显存平均利用率/峰值利用率', value: '--/--', tone: 'mem-avg' },
+  ];
+}
+
 function buildStats(currentNodes, xpu, memory, isLockStateComplete) {
   let busyNodes = 0;
   let busyCards = 0;
-  let knownNodes = 0;
-  let knownCards = 0;
   let lockedNodes = 0;
   let lockedCards = 0;
   for (const node of currentNodes) {
     if (node.status === 'BUSY' || node.status === 'PARTIAL') busyNodes += 1;
-    if (node.status !== 'UNKNOWN') knownNodes += 1;
     if (node.hasActiveLock) lockedNodes += 1;
-    busyCards += node.busyCards || 0;
-    knownCards += node.knownCardCount || 0;
+    for (let card = 0; card < CARD_COUNT; card += 1) {
+      if (node.cardMetricStates?.[card] === 'BUSY') busyCards += 1;
+      else if (!node.hasCardMonqueryData && node.hasActiveLock) busyCards += 1;
+    }
     lockedCards += node.cardHasActiveLock?.filter(Boolean).length || 0;
   }
   const totalCards = currentNodes.length * CARD_COUNT;
@@ -303,9 +313,9 @@ function buildStats(currentNodes, xpu, memory, isLockStateComplete) {
     { label: '总卡数', value: String(totalCards), tone: 'total' },
     { label: 'LOCKED 节点', value: isLockStateComplete ? String(lockedNodes) : '--', tone: 'locked' },
     { label: 'XPU平均利用率/峰值利用率', value: pair(xpu), tone: 'xpu-avg', tip: '平均利用率反映所选时段内集群整体计算负载；峰值利用率反映该时段最高负载水平。' },
-    { label: 'BUSY卡数', value: knownCards === totalCards ? String(busyCards) : knownCards ? `${busyCards}/${knownCards}` : '--', tone: 'busy', tip: '最近一个已完成的 5 分钟采样周期内，XPU 或显存利用率达到 10% 及以上的 XPU 卡数。存在缺失采样时，数值格式为 BUSY 卡数/已采样卡数。' },
-    { label: '节点使用率', value: isLockStateComplete ? percent(totalCards ? lockedCards / totalCards * 100 : null) : '--', tone: 'locked', tip: '当前已通过 Lock Bot 锁定的 XPU 卡占全集群总卡数的比例，反映资源已分配给任务的规模。' },
-    { label: 'BUSY节点', value: knownNodes === currentNodes.length ? String(busyNodes) : knownNodes ? `${busyNodes}/${knownNodes}` : '--', tone: 'busy', tip: '最近一个已完成的 5 分钟采样周期内，XPU 或显存利用率达到 10% 及以上的节点数。存在缺失采样时，数值格式为 BUSY 节点数/已采样节点数。' },
+    { label: 'BUSY卡数', value: String(busyCards), tone: 'busy', tip: '当前存在实际计算任务的 XPU 卡数。单卡的 XPU 或显存利用率达到 10% 及以上时计入。' },
+    { label: '节点使用率', value: isLockStateComplete ? percent(totalCards ? lockedCards / totalCards * 100 : null) : '--', tone: 'locked', tip: '当前已通过 Lock Bot 锁定的 XPU 卡占 46 个计算节点总卡数的比例，反映计算资源已分配给任务的规模。' },
+    { label: 'BUSY节点', value: String(busyNodes), tone: 'busy', tip: '当前存在实际计算任务的节点数。节点的 XPU 或显存利用率达到 10% 及以上时计入。' },
     { label: '显存平均利用率/峰值利用率', value: pair(memory), tone: 'mem-avg', tip: '平均利用率反映所选时段内集群整体显存压力；峰值利用率反映该时段最高显存压力。' },
   ];
 }
@@ -375,36 +385,94 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => { toast.value = ''; }, 5_000);
 }
 
+function formatDuration(milliseconds) {
+  if (milliseconds < 1_000) return `${Math.round(milliseconds)} ms`;
+  if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(2)} s`;
+  const minutes = Math.floor(milliseconds / 60_000);
+  return `${minutes} min ${((milliseconds % 60_000) / 1_000).toFixed(1)} s`;
+}
+
+function logInitialLoad(result, details) {
+  if (initialLoadLogged) return;
+  initialLoadLogged = true;
+  window.requestAnimationFrame(() => {
+    const completedAt = performance.now();
+    const status = result === 'success' ? '完成' : '失败';
+    const stages = {
+      '页面初始化': formatDuration(completedAt - dashboardLoadStartedAt),
+      '数据请求与渲染': formatDuration(completedAt - details.dataLoadStartedAt),
+      'Lock Bot 列表': formatDuration(details.botListEndedAt - details.dataLoadStartedAt),
+      '并行数据请求': formatDuration(details.requestsEndedAt - details.requestsStartedAt),
+      'Lock Bot 状态': formatDuration(details.requestTimings.lockStates),
+      '当前 Monquery': formatDuration(details.requestTimings.currentMonquery),
+      '趋势请求': formatDuration(details.requestTimings.trend),
+      '图表渲染': formatDuration(completedAt - details.renderStartedAt),
+      '状态': status,
+      '结果': result === 'success' ? '成功' : details.errorMessage,
+    };
+    console.groupCollapsed(`[cluster] 首屏加载${status} · ${stages['页面初始化']}`);
+    console.table(stages);
+    console.groupEnd();
+  });
+}
+
 async function load() {
   if (!rangeStart.value || !rangeEnd.value) return;
   const sequence = ++requestSequence;
+  const dataLoadStartedAt = performance.now();
+  let botListEndedAt = dataLoadStartedAt;
+  let requestsStartedAt = dataLoadStartedAt;
+  let requestsEndedAt = dataLoadStartedAt;
+  let renderStartedAt = dataLoadStartedAt;
+  const requestTimings = { lockStates: 0, currentMonquery: 0, trend: 0 };
   loading.value = true;
+  trendLoading.value = true;
   error.value = '';
   try {
     if (!bots.value.length) bots.value = await fetchLockBotList(props.token);
+    botListEndedAt = performance.now();
     const { queryStart, queryEnd, intervalSeconds } = normalizeRange(rangeStart.value, rangeEnd.value);
     const today = new Date();
     const todayStart = startOfChinaDay(today);
+    const currentMetricsStart = new Date(Math.max(todayStart.getTime(), today.getTime() - CURRENT_METRICS_LOOKBACK_MS));
+    const currentSlotAtRequest = chinaSlotIndex(today);
+    requestsStartedAt = performance.now();
+    const lockStatesStartedAt = performance.now();
     const statePromise = Promise.all(bots.value.map(async bot => {
       try {
         return { bot, ok: true, state: await fetchLockBotState(bot.id, props.token) };
       } catch (caught) {
         return { bot, ok: false, error: caught?.message || '状态请求失败' };
       }
-    }));
-    const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(todayStart), formatMonqueryDateTime(today));
-    const trendPromise = fetchClusterTrend(queryStart, queryEnd, props.token, intervalSeconds);
-    const [stateResults, currentData, trendData] = await Promise.all([statePromise, currentPromise, trendPromise]);
+    })).finally(() => { requestTimings.lockStates = performance.now() - lockStatesStartedAt; });
+    const currentMonqueryStartedAt = performance.now();
+    const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(currentMetricsStart), formatMonqueryDateTime(today))
+      .finally(() => { requestTimings.currentMonquery = performance.now() - currentMonqueryStartedAt; });
+    const trendStartedAt = performance.now();
+    const trendPromise = fetchClusterTrend(queryStart, queryEnd, props.token, intervalSeconds)
+      .finally(() => { requestTimings.trend = performance.now() - trendStartedAt; });
+    const trendOutcome = trendPromise.then(
+      data => ({ ok: true, data }),
+      caught => ({ ok: false, caught }),
+    );
+    const [stateResults, currentData] = await Promise.all([statePromise, currentPromise]);
     if (sequence !== requestSequence) return;
-    const currentState = adaptStates(stateResults, currentData);
-    trendDataAsOf.value = trendData.dataAsOf;
+    const currentState = adaptStates(stateResults, currentData, currentSlotAtRequest);
     lastRefreshAt.value = Date.now();
-    const rawTrend = trendData;
     nodes.value = currentState.nodes;
     lockStateComplete.value = currentState.lockStateComplete;
     failedStateBotIds.value = currentState.failedBotIds;
-    lockTrendComplete.value = trendData.lockStatus?.complete !== false;
-    lockTrendFailureCount.value = trendData.lockStatus?.failureCount || 0;
+    currentStatsReady.value = true;
+    await nextTick();
+
+    const trendResult = await trendOutcome;
+    requestsEndedAt = performance.now();
+    if (!trendResult.ok) throw trendResult.caught;
+    if (sequence !== requestSequence) return;
+    const rawTrend = trendResult.data;
+    trendDataAsOf.value = rawTrend.dataAsOf;
+    lockTrendComplete.value = rawTrend.lockStatus?.complete !== false;
+    lockTrendFailureCount.value = rawTrend.lockStatus?.failureCount || 0;
     series.value = aggregateSeries(
       rawTrend.times,
       rawTrend.xpu,
@@ -412,13 +480,28 @@ async function load() {
       rawTrend.lock,
     );
     await nextTick();
+    renderStartedAt = performance.now();
     drawAllCharts();
+    trendLoading.value = false;
+    logInitialLoad('success', { dataLoadStartedAt, botListEndedAt, requestsStartedAt, requestsEndedAt, renderStartedAt, requestTimings });
   } catch (caught) {
     if (sequence !== requestSequence) return;
+    requestsEndedAt = performance.now();
     if (/401|403/.test(String(caught?.message))) emit('expired');
     error.value = caught?.message || '加载全集群趋势数据失败';
     await nextTick();
+    renderStartedAt = performance.now();
     drawAllCharts();
+    trendLoading.value = false;
+    logInitialLoad('failure', {
+      dataLoadStartedAt,
+      botListEndedAt,
+      requestsStartedAt,
+      requestsEndedAt,
+      renderStartedAt,
+      requestTimings,
+      errorMessage: error.value,
+    });
   } finally {
     if (sequence === requestSequence) loading.value = false;
   }
@@ -589,11 +672,16 @@ function closeTips(event) {
   if (!event.target.closest('.tip-icon')) openTip.value = '';
 }
 
+function scheduleAutoRefresh() {
+  refreshTimer = window.setTimeout(() => {
+    if (!document.hidden && !loading.value && shouldAutoRefresh(rangeStart.value, rangeEnd.value)) refreshData();
+    scheduleAutoRefresh();
+  }, nextAutoRefreshDelay());
+}
+
 onMounted(async () => {
   setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
-  refreshTimer = window.setInterval(() => {
-    if (!document.hidden && !loading.value && shouldAutoRefresh(rangeStart.value, rangeEnd.value)) refreshData();
-  }, 60_000);
+  scheduleAutoRefresh();
   resizeHandler = () => { if (series.value.xpu.length || series.value.lock.length) drawAllCharts(); };
   window.addEventListener('resize', resizeHandler);
   document.addEventListener('click', closeTips);
@@ -605,7 +693,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   requestSequence += 1;
-  window.clearInterval(refreshTimer); window.clearTimeout(toastTimer);
+  window.clearTimeout(refreshTimer); window.clearTimeout(toastTimer);
   window.removeEventListener('resize', resizeHandler); document.removeEventListener('click', closeTips);
   listenerCleanup.splice(0).forEach(cleanup => cleanup());
 });
@@ -648,9 +736,9 @@ onBeforeUnmount(() => {
       </div>
 
       <section class="charts-row">
-        <article class="chart-panel"><div class="chart-panel-head"><div class="chart-panel-title">XPU利用率趋势</div><button type="button" class="avg-mean-toggle" :class="{ active: meanVisible }" :aria-pressed="meanVisible" @click="meanVisible = !meanVisible; drawAllCharts()">均值线</button></div><div class="chart-wrap"><canvas ref="xpuCanvas"></canvas><div ref="xpuTooltip" class="chart-tooltip"></div></div></article>
-        <article class="chart-panel"><div class="chart-panel-title">显存利用率趋势</div><div class="chart-wrap"><canvas ref="memoryCanvas"></canvas><div ref="memoryTooltip" class="chart-tooltip"></div></div></article>
-        <article class="chart-panel"><div class="chart-panel-title chart-title-with-tip">节点使用率趋势<button type="button" class="tip-icon" aria-label="查看绘图规则" @click.stop="openTip = openTip === 'lock-chart' ? '' : 'lock-chart'">?</button><div class="tip-popup" :class="{ show: openTip === 'lock-chart' }"><div>展示所选时段内已锁定 XPU 卡占全集群总卡数的变化。</div><div>用于观察资源分配规模及任务排期趋势。</div></div></div><div class="chart-wrap"><canvas ref="lockCanvas"></canvas><div ref="lockTooltip" class="chart-tooltip"></div></div></article>
+        <article class="chart-panel"><div class="chart-panel-head"><div class="chart-panel-title">XPU利用率趋势</div><button type="button" class="avg-mean-toggle" :class="{ active: meanVisible }" :aria-pressed="meanVisible" @click="meanVisible = !meanVisible; drawAllCharts()">均值线</button></div><div class="chart-wrap"><canvas ref="xpuCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="xpuTooltip" class="chart-tooltip"></div></div></article>
+        <article class="chart-panel"><div class="chart-panel-title">显存利用率趋势</div><div class="chart-wrap"><canvas ref="memoryCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="memoryTooltip" class="chart-tooltip"></div></div></article>
+        <article class="chart-panel"><div class="chart-panel-title chart-title-with-tip">节点使用率趋势<button type="button" class="tip-icon" aria-label="查看绘图规则" @click.stop="openTip = openTip === 'lock-chart' ? '' : 'lock-chart'">?</button><div class="tip-popup" :class="{ show: openTip === 'lock-chart' }"><div>展示所选时段内已锁定 XPU 卡占 46 个计算节点总卡数的变化。</div><div>用于观察计算资源分配规模及任务排期趋势。</div></div></div><div class="chart-wrap"><canvas ref="lockCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="lockTooltip" class="chart-tooltip"></div></div></article>
       </section>
     </section>
   </main>

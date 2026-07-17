@@ -2,6 +2,7 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { performance } = require('node:perf_hooks');
 const clusterScope = require('../shared/cluster-scope.json');
 
 const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
@@ -10,6 +11,7 @@ const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45
 const MONITORED_NODES = clusterScope.nodeIds;
 const CARD_COUNT = clusterScope.cardsPerNode;
 const ITEMS = ['XPU_AVERAGE_UTILIZATION', ...Array.from({ length: CARD_COUNT }, (_, card) => `XPU${card}_MEM_UTILIZATION`)];
+const MONQUERY_NODE_BATCH_SIZE = 16;
 const DAY_SECONDS = 24 * 60 * 60;
 const CST_OFFSET_SECONDS = 8 * 60 * 60;
 const LOCK_HISTORY_CACHE_DIR = path.join(__dirname, '..', '.devdata', 'lock-history');
@@ -40,6 +42,13 @@ function cstDayStarts(startAt, endAt) {
 
 function hashKey(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
+}
+
+function formatDuration(milliseconds) {
+  if (milliseconds < 1_000) return `${Math.round(milliseconds)} ms`;
+  if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(2)} s`;
+  const minutes = Math.floor(milliseconds / 60_000);
+  return `${minutes} min ${((milliseconds % 60_000) / 1_000).toFixed(1)} s`;
 }
 
 function lockCachePath(dayStart, scopeKey) {
@@ -121,10 +130,27 @@ function parseSamples(response, startAt, endAt, intervalSeconds) {
 }
 
 async function fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, requestedNodes = null) {
-  const nodes = requestedNodes ? requestedNodes.map(node => Number(String(node).replace(/^node/, ''))) : MONITORED_NODES;
-  const params = new URLSearchParams({ namespaces: nodes.map(namespace).join(','), items: ITEMS.join(','), start: formatMonqueryDateTime(startAt), end: formatMonqueryDateTime(endAt), interval: String(intervalSeconds) });
-  const response = await requestJson(config.backend.monquery.host, config.backend.monquery.port, `/monquery/getHistoryitemdata?${params}`);
-  return parseSamples(response, startAt, endAt, intervalSeconds);
+  const nodes = requestedNodes
+    ? requestedNodes
+      .map(node => String(node).match(/^node(\d+)$/i))
+      .map(match => match ? Number(match[1]) : NaN)
+      .filter(node => MONITORED_NODES.includes(node))
+    : MONITORED_NODES;
+  const batches = [];
+  for (let index = 0; index < nodes.length; index += MONQUERY_NODE_BATCH_SIZE) {
+    batches.push(nodes.slice(index, index + MONQUERY_NODE_BATCH_SIZE));
+  }
+  const responses = await Promise.all(batches.map(batch => {
+    const params = new URLSearchParams({
+      namespaces: batch.map(namespace).join(','),
+      items: ITEMS.join(','),
+      start: formatMonqueryDateTime(startAt),
+      end: formatMonqueryDateTime(endAt),
+      interval: String(intervalSeconds),
+    });
+    return requestJson(config.backend.monquery.host, config.backend.monquery.port, `/monquery/getHistoryitemdata?${params}`);
+  }));
+  return parseSamples(responses.flatMap(normalizeEntries), startAt, endAt, intervalSeconds);
 }
 
 async function runWithConcurrency(values, limit, work) {
@@ -324,13 +350,28 @@ function createTrendService(config, options = {}) {
         authorization: crypto.createHash('sha256').update(authorization || '').digest('hex'),
       });
       return share(key, async () => {
-        const samples = await fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, nodes);
-        const times = samples.map(sample => sample.sampledAt);
-        const xpu = samples.map(sample => sample.xpu);
-        const memory = samples.map(sample => sample.memory);
-        const lock = await lockSeries(config, startAt, endAt, authorization, intervalSeconds, targetNodes, lockHistoryCache);
-        const dataAsOf = times.reduce((result, timestamp, index) => Number.isFinite(xpu[index]) || Number.isFinite(memory[index]) ? timestamp : result, null);
-        return { times, xpu, memory, ...lock, dataAsOf, targetNodes, cache: { mode: 'lock-history' } };
+        const startedAt = performance.now();
+        let monqueryMs = 0;
+        let lockMs = 0;
+        let completed = false;
+        try {
+          const monqueryStartedAt = performance.now();
+          const samples = await fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, targetNodes);
+          monqueryMs = performance.now() - monqueryStartedAt;
+          const times = samples.map(sample => sample.sampledAt);
+          const xpu = samples.map(sample => sample.xpu);
+          const memory = samples.map(sample => sample.memory);
+          const lockStartedAt = performance.now();
+          const lock = await lockSeries(config, startAt, endAt, authorization, intervalSeconds, targetNodes, lockHistoryCache);
+          lockMs = performance.now() - lockStartedAt;
+          const dataAsOf = times.reduce((result, timestamp, index) => Number.isFinite(xpu[index]) || Number.isFinite(memory[index]) ? timestamp : result, null);
+          completed = true;
+          return { times, xpu, memory, ...lock, dataAsOf, targetNodes, cache: { mode: 'lock-history' } };
+        } finally {
+          console.info(
+            `[cluster] 趋势请求${completed ? '完成' : '失败'} · 总计 ${formatDuration(performance.now() - startedAt)} · Monquery ${formatDuration(monqueryMs)} · Lock Bot ${formatDuration(lockMs)} · Lock Bot 节点 ${targetNodes.length} · Monquery 节点 ${MONITORED_NODES.length} · 批次 ${Math.ceil(MONITORED_NODES.length / MONQUERY_NODE_BATCH_SIZE)} · ${formatMonqueryDateTime(startAt)}-${formatMonqueryDateTime(endAt)}`,
+          );
+        }
       });
     },
   };
