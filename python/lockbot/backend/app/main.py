@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +33,8 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+_OCCUPANCY_CN_TIME_MIGRATION_KEY = "migration.occupancy_records.cn_time_v1"
 
 
 def _migrate_bot_logs_category():
@@ -118,6 +121,7 @@ def _migrate_occupancy_records():
     if "occupancy_records" not in insp.get_table_names():
         Base.metadata.tables["occupancy_records"].create(bind=engine)
         logger.info("Created occupancy_records table")
+        _mark_occupancy_cn_time_migrated()
         return
     columns = {column["name"] for column in insp.get_columns("occupancy_records")}
     additions = {
@@ -125,6 +129,7 @@ def _migrate_occupancy_records():
         "session_id": "VARCHAR(32)",
         "resource_type": "VARCHAR(16) NOT NULL DEFAULT 'node'",
         "device_id": "INTEGER",
+        "day_key_cn": "VARCHAR(10)",
     }
     with engine.begin() as conn:
         for name, ddl in additions.items():
@@ -135,6 +140,60 @@ def _migrate_occupancy_records():
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_occupancy_records_event_id "
             "ON occupancy_records(event_id)"
         ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_occupancy_records_day_key_cn "
+            "ON occupancy_records(day_key_cn)"
+        ))
+    _migrate_existing_occupancy_records_to_cn_time()
+
+
+def _mark_occupancy_cn_time_migrated() -> None:
+    from lockbot.backend.app.settings.models import SiteSetting
+
+    db = SessionLocal()
+    try:
+        if db.get(SiteSetting, _OCCUPANCY_CN_TIME_MIGRATION_KEY) is None:
+            db.add(
+                SiteSetting(
+                    key=_OCCUPANCY_CN_TIME_MIGRATION_KEY,
+                    value="done",
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            db.commit()
+    finally:
+        db.close()
+
+
+def _migrate_existing_occupancy_records_to_cn_time() -> None:
+    """Shift existing UTC occupancy timestamps to stored Beijing time once."""
+    from lockbot.backend.app.bots.occupancy import OccupancyRecord
+    from lockbot.backend.app.settings.models import SiteSetting
+
+    db = SessionLocal()
+    try:
+        if db.get(SiteSetting, _OCCUPANCY_CN_TIME_MIGRATION_KEY) is not None:
+            return
+        migrated_count = 0
+        for record in db.query(OccupancyRecord).all():
+            record.start_time = record.start_time + timedelta(hours=8)
+            record.end_time = record.end_time + timedelta(hours=8)
+            record.day_key_cn = record.start_time.date().isoformat()
+            migrated_count += 1
+        db.add(
+            SiteSetting(
+                key=_OCCUPANCY_CN_TIME_MIGRATION_KEY,
+                value="done",
+                updated_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+        logger.info("Migrated %d occupancy_records timestamps to Beijing time", migrated_count)
+    except Exception:
+        db.rollback()
+        logger.warning("Failed to migrate existing occupancy records to Beijing time", exc_info=True)
+    finally:
+        db.close()
 
 
 def _migrate_audit_logs():

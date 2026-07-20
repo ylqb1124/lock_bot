@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 
 # Number of days to retain occupancy records
 RETENTION_DAYS = 365
+CN_TZ = timezone(timedelta(hours=8))
+
+
+def _epoch_to_cn_datetime(timestamp: int) -> datetime:
+    """Convert epoch seconds to a Beijing-time datetime for storage."""
+    return datetime.fromtimestamp(timestamp, tz=CN_TZ).replace(tzinfo=None)
+
+
+def _cn_day_start(date_str: str) -> datetime | None:
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return None
 
 
 class OccupancyRecord(Base):
@@ -34,6 +47,7 @@ class OccupancyRecord(Base):
     start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     end_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    day_key_cn: Mapped[str | None] = mapped_column(String(10), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
     __table_args__ = (UniqueConstraint("event_id", name="uq_occupancy_event_id"), {"sqlite_autoincrement": True})
@@ -60,6 +74,8 @@ def record_occupancy(
         db = SessionLocal()
         try:
             _cleanup_old_records(db, bot_id)
+            start_time_cn = _epoch_to_cn_datetime(start_time)
+            end_time_cn = _epoch_to_cn_datetime(end_time)
             record = OccupancyRecord(
                 bot_id=bot_id,
                 event_id=event_id,
@@ -69,9 +85,10 @@ def record_occupancy(
                 device_id=device_id,
                 user_id=user_id,
                 lock_mode=lock_mode,
-                start_time=datetime.fromtimestamp(start_time, tz=timezone.utc),
-                end_time=datetime.fromtimestamp(end_time, tz=timezone.utc),
+                start_time=start_time_cn,
+                end_time=end_time_cn,
                 duration_seconds=max(0, end_time - start_time),
+                day_key_cn=start_time_cn.date().isoformat(),
             )
             db.add(record)
             db.commit()
@@ -102,15 +119,18 @@ def record_occupancy_events(bot_id: int, events: list[dict]) -> set[str]:
             if existing:
                 delivered.add(event_id)
                 continue
+            start_time_cn = _epoch_to_cn_datetime(event["start_time"])
+            end_time_cn = _epoch_to_cn_datetime(event["end_time"])
             db.add(
                 OccupancyRecord(
                     bot_id=bot_id, event_id=event_id, session_id=event["session_id"],
                     resource_type=event["resource_type"], node_key=event["node_key"],
                     device_id=event.get("device_id"), user_id=event["user_id"],
                     lock_mode=event["lock_mode"],
-                    start_time=datetime.fromtimestamp(event["start_time"], tz=timezone.utc),
-                    end_time=datetime.fromtimestamp(event["end_time"], tz=timezone.utc),
+                    start_time=start_time_cn,
+                    end_time=end_time_cn,
                     duration_seconds=max(0, event["end_time"] - event["start_time"]),
+                    day_key_cn=start_time_cn.date().isoformat(),
                 )
             )
             delivered.add(event_id)
@@ -127,7 +147,7 @@ def record_occupancy_events(bot_id: int, events: list[dict]) -> set[str]:
 
 def _cleanup_old_records(db: Session, bot_id: int) -> None:
     """Delete occupancy records older than RETENTION_DAYS for a given bot."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=RETENTION_DAYS)
     try:
         db.query(OccupancyRecord).filter(
             OccupancyRecord.bot_id == bot_id,
@@ -151,14 +171,13 @@ def query_occupancy(
     try:
         q = db.query(OccupancyRecord).filter(OccupancyRecord.bot_id == bot_id)
         if date_str:
-            try:
-                day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone(timedelta(hours=8)))
-            except ValueError:
+            day = _cn_day_start(date_str)
+            if day is None:
                 return []
             next_day = day + timedelta(days=1)
             q = q.filter(
-                OccupancyRecord.start_time >= day,
                 OccupancyRecord.start_time < next_day,
+                OccupancyRecord.end_time > day,
             )
         if node_key:
             q = q.filter(OccupancyRecord.node_key == node_key)
@@ -172,7 +191,10 @@ def query_occupancy(
                 "device_id": r.device_id,
                 "start_time": r.start_time.isoformat(),
                 "end_time": r.end_time.isoformat(),
+                "start_time_cn": r.start_time.isoformat(),
+                "end_time_cn": r.end_time.isoformat(),
                 "duration_seconds": r.duration_seconds,
+                "day_key_cn": r.day_key_cn or r.start_time.date().isoformat(),
             }
             for r in records
         ]
