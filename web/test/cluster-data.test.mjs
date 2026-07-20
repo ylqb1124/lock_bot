@@ -65,6 +65,25 @@ test('missing card metrics remain unknown and never become busy', () => {
   assert.equal(node.cardMetricStates.filter(state => state === 'UNKNOWN').length, CARD_COUNT - 1);
 });
 
+test('China-time occupancy records land on the correct Beijing timeline slot', () => {
+  const [node] = adaptNodeData({
+    node3: { status: 'idle', current_users: [], booking_list: [] },
+  }, [], 0, 'NODE', [{
+    node_key: 'node3',
+    user_id: 'lixiang106',
+    lock_mode: 'exclusive',
+    resource_type: 'node',
+    device_id: null,
+    start_time_cn: '2026-07-17T07:39:13',
+    end_time_cn: '2026-07-17T13:39:13',
+    duration_seconds: 21600,
+    day_key_cn: '2026-07-17',
+  }]);
+
+  assert.equal(node.occupations[0].start, 91);
+  assert.equal(node.occupations[0].end, 163);
+});
+
 test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {
   const merged = mergeLockBotStates([
     {
@@ -114,6 +133,18 @@ test('DEVICE live locks use bot_type and are counted once with NODE locks', () =
     },
   ], 0, 200);
   const [sample] = _private.lockedCardSamples(intervals, 0, 0, 300);
+
+  assert.equal(sample.lockedCards, CARD_COUNT);
+});
+
+test('Lock trend parses China-time occupancy records without an extra UTC shift', () => {
+  const intervals = _private.occupancyIntervals([{
+    node_key: 'node3',
+    start_time_cn: '2026-07-17T07:39:13',
+    end_time_cn: '2026-07-17T13:39:13',
+  }]);
+  const sampleAt = Math.floor(Date.UTC(2026, 6, 16, 23, 40, 0) / 1000);
+  const [sample] = _private.lockedCardSamples(intervals, sampleAt, sampleAt, 300);
 
   assert.equal(sample.lockedCards, CARD_COUNT);
 });

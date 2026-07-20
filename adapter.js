@@ -3,6 +3,7 @@
 
 const CARD_COUNT = 8;
 const SLOT_COUNT = 288; // 24h / 5min = 288 槽
+const CHINA_OFFSET_SECONDS = 8 * 60 * 60;
 
 // ---- 辅助函数 ----
 
@@ -10,7 +11,32 @@ const SLOT_COUNT = 288; // 24h / 5min = 288 槽
  * Unix 时间戳（秒）→ 北京时间 5 分钟槽索引 (0-287)
  */
 function toSlotIndex(ts) {
-  return Math.floor(((ts + 28800) % 86400) / 300);
+  return Math.floor(((ts + CHINA_OFFSET_SECONDS) % 86400) / 300);
+}
+
+function parseChinaLikeTimestamp(raw) {
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number') return raw > 1e12 ? Math.floor(raw / 1000) : raw;
+  const str = String(raw).trim();
+  if (/^\d+$/.test(str)) {
+    const n = Number(str);
+    return n > 1e12 ? Math.floor(n / 1000) : n;
+  }
+  if (/[Zz]|[+-]\d{2}:\d{2}$/.test(str)) {
+    const parsed = new Date(str);
+    return Number.isNaN(parsed.getTime()) ? 0 : Math.floor(parsed.getTime() / 1000);
+  }
+  const match = str.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return 0;
+  const [, year, month, day, hour, minute, second = '00'] = match;
+  return Math.floor(Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  ) / 1000) - CHINA_OFFSET_SECONDS;
 }
 
 /**
@@ -70,19 +96,7 @@ function fillUtilArray(series) {
  * 解析失败返回 0
  */
 function normalizeToUnixSec(raw) {
-  if (raw == null) return 0;
-  if (typeof raw === 'number') {
-    return raw > 1e12 ? Math.floor(raw / 1000) : raw;
-  }
-  const str = String(raw);
-  if (/^\d+$/.test(str)) {
-    const n = parseInt(str, 10);
-    return n > 1e12 ? Math.floor(n / 1000) : n;
-  }
-  let dateStr = str;
-  if (!/[Zz]|[+-]\d{2}:\d{2}$/.test(dateStr.trim())) dateStr = str + 'Z';
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
+  return parseChinaLikeTimestamp(raw);
 }
 
 /**
@@ -127,28 +141,7 @@ function buildOccupationRange(startTime, duration, userId) {
  * 支持: Unix秒、Unix毫秒、ISO字符串（UTC/带时区/无时区均正确，无时区按北京时间解析）
  */
 function parseSlotFromTimestamp(raw) {
-  if (raw == null) return 0;
-  let ts;
-  if (typeof raw === 'number') {
-    ts = raw > 1e12 ? Math.floor(raw / 1000) : raw;
-  } else {
-    const str = String(raw);
-    // 纯数字字符串 → Unix 时间戳
-    if (/^\d+$/.test(str)) {
-      ts = parseInt(str, 10);
-      if (ts > 1e12) ts = Math.floor(ts / 1000);
-    } else {
-      // ISO 时间字符串 → Date 解析 → Unix 秒，再走 toSlotIndex
-      // Lock Bot occupancy API 返回 UTC 时间
-      let dateStr = str;
-      if (!/[Zz]|[+-]\d{2}:\d{2}$/.test(dateStr.trim())) {
-        dateStr = str + 'Z';
-      }
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return 0;
-      ts = Math.floor(d.getTime() / 1000);
-    }
-  }
+  const ts = parseChinaLikeTimestamp(raw);
   return Math.max(0, Math.min(SLOT_COUNT - 1, toSlotIndex(ts)));
 }
 
@@ -209,14 +202,14 @@ function groupHistoryOccupations(occupancyHistory) {
         cardOccupations: Array.from({ length: CARD_COUNT }, () => []),
       };
     }
-    const start = parseSlotFromTimestamp(rec.start_time);
+    const start = parseSlotFromTimestamp(rec.start_time_cn ?? rec.start_time);
     // end_time 可能不存在，从 duration_seconds 推算
     let end;
-    if (rec.end_time != null) {
-      end = parseSlotFromTimestamp(rec.end_time);
+    if (rec.end_time_cn != null || rec.end_time != null) {
+      end = parseSlotFromTimestamp(rec.end_time_cn ?? rec.end_time);
     } else if (rec.duration != null || rec.duration_seconds != null) {
       const dur = rec.duration != null ? rec.duration : rec.duration_seconds;
-      const startSlot = parseSlotFromTimestamp(rec.start_time);
+      const startSlot = parseSlotFromTimestamp(rec.start_time_cn ?? rec.start_time);
       // 用 start 槽 + duration 推算 end 槽（不精准但 directionally correct）
       const durSlots = Math.ceil(dur / 300);
       end = Math.min(SLOT_COUNT - 1, startSlot + durSlots);

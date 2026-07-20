@@ -15,6 +15,7 @@ const MONQUERY_NODE_BATCH_SIZE = 16;
 const DAY_SECONDS = 24 * 60 * 60;
 const CST_OFFSET_SECONDS = 8 * 60 * 60;
 const LOCK_HISTORY_CACHE_DIR = path.join(__dirname, '..', '.devdata', 'lock-history');
+const LOCK_HISTORY_CACHE_VERSION = 2;
 
 function formatMonqueryDateTime(timestamp) {
   const date = new Date((timestamp + CST_OFFSET_SECONDS) * 1000);
@@ -178,7 +179,18 @@ function toSeconds(value) {
   const numeric = Number(value);
   if (Number.isFinite(numeric)) return numeric > 1e12 ? Math.floor(numeric / 1000) : numeric;
   const text = String(value).trim();
-  return Math.floor(Date.parse(/[Zz]|[+-]\d{2}:\d{2}$/.test(text) ? text : `${text}Z`) / 1000);
+  if (/[Zz]|[+-]\d{2}:\d{2}$/.test(text)) return Math.floor(Date.parse(text) / 1000);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return NaN;
+  const [, year, month, day, hour, minute, second = '00'] = match;
+  return Math.floor(Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  ) / 1000) - CST_OFFSET_SECONDS;
 }
 
 function recordCards(record) {
@@ -210,8 +222,8 @@ function lockedCardSamples(intervals, startAt, endAt, intervalSeconds) {
 
 function occupancyIntervals(records) {
   return records.map(record => {
-    const start = toSeconds(record.start_time);
-    const endTime = toSeconds(record.end_time);
+    const start = toSeconds(record.start_time_cn ?? record.start_time);
+    const endTime = toSeconds(record.end_time_cn ?? record.end_time);
     return {
       node: nodeName(record.node_key ?? record.node ?? record.node_name),
       cards: recordCards(record),
@@ -256,6 +268,7 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
   const bots = await requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', headers);
   const targetNodes = new Set(requestedNodes || MONITORED_NODES.map(node => `node${node}`));
   const scopeKey = hashKey({
+    version: LOCK_HISTORY_CACHE_VERSION,
     nodes: [...targetNodes].sort(),
     bots: (bots || []).map(bot => [bot.id, botType(bot)]).sort((first, second) => String(first[0]).localeCompare(String(second[0]))),
   });
@@ -379,5 +392,5 @@ function createTrendService(config, options = {}) {
 
 module.exports = {
   createTrendService,
-  _private: { botType, lockedCardSamples, stateIntervals },
+  _private: { botType, lockedCardSamples, occupancyIntervals, stateIntervals },
 };
