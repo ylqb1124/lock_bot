@@ -8,6 +8,14 @@ const WEB_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = path.resolve(WEB_ROOT, '..');
 const DIST_ROOT = path.join(WEB_ROOT, 'dist');
 const PERSONAL_DIST_ROOT = path.join(PROJECT_ROOT, 'person', 'dist');
+const LEGACY_STATIC_FILES = new Set([
+  'index.html',
+  'api.js',
+  'adapter.js',
+  'timeline.js',
+  'china-time.js',
+  'styles.css',
+]);
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
 const TREND_NODE_NAMES = new Set(clusterScope.nodeIds.map(node => `node${node}`));
 const TREND_INTERVALS = new Set([60, 120, 240, 300, 480, 1200, 7200, 21600, 43200]);
@@ -124,6 +132,30 @@ function servePersonalStatic(req, res) {
   });
 }
 
+function serveLegacyStatic(req, res) {
+  const pathname = new URL(req.url, 'http://localhost').pathname;
+  let filename;
+  try {
+    filename = decodeURIComponent(pathname.slice(1));
+  } catch {
+    res.writeHead(400);
+    return res.end('Bad request');
+  }
+  if (!LEGACY_STATIC_FILES.has(filename)) {
+    res.writeHead(404);
+    return res.end('Not found');
+  }
+  const filePath = path.join(PROJECT_ROOT, filename);
+  fs.readFile(filePath, (error, data) => {
+    if (error) {
+      res.writeHead(404);
+      return res.end(`Legacy file not found: ${filename}`);
+    }
+    res.writeHead(200, { 'content-type': MIME[path.extname(filename)] || 'application/octet-stream', 'cache-control': 'no-store' });
+    res.end(data);
+  });
+}
+
 function serveStatic(req, res) {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const relativePath = pathname === '/' || pathname === '/app/'
@@ -209,6 +241,9 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
   if (req.url.startsWith('/personal/')) return servePersonalStatic(req, res);
+  // 根目录保留的静态旧版必须通过显式 /index.html 访问；
+  // Vue 生产页继续使用 / 或 /app/，避免影响已存在的入口。
+  if (LEGACY_STATIC_FILES.has(new URL(req.url, 'http://localhost').pathname.slice(1))) return serveLegacyStatic(req, res);
   return serveStatic(req, res);
 });
 

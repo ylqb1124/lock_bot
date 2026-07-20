@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { fetchClusterTrend, fetchLockBotList, fetchLockBotState, fetchMonqueryUtilization } from '../services/api.js';
+import { fetchAllBotStates, fetchClusterTrend, fetchLockBotList, fetchMonqueryUtilization } from '../services/api.js';
 import { adaptNodeData } from '../services/adapter.js';
 import { nextAutoRefreshDelay, shouldAutoRefresh } from '../services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../services/chart-data.js';
@@ -423,13 +423,18 @@ async function load() {
     const currentSlotAtRequest = chinaSlotIndex(today);
     requestsStartedAt = performance.now();
     const lockStatesStartedAt = performance.now();
-    const statePromise = Promise.all(bots.value.map(async bot => {
-      try {
-        return { bot, ok: true, state: await fetchLockBotState(bot.id, props.token) };
-      } catch (caught) {
-        return { bot, ok: false, error: caught?.message || '状态请求失败' };
-      }
-    })).finally(() => { requestTimings.lockStates = performance.now() - lockStatesStartedAt; });
+    const statePromise = fetchAllBotStates(props.token)
+      .then(states => bots.value.map(bot => ({
+        bot,
+        ok: true,
+        state: states[String(bot.id)] ?? states[bot.id] ?? {},
+      })))
+      .catch(caught => bots.value.map(bot => ({
+        bot,
+        ok: false,
+        error: caught?.message || '状态请求失败',
+      })))
+      .finally(() => { requestTimings.lockStates = performance.now() - lockStatesStartedAt; });
     const currentMonqueryStartedAt = performance.now();
     const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(currentMetricsStart), formatMonqueryDateTime(today))
       .finally(() => { requestTimings.currentMonquery = performance.now() - currentMonqueryStartedAt; });

@@ -13,9 +13,15 @@ const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
 // 非 backup namespace 的节点
 const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51];
 
-// 有监控数据的节点（排除 node13, node14, node17 为故障机）
-const MONITORED_NODES = Array.from({ length: 51 }, (_, i) => i + 1)
-  .filter(n => ![13, 14, 17].includes(n));
+// 集群趋势的固定统计范围：46 个计算节点。该范围与 web/shared/cluster-scope.json 保持一致；
+// node13、14、15、16、17 不参与集群趋势，也不会被请求 Monquery。
+const MONITORED_NODES = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+  18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+  32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+  46, 47, 48, 49, 50, 51,
+];
+const CARDS_PER_NODE = 8;
 
 function buildNamespace(nodeNum) {
   const cluster = NON_BACKUP_NODES.includes(nodeNum) ? CLUSTER_NON_BACKUP : CLUSTER_BACKUP;
@@ -24,8 +30,8 @@ function buildNamespace(nodeNum) {
 
 // 核心指标：整机级先展示，卡级指标后续渐进补齐
 const MONQUERY_NODE_ITEMS = ['XPU_AVERAGE_UTILIZATION'];
-const MONQUERY_CARD_XPU_ITEMS = Array.from({ length: 8 }, (_, c) => `XPU${c}_XPU_UTILIZATION`);
-const MONQUERY_CARD_MEM_ITEMS = Array.from({ length: 8 }, (_, c) => `XPU${c}_MEM_UTILIZATION`);
+const MONQUERY_CARD_XPU_ITEMS = Array.from({ length: CARDS_PER_NODE }, (_, c) => `XPU${c}_XPU_UTILIZATION`);
+const MONQUERY_CARD_MEM_ITEMS = Array.from({ length: CARDS_PER_NODE }, (_, c) => `XPU${c}_MEM_UTILIZATION`);
 const MONQUERY_CARD_ITEMS = [...MONQUERY_CARD_XPU_ITEMS, ...MONQUERY_CARD_MEM_ITEMS];
 const MONQUERY_ITEMS = [...MONQUERY_NODE_ITEMS, ...MONQUERY_CARD_ITEMS];
 
@@ -80,7 +86,14 @@ export async function fetchAllBotStates(token) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Fetch all bot states failed: ${resp.status}`);
-  return resp.json();
+  const payload = await resp.json();
+  // Lock Bot currently wraps batch states as { data: { botId: state } },
+  // while older deployments return { botId: state } directly. Keep callers independent of that detail.
+  const states = payload?.data ?? payload;
+  if (!states || typeof states !== 'object' || Array.isArray(states)) {
+    throw new Error('Fetch all bot states returned an invalid response');
+  }
+  return states;
 }
 
 /**
@@ -140,12 +153,14 @@ function makeNodeBatches(batchSize) {
 function parseMonqueryDateTime(value) {
   const match = String(value).match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
   if (!match) throw new Error(`Invalid Monquery datetime: ${value}`);
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
+  // Monquery 参数按中国时区表达；不能依赖浏览器/部署机器的本地时区。
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6])) - 8 * 60 * 60 * 1000);
 }
 
 function formatMonqueryDateTime(value) {
+  const date = new Date(value.getTime() + 8 * 60 * 60 * 1000);
   const pad = number => String(number).padStart(2, '0');
-  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}${pad(value.getHours())}${pad(value.getMinutes())}${pad(value.getSeconds())}`;
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
 }
 
 function makeTimeSlices(start, end, maxDurationMs = 24 * 60 * 60 * 1000) {
@@ -263,4 +278,4 @@ export function isAbortError(err) {
   return err && err.name === 'AbortError';
 }
 
-export { MONITORED_NODES, MONQUERY_ITEMS, MONQUERY_NODE_ITEMS, MONQUERY_CARD_ITEMS };
+export { CARDS_PER_NODE, MONITORED_NODES, MONQUERY_ITEMS, MONQUERY_NODE_ITEMS, MONQUERY_CARD_ITEMS };

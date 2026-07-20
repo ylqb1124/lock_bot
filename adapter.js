@@ -41,13 +41,16 @@ function extractNodeIdFromNamespace(ns) {
  * 同一槽内的多个数据点取平均
  */
 function fillUtilArray(series) {
-  const arr = new Array(SLOT_COUNT).fill(0);
+  const arr = new Array(SLOT_COUNT).fill(null);
   const counts = new Array(SLOT_COUNT).fill(0);
   if (!series || !series.length) return arr;
   for (const pt of series) {
-    const idx = toSlotIndex(pt.Timestamp);
+    const timestamp = Number(pt?.Timestamp ?? pt?.timestamp ?? pt?.time);
+    const value = Number(pt?.Value ?? pt?.value);
+    if (!Number.isFinite(timestamp) || !Number.isFinite(value)) continue;
+    const idx = toSlotIndex(timestamp > 1e12 ? Math.floor(timestamp / 1000) : timestamp);
     if (idx >= 0 && idx < SLOT_COUNT) {
-      arr[idx] += pt.Value;
+      arr[idx] = (arr[idx] || 0) + value;
       counts[idx]++;
     }
   }
@@ -263,6 +266,14 @@ function deriveMemOccupations(memUtil288) {
   return ranges;
 }
 
+function hasMetricSamples(series) {
+  return Array.isArray(series) && series.some(point => {
+    const timestamp = Number(point?.Timestamp ?? point?.timestamp ?? point?.time);
+    const value = Number(point?.Value ?? point?.value);
+    return Number.isFinite(timestamp) && Number.isFinite(value);
+  });
+}
+
 // ---- 主适配函数 ----
 
 /**
@@ -321,6 +332,9 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
       hasActiveLock = state.status !== 'idle' && (state.current_users || []).length > 0;
       cardHasActiveLock.fill(hasActiveLock);
     }
+    // DEVICE 状态由多个 Bot 合并后传入时，节点级 hasActiveLock 必须从所有卡重新推导。
+    // 不能只依赖单个 DEVICE 条目的局部变量，否则顶部 LOCKED 节点/卡数会显示为 0。
+    if (botType === 'DEVICE') hasActiveLock = cardHasActiveLock.some(Boolean);
 
     if (botType === 'NODE' || botType === 'QUEUE') {
       // 整机粒度：所有卡共享节点级占用
@@ -373,12 +387,12 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
     }
 
     // ---- 解析利用率 ----
-    let avgUtil = new Array(SLOT_COUNT).fill(0);
-    let avgMemUtil = new Array(SLOT_COUNT).fill(0);
-    const cardUtils = Array.from({ length: CARD_COUNT }, () => new Array(SLOT_COUNT).fill(0));
-    const cardMemUtils = Array.from({ length: CARD_COUNT }, () => new Array(SLOT_COUNT).fill(0));
+    let avgUtil = new Array(SLOT_COUNT).fill(null);
+    let avgMemUtil = new Array(SLOT_COUNT).fill(null);
+    const cardUtils = Array.from({ length: CARD_COUNT }, () => new Array(SLOT_COUNT).fill(null));
+    const cardMemUtils = Array.from({ length: CARD_COUNT }, () => new Array(SLOT_COUNT).fill(null));
 
-    const hasNodeMonqueryData = !!nodeItems && Array.isArray(nodeItems['XPU_AVERAGE_UTILIZATION']);
+    const hasNodeMonqueryData = hasMetricSamples(nodeItems?.['XPU_AVERAGE_UTILIZATION']);
     let hasCardXpuMonqueryData = false;
     let hasMemMonqueryData = false;
 
@@ -391,11 +405,11 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
         const memKey = `XPU${c}_MEM_UTILIZATION`;
         const utilSeries = nodeItems[utilKey];
         const memSeries = nodeItems[memKey];
-        if (Array.isArray(utilSeries)) {
+        if (hasMetricSamples(utilSeries)) {
           hasCardXpuMonqueryData = true;
           cardUtils[c] = fillUtilArray(utilSeries);
         }
-        if (Array.isArray(memSeries)) {
+        if (hasMetricSamples(memSeries)) {
           hasMemMonqueryData = true;
           cardMemUtils[c] = fillUtilArray(memSeries);
         }
@@ -404,9 +418,8 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
       // 计算 8 卡显存平均利用率（逐槽取平均）
       if (hasMemMonqueryData) {
         for (let i = 0; i < SLOT_COUNT; i++) {
-          let sum = 0;
-          for (let c = 0; c < CARD_COUNT; c++) sum += cardMemUtils[c][i];
-          avgMemUtil[i] = sum / CARD_COUNT;
+          const values = cardMemUtils.map(series => series[i]).filter(Number.isFinite);
+          avgMemUtil[i] = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
         }
       }
     }
@@ -421,17 +434,32 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
 
     // ---- 状态判定：卡级指标优先；整机级指标为加载卡级前的临时状态 ----
     let busyCards = 0;
-    let statusSource = 'lockbot';
-    let nodeStatus = hasActiveLock ? 'BUSY' : 'FREE';
+    let knownCardCount = 0;
+    const cardMetricStates = new Array(CARD_COUNT).fill('UNKNOWN');
+    let statusSource = 'unknown';
+    let nodeStatus = 'UNKNOWN';
     if (hasCardMonqueryData) {
       for (let c = 0; c < CARD_COUNT; c++) {
-        const cm = cardMemUtils[c] ? cardMemUtils[c][effectiveIdx] : 0;
-        const cu = cardUtils[c] ? cardUtils[c][effectiveIdx] : 0;
-        if (cm >= 10 || cu >= 10) busyCards++;
+        const cm = cardMemUtils[c]?.[effectiveIdx];
+        const cu = cardUtils[c]?.[effectiveIdx];
+        if (!Number.isFinite(cm) && !Number.isFinite(cu)) continue;
+        knownCardCount++;
+        if (cm >= 10 || cu >= 10) {
+          busyCards++;
+          cardMetricStates[c] = 'BUSY';
+        } else {
+          cardMetricStates[c] = 'FREE';
+        }
       }
-      nodeStatus = busyCards === 0 ? 'FREE' : busyCards === CARD_COUNT ? 'BUSY' : 'PARTIAL';
-      statusSource = 'card-metrics';
-    } else if (hasNodeMonqueryData) {
+      if (knownCardCount === CARD_COUNT) {
+        nodeStatus = busyCards === 0 ? 'FREE' : busyCards === CARD_COUNT ? 'BUSY' : 'PARTIAL';
+        statusSource = 'card-metrics';
+      } else if (busyCards > 0) {
+        nodeStatus = 'PARTIAL';
+        statusSource = 'partial-card-metrics';
+      }
+    }
+    if (knownCardCount === 0 && Number.isFinite(currentUtil)) {
       nodeStatus = currentUtil >= 10 ? 'BUSY' : 'FREE';
       statusSource = 'node-metric';
     }
@@ -464,6 +492,9 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
       hasNodeMonqueryData,
       hasCardMonqueryData,
       hasMemMonqueryData,
+      knownCardCount,
+      busyCards,
+      cardMetricStates,
       statusSource,
       hasActiveLock,
       cardCount,

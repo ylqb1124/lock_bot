@@ -81,7 +81,12 @@ export async function fetchAllBotStates(token) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Fetch all bot states failed: ${resp.status}`);
-  return resp.json();
+  const payload = await resp.json();
+  const states = payload?.data ?? payload;
+  if (!states || typeof states !== 'object' || Array.isArray(states)) {
+    throw new Error('Fetch all bot states returned an invalid response');
+  }
+  return states;
 }
 
 /**

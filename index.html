@@ -110,12 +110,15 @@
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { loginLockBot, fetchLockBotList, fetchLockBotState, fetchLockBotOccupancy, fetchMonqueryUtilization, fetchMonqueryNodeUtilization, fetchMonqueryCardUtilizationBatches, isAbortError, MONITORED_NODES } from './api.js';
+import { loginLockBot, fetchLockBotList, fetchAllBotStates, fetchLockBotState, fetchLockBotOccupancy, fetchMonqueryUtilization, fetchMonqueryNodeUtilization, fetchMonqueryCardUtilizationBatches, isAbortError, MONITORED_NODES } from './api.js';
 import { adaptNodeData, mergeMonqueryData } from './adapter.js';
 import { drawUtilLine, captureLayerSnapshot, bindCanvasHover as bindTimelineCanvasHover } from './timeline.js';
 import { chinaSlotIndex, formatChinaClock, formatChinaDate, formatChinaMonqueryDateTime, parseChinaDatetimeLocal } from './china-time.js';
 
 const SLOT_COUNT = 288; // 24h / 5min = 288 槽
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const OCCUPANCY_CACHE_TTL_MS = REFRESH_INTERVAL_MS;
+const MONITORED_NODE_NAMES = new Set(MONITORED_NODES.map(id => `node${id}`));
 const tooltip = document.getElementById('tooltip');
 
 const now = new Date();
@@ -134,6 +137,8 @@ let lastSuccessTime = null;
 let loadSeq = 0;
 let monqueryMergedData = [];
 let currentLoadPhase = 'idle';
+const occupancyCache = new Map();
+let liveLockStats = { lockedNodes: null, lockedCards: null };
 
 // Average view state
 let viewType = 'all';  // 'all' | 'personal'
@@ -181,24 +186,24 @@ function processMonqueryData(monqueryData) {
 
 function computeMA(nodes, windowSize) {
   const n = nodes.filter(x => x.hasMonqueryData);
-  if (!n.length) return { xpu: new Array(SLOT_COUNT).fill(0), mem: new Array(SLOT_COUNT).fill(0) };
+  if (!n.length) return { xpu: new Array(SLOT_COUNT).fill(null), mem: new Array(SLOT_COUNT).fill(null) };
 
-  const xpuSlot = new Array(SLOT_COUNT).fill(0);
-  const memSlot = new Array(SLOT_COUNT).fill(0);
+  const xpuSlot = new Array(SLOT_COUNT).fill(null);
+  const memSlot = new Array(SLOT_COUNT).fill(null);
   for (let i = 0; i < SLOT_COUNT; i++) {
-    let xs = 0, ms = 0;
-    for (const node of n) { xs += node.avgUtil[i]; ms += node.avgMemUtil[i]; }
-    xpuSlot[i] = xs / n.length;
-    memSlot[i] = ms / n.length;
+    const xpuValues = n.map(node => node.avgUtil[i]).filter(Number.isFinite);
+    const memValues = n.map(node => node.avgMemUtil[i]).filter(Number.isFinite);
+    xpuSlot[i] = xpuValues.length ? xpuValues.reduce((sum, value) => sum + value, 0) / xpuValues.length : null;
+    memSlot[i] = memValues.length ? memValues.reduce((sum, value) => sum + value, 0) / memValues.length : null;
   }
 
   const xpuMA = new Array(SLOT_COUNT), memMA = new Array(SLOT_COUNT);
   for (let i = 0; i < SLOT_COUNT; i++) {
-    const s = Math.max(0, i - windowSize + 1), cnt = i - s + 1;
-    let xs = 0, ms = 0;
-    for (let j = s; j <= i; j++) { xs += xpuSlot[j]; ms += memSlot[j]; }
-    xpuMA[i] = xs / cnt;
-    memMA[i] = ms / cnt;
+    const s = Math.max(0, i - windowSize + 1);
+    const xpuValues = xpuSlot.slice(s, i + 1).filter(Number.isFinite);
+    const memValues = memSlot.slice(s, i + 1).filter(Number.isFinite);
+    xpuMA[i] = xpuValues.length ? xpuValues.reduce((sum, value) => sum + value, 0) / xpuValues.length : null;
+    memMA[i] = memValues.length ? memValues.reduce((sum, value) => sum + value, 0) / memValues.length : null;
   }
   return { xpu: xpuMA, mem: memMA };
 }
@@ -299,7 +304,39 @@ function startAutoRefresh() {
         }
       }
     }
-  }, 60000);
+  }, REFRESH_INTERVAL_MS);
+}
+
+async function fetchTodayOccupancy(date) {
+  const now = Date.now();
+  const results = await Promise.all(allBots.map(async bot => {
+    const key = `${bot.id}:${date}`;
+    const cached = occupancyCache.get(key);
+    if (cached && now - cached.fetchedAt < OCCUPANCY_CACHE_TTL_MS) return cached.records;
+    try {
+      const records = await fetchLockBotOccupancy(bot.id, date, token);
+      occupancyCache.set(key, { fetchedAt: Date.now(), records });
+      return records;
+    } catch (error) {
+      // 失败时保留最近一次已知历史，避免暂时性数据库故障清空时间轴。
+      if (cached) return cached.records;
+      console.error(`Bot ${bot.id} occupancy fetch failed:`, error);
+      return [];
+    }
+  }));
+  return results.flat();
+}
+
+function normalizeRunningStates(states) {
+  if (states && typeof states === 'object' && !Array.isArray(states)) return states;
+  throw new Error('Lock Bot batch state returned an invalid response');
+}
+
+function normalizeMonitoredNodeName(value) {
+  const match = String(value || '').match(/^(?:gpu-)?node-?(\d+)$/i);
+  if (!match) return null;
+  const name = `node${Number(match[1])}`;
+  return MONITORED_NODE_NAMES.has(name) ? name : null;
 }
 
 // ---- Now Line 动态更新 ----
@@ -368,32 +405,32 @@ async function loadAllData() {
   const start = formatDateStart(now);
   const end = formatDateTime(now);
 
-  // 1. 拉取 Lock Bot 状态 + 历史占用记录（并行，都很快）
+  // 1. 批量读取实时锁状态；当天历史记录最多每五分钟查询一次，避免对 Lock Bot 数据库产生 N×刷新次数的压力。
   const today = formatChinaDate(now);
-  const [stateResults, occupancyResults] = await Promise.all([
-    Promise.all(
-      allBots.map(bot =>
-        fetchLockBotState(bot.id, token)
-          .then(state => ({ state, botType: bot.bot_type }))
-          .catch(err => {
-            console.error(`Bot ${bot.id} fetch failed:`, err);
-            status.lockBot.failedBotIds.push(bot.id);
-            return null;
-          })
-      )
-    ),
-    Promise.all(
-      allBots.map(bot =>
-        fetchLockBotOccupancy(bot.id, today, token).catch(() => [])
-      )
-    ),
+  const [stateResults, occupancyHistory] = await Promise.all([
+    fetchAllBotStates(token)
+      .then(normalizeRunningStates)
+      .then(states => allBots.map(bot => ({
+        state: states[String(bot.id)] ?? states[bot.id] ?? {},
+        botType: bot.bot_type,
+      })))
+      .catch(async error => {
+        console.error('Batch Lock Bot state fetch failed, falling back to per-Bot requests:', error);
+        return Promise.all(allBots.map(bot =>
+          fetchLockBotState(bot.id, token)
+            .then(state => ({ state, botType: bot.bot_type }))
+            .catch(err => {
+              console.error(`Bot ${bot.id} fetch failed:`, err);
+              status.lockBot.failedBotIds.push(bot.id);
+              return null;
+            })
+        ));
+      }),
+    fetchTodayOccupancy(today),
   ]);
   if (status.lockBot.failedBotIds.length === status.lockBot.totalBots) {
     status.lockBot.ok = false;
   }
-  // 合并所有 bot 的历史占用记录
-  const occupancyHistory = occupancyResults.flat();
-
   // 2. 更新当前时间槽 + 先用 Lock Bot 数据渲染
   nowIdx = calcNowIdx();
   if (seq !== loadSeq) return status;
@@ -473,44 +510,68 @@ async function loadAllData() {
  */
 function adaptAndRender(stateResults, monqueryData, status, occupancyHistory = [], options = {}) {
   currentLoadPhase = options.phase || currentLoadPhase;
-  // 合并：同一节点出现在多个 bot 中时，先到先得
-  const mergedState = {};
-  const nodeBotTypes = {};
+  // 仅保留固定 46 个计算节点；同一节点的 NODE/QUEUE 锁覆盖全卡，DEVICE 锁按卡叠加。
+  // 不能再“先到先得”，否则 Bot 列表中已停止的 NODE Bot 会遮住正在运行的 QUEUE/DEVICE 锁。
+  const deviceState = Object.fromEntries([...MONITORED_NODE_NAMES].map(name => [
+    name,
+    Array.from({ length: 8 }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] })),
+  ]));
+  const userKeys = new Map();
+  const addUsers = (target, users) => {
+    const known = userKeys.get(target) || new Set();
+    for (const user of users || []) {
+      const key = `${user?.user_id || ''}:${user?.start_time || ''}:${user?.duration || ''}`;
+      if (!known.has(key)) {
+        known.add(key);
+        target.push(user);
+      }
+    }
+    userKeys.set(target, known);
+  };
   for (const result of stateResults) {
     if (!result) continue;
-    for (const [nodeName, nodeData] of Object.entries(result.state)) {
-      if (!mergedState[nodeName]) {
-        mergedState[nodeName] = nodeData;
-        nodeBotTypes[nodeName] = result.botType;
+    for (const [rawName, rawState] of Object.entries(result.state || {})) {
+      const name = normalizeMonitoredNodeName(rawName);
+      if (!name) continue;
+      const cards = deviceState[name];
+      if (result.botType === 'DEVICE' && Array.isArray(rawState)) {
+        for (const device of rawState) {
+          const devId = Number(device?.dev_id);
+          if (!Number.isInteger(devId) || devId < 0 || devId >= cards.length) continue;
+          if (device?.status === 'idle' || !(device?.current_users || []).length) continue;
+          cards[devId].status = 'exclusive';
+          addUsers(cards[devId].current_users, device.current_users);
+        }
+      } else if (rawState?.status !== 'idle' && (rawState?.current_users || []).length) {
+        for (const card of cards) {
+          card.status = 'exclusive';
+          addUsers(card.current_users, rawState.current_users);
+        }
       }
     }
   }
 
-  const deviceState = {}, nodeState = {};
-  for (const [name, data] of Object.entries(mergedState)) {
-    if (nodeBotTypes[name] === 'DEVICE') deviceState[name] = data;
-    else nodeState[name] = data;
-  }
-
-  let allNodes = [];
-  if (Object.keys(deviceState).length) {
-    allNodes.push(...adaptNodeData(deviceState, monqueryData, nowIdx, 'DEVICE', occupancyHistory));
-  }
-  if (Object.keys(nodeState).length) {
-    allNodes.push(...adaptNodeData(nodeState, monqueryData, nowIdx, 'NODE', occupancyHistory));
-  }
-
-  if (allNodes.length > 0) {
-    nodes = allNodes.sort((a, b) => {
+  nodes = adaptNodeData(deviceState, monqueryData, nowIdx, 'DEVICE', occupancyHistory)
+    .filter(node => MONITORED_NODE_NAMES.has(node.name))
+    .sort((a, b) => {
       const parse = name => {
-        if (name.startsWith('bdc')) return { prefix: 'bdc', id: parseInt(name.slice(3), 10) };
         return { prefix: 'node', id: parseInt(name.slice(4), 10) };
       };
       const va = parse(a.name), vb = parse(b.name);
-      if (va.prefix !== vb.prefix) return va.prefix === 'node' ? -1 : 1;
       return va.id - vb.id;
     });
-  }
+
+  // 顶部锁定统计只依赖实时 Lock Bot 状态，不依赖 Monquery 加载是否完成。
+  // 这样首屏和渐进加载期间不会因 nodes 尚未更新而错误显示 0。
+  liveLockStats = {
+    lockedNodes: Object.values(deviceState).filter(cards => cards.some(card =>
+      card.status !== 'idle' && (card.current_users || []).length > 0
+    )).length,
+    lockedCards: Object.values(deviceState).reduce((count, cards) => count + cards.filter(card =>
+      card.status !== 'idle' && (card.current_users || []).length > 0
+    ).length, 0),
+  };
+  console.info('Lock Bot live summary', liveLockStats);
 
   for (const node of nodes) {
     status.nodeDataQuality[node.name] = node.hasMonqueryData;
@@ -564,6 +625,7 @@ function doLogout() {
   loadSeq++;
   token = null;
   monqueryMergedData = [];
+  occupancyCache.clear();
   currentLoadPhase = 'idle';
   nodes = [];
   avgTodayNodes = [];
@@ -771,6 +833,10 @@ function renderStats() {
       if (node.cardHasActiveLock && node.cardHasActiveLock[c]) lockedCards++;
     }
   }
+  if (Number.isInteger(liveLockStats.lockedNodes) && Number.isInteger(liveLockStats.lockedCards)) {
+    lockedNodes = liveLockStats.lockedNodes;
+    lockedCards = liveLockStats.lockedCards;
+  }
   const totalCards = nodes.length * 8;
 
   const xpuTip = '<div>平均利用率：当日10:00至今，所有node节点XPU平均利用率</div><div>峰值利用率：当日24小时内，所有node节点XPU平均利用率的最高值</div>';
@@ -943,11 +1009,16 @@ function avgDrawChart(canvasId, todayData, color, yMax, yTicks, cutoffSlot, toda
   // Today line (solid, up to maxSlot)
   ctx.strokeStyle = color; ctx.lineWidth = 2;
   ctx.beginPath();
+  let drawing = false;
   for (let i = 0; i <= maxSlot; i++) {
     const x = AVG_MARGIN.left + (i / (SLOT_COUNT - 1)) * plotW;
-    const v = Math.max(0, Math.min(yMax, todayData[i]));
+    const value = todayData[i];
+    if (!Number.isFinite(value)) { drawing = false; continue; }
+    const v = Math.max(0, Math.min(yMax, value));
     const y = AVG_MARGIN.top + (1 - v / yMax) * plotH;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    if (!drawing) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+    drawing = true;
   }
   ctx.stroke();
 
@@ -1103,7 +1174,9 @@ function avgBindHover(canvasId) {
     // Dots
     const yMax = canvas._avgyMax || 100;
     layers.forEach(l => {
-      const v = l.data[ci], dotX = cx, dotY = m.top + (1 - v / yMax) * ph;
+      const v = l.data[ci];
+      if (!Number.isFinite(v)) return;
+      const dotX = cx, dotY = m.top + (1 - v / yMax) * ph;
       ctx.beginPath(); ctx.arc(dotX, dotY, 4, 0, Math.PI*2);
       ctx.fillStyle = '#fff'; ctx.fill();
       ctx.strokeStyle = l.color; ctx.lineWidth = 2; ctx.stroke();
@@ -1115,7 +1188,8 @@ function avgBindHover(canvasId) {
     let html = `<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">${timeStr}</div>`;
     layers.forEach(l => {
       const tc = l.tipColor || l.color;
-      html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;background:${tc};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${l.label}</span><span style="font-weight:600;color:${tc};text-align:right;font-variant-numeric:tabular-nums;">${l.data[ci].toFixed(1)}%</span></div>`;
+      const value = Number.isFinite(l.data[ci]) ? l.data[ci].toFixed(1) + '%' : '--';
+      html += `<div style="display:grid;grid-template-columns:12px 48px 48px;align-items:center;gap:6px;margin:1px 0;"><span style="width:7px;height:7px;border-radius:50%;background:${tc};justify-self:center;"></span><span style="font-size:10px;color:#cbd5e1;">${l.label}</span><span style="font-weight:600;color:${tc};text-align:right;font-variant-numeric:tabular-nums;">${value}</span></div>`;
     });
     const avgRows = [
       { label: '今日均值', value: canvas._avgtodayMean, dash: false }
@@ -1174,7 +1248,7 @@ function avgStartAutoRefresh() {
     if (viewType !== 'all') return;
     if (document.getElementById('avg-filter-date').value !== avgGetTodayStr()) return;
     try { await avgLoadAndRender(); } catch(e) { console.error('Avg auto-refresh:', e); }
-  }, 60000);
+  }, REFRESH_INTERVAL_MS);
 }
 
 function showToast(message, duration = 5000) {
@@ -1301,16 +1375,20 @@ function renderList() {
   const filtered = getFiltered();
   filtered.forEach(node => {
     const row = document.createElement('div');
-    const showBadge = node.hasMonqueryData !== false
+    const showBadge = node.status === 'UNKNOWN'
+      ? `<span class="badge badge-NODATA">数据暂缺</span>`
+      : node.hasMonqueryData !== false
       ? `<span class="badge badge-${node.status}">${node.status}</span>`
       : `<span class="badge badge-NODATA">无数据</span>`;
     const hasData = node.hasMonqueryData !== false;
     const hasNodeData = node.hasNodeMonqueryData || hasData;
-    const showUtil = hasNodeData
+    const showUtil = hasNodeData && Number.isFinite(node.currentUtil)
       ? `<span class="util-value ${utilClass(node.currentUtil, true)}">${node.currentUtil.toFixed(2)}%</span>`
       : `<span class="util-value nodata">--</span>`;
     const memShow = node.hasMemMonqueryData
-      ? `<span class="util-value ${utilClass(node.currentMemUtil || 0, true)}">${(node.currentMemUtil || 0).toFixed(2)}%</span>`
+      ? (Number.isFinite(node.currentMemUtil)
+        ? `<span class="util-value ${utilClass(node.currentMemUtil, true)}">${node.currentMemUtil.toFixed(2)}%</span>`
+        : `<span class="util-value nodata">--</span>`)
       : `<span class="util-value nodata">${hasData ? '加载中' : '--'}</span>`;
 
     // 异常标记：僵尸锁检测
@@ -1368,18 +1446,18 @@ function renderList() {
         const cardRow = document.createElement('div');
         cardRow.className = 'card-row';
         const effectiveIdx = Math.max(0, nowIdx - 1);
-        const cu = (node.cardUtils && node.cardUtils[c]) ? node.cardUtils[c][effectiveIdx] : 0;
-        const cm = (node.cardMemUtils && node.cardMemUtils[c]) ? node.cardMemUtils[c][effectiveIdx] : 0;
+        const cu = node.cardUtils?.[c]?.[effectiveIdx];
+        const cm = node.cardMemUtils?.[c]?.[effectiveIdx];
         const cardBusy = node.hasCardMonqueryData
-          ? (cm >= 10 || cu >= 10)
+          ? (Number.isFinite(cm) || Number.isFinite(cu) ? (cm >= 10 || cu >= 10) : null)
           : (node.cardHasActiveLock && node.cardHasActiveLock[c]);
         const lockMark = (node.cardOccupations && node.cardOccupations[c] && node.cardOccupations[c].length)
           ? `<span class="card-lock" title="有 Lock Bot 锁记录">🔒</span>` : '';
         cardRow.innerHTML = `
           <span class="card-name">XPU #${c}</span>
-          <span class="badge badge-${cardBusy ? 'BUSY' : 'FREE'}" style="font-size:10px;padding:1px 5px;">${cardBusy ? '占用' : '空闲'}</span>
-          <span class="card-val" style="color:#4f46e5">XPU ${cu.toFixed(1)}%</span>
-          <span class="card-val" style="color:#ea580c">显存 ${cm.toFixed(1)}%</span>
+          <span class="badge badge-${cardBusy == null ? 'NODATA' : (cardBusy ? 'BUSY' : 'FREE')}" style="font-size:10px;padding:1px 5px;">${cardBusy == null ? '暂缺' : (cardBusy ? '占用' : '空闲')}</span>
+          <span class="card-val" style="color:#4f46e5">XPU ${Number.isFinite(cu) ? cu.toFixed(1) + '%' : '--'}</span>
+          <span class="card-val" style="color:#ea580c">显存 ${Number.isFinite(cm) ? cm.toFixed(1) + '%' : '--'}</span>
           ${lockMark}
         `;
         container.appendChild(cardRow);
@@ -1388,8 +1466,8 @@ function renderList() {
         const cardTimeline = document.createElement('div');
         cardTimeline.className = 'card-timeline';
         const cardOccs = (node.cardOccupations && node.cardOccupations[c]) || [];
-        const cardUtil = (node.cardUtils && node.cardUtils[c]) || new Array(SLOT_COUNT).fill(0);
-        const cardMem = (node.cardMemUtils && node.cardMemUtils[c]) || new Array(SLOT_COUNT).fill(0);
+        const cardUtil = node.cardUtils?.[c] || new Array(SLOT_COUNT).fill(null);
+        const cardMem = node.cardMemUtils?.[c] || new Array(SLOT_COUNT).fill(null);
         cardTimeline.innerHTML = `
           <div class="timeline-container">
             ${makeOccupyBlocks(cardOccs)}
