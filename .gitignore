@@ -51,6 +51,12 @@ frontend/dist/
 frontend/dist-ssr/
 frontend/*.local
 
+# Node (web / person apps)
+web/node_modules/
+web/dist/
+person/node_modules/
+person/dist/
+
 # Database
 *.db
 
