@@ -125,24 +125,45 @@ function mergeOverlappingOccupations(occs) {
   return merged;
 }
 
-function buildOccupationRange(startTime, duration, userId) {
-  const startSec = normalizeToUnixSec(startTime);
-  const endSec = startSec + (Number.isFinite(duration) ? duration : 0);
-  const start = Math.max(0, Math.min(SLOT_COUNT - 1, toSlotIndex(startSec)));
-  let end = Math.max(0, Math.min(SLOT_COUNT - 1, toSlotIndex(endSec)));
-  // toSlotIndex 无日期概念，end 可能因跨天回绕到 < start（负宽度），此时钳到当天末尾
-  if (end <= start) end = SLOT_COUNT - 1;
-  return { start, end, user: userId };
+function currentChinaDate() {
+  return new Date(Date.now() + CHINA_OFFSET_SECONDS * 1000).toISOString().slice(0, 10);
 }
 
 /**
- * 时间戳 → 北京时间 5 分钟槽索引 (0-287)
- * 统一走 toSlotIndex（Unix 秒），保证时区处理一致
- * 支持: Unix秒、Unix毫秒、ISO字符串（UTC/带时区/无时区均正确，无时区按北京时间解析）
+ * 解析北京时间日期，并返回对应当天的 Unix 秒区间 [start, end)。
  */
-function parseSlotFromTimestamp(raw) {
-  const ts = parseChinaLikeTimestamp(raw);
-  return Math.max(0, Math.min(SLOT_COUNT - 1, toSlotIndex(ts)));
+function chinaDayRange(displayDate = currentChinaDate()) {
+  const match = String(displayDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const start = Math.floor(Date.UTC(Number(year), Number(month) - 1, Number(day)) / 1000)
+    - CHINA_OFFSET_SECONDS;
+  return { start, end: start + 86400 };
+}
+
+/**
+ * 将绝对时间区间裁剪到当前展示的北京时间日期后，转为日内 5 分钟槽。
+ * Lock Bot 的 occupancy 接口会返回与查询日期相交的跨天记录；若不先裁剪，
+ * 昨天 22:30 到今天 04:30 会被错误地画成今天 22:30 到 04:30。
+ */
+function projectOccupationToDay(startSec, endSec, userId, dayRange) {
+  if (!dayRange || !Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec <= startSec) return null;
+  if (endSec <= dayRange.start || startSec >= dayRange.end) return null;
+
+  const visibleStart = Math.max(startSec, dayRange.start);
+  const visibleEnd = Math.min(endSec, dayRange.end);
+  const start = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor((visibleStart - dayRange.start) / 300)));
+  // end 为右开边界，允许取 SLOT_COUNT，使跨天到 24:00 的区间画满当天。
+  const end = Math.max(0, Math.min(SLOT_COUNT, Math.floor((visibleEnd - dayRange.start) / 300)));
+  if (end <= start) return null;
+  return { start, end, user: userId || '' };
+}
+
+function buildOccupationRange(startTime, duration, userId, dayRange) {
+  const startSec = normalizeToUnixSec(startTime);
+  const durationSec = Number(duration);
+  const endSec = startSec + (Number.isFinite(durationSec) ? durationSec : 0);
+  return projectOccupationToDay(startSec, endSec, userId, dayRange);
 }
 
 /**
@@ -187,9 +208,10 @@ export function mergeMonqueryData(existing = [], incoming = []) {
 /**
  * 将历史占用记录按节点名分组并转为 occupation 数组
  * @param {Array} occupancyHistory - [{node_key, user_id, start_time, end_time, duration_seconds, resource_type, device_id, ...}]
+ * @param {object|null} dayRange - 展示当天（北京时间）的 Unix 秒区间 [start, end)
  * @returns {object} { nodeName: { nodeOccupations, cardOccupations } }
  */
-function groupHistoryOccupations(occupancyHistory) {
+function groupHistoryOccupations(occupancyHistory, dayRange) {
   const map = {};
   if (!occupancyHistory || !occupancyHistory.length) return map;
   for (const rec of occupancyHistory) {
@@ -202,25 +224,14 @@ function groupHistoryOccupations(occupancyHistory) {
         cardOccupations: Array.from({ length: CARD_COUNT }, () => []),
       };
     }
-    const start = parseSlotFromTimestamp(rec.start_time_cn ?? rec.start_time);
-    // end_time 可能不存在，从 duration_seconds 推算
-    let end;
-    if (rec.end_time_cn != null || rec.end_time != null) {
-      end = parseSlotFromTimestamp(rec.end_time_cn ?? rec.end_time);
-    } else if (rec.duration != null || rec.duration_seconds != null) {
-      const dur = rec.duration != null ? rec.duration : rec.duration_seconds;
-      const startSlot = parseSlotFromTimestamp(rec.start_time_cn ?? rec.start_time);
-      // 用 start 槽 + duration 推算 end 槽（不精准但 directionally correct）
-      const durSlots = Math.ceil(dur / 300);
-      end = Math.min(SLOT_COUNT - 1, startSlot + durSlots);
-    } else {
-      end = start;
+    const startSec = normalizeToUnixSec(rec.start_time_cn ?? rec.start_time);
+    let endSec = normalizeToUnixSec(rec.end_time_cn ?? rec.end_time);
+    if (!endSec) {
+      const duration = Number(rec.duration ?? rec.duration_seconds);
+      endSec = Number.isFinite(duration) ? startSec + duration : startSec;
     }
-    const occupation = {
-      start: Math.max(0, Math.min(SLOT_COUNT - 1, start)),
-      end: Math.max(0, Math.min(SLOT_COUNT - 1, end)),
-      user: rec.user_id || '',
-    };
+    const occupation = projectOccupationToDay(startSec, endSec, rec.user_id, dayRange);
+    if (!occupation) continue;
     map[name].nodeOccupations.push(occupation);
 
     // 旧记录没有 resource_type，按节点级记录兼容。新的 device 记录只画到指定卡，
@@ -277,11 +288,13 @@ function hasMetricSamples(series) {
  * @param {number}  nowIdx          - 当前 5 分钟槽索引 (0-287)
  * @param {string}  botType         - 'NODE' | 'DEVICE' | 'QUEUE'
  * @param {Array}   occupancyHistory - Lock Bot 历史占用记录（可选）
+ * @param {string}  displayDate - 当前时间线日期，格式 YYYY-MM-DD（北京时间）
  * @returns {Array<NodeData>}
  */
-export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occupancyHistory = []) {
+export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occupancyHistory = [], displayDate = currentChinaDate()) {
   const monqueryIndex = monqueryData ? indexMonqueryByName(monqueryData) : {};
-  const historyByNode = groupHistoryOccupations(occupancyHistory);
+  const dayRange = chinaDayRange(displayDate);
+  const historyByNode = groupHistoryOccupations(occupancyHistory, dayRange);
   const nodes = [];
 
   for (const [lockBotName, state] of Object.entries(lockBotState)) {
@@ -333,7 +346,8 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
       // 整机粒度：所有卡共享节点级占用
       if (state.status !== 'idle') {
         for (const user of state.current_users || []) {
-          addOccupation(buildOccupationRange(user.start_time, user.duration, user.user_id));
+          const occupation = buildOccupationRange(user.start_time, user.duration, user.user_id, dayRange);
+          if (occupation) addOccupation(occupation);
         }
       }
     } else if (botType === 'DEVICE') {
@@ -342,9 +356,9 @@ export function adaptNodeData(lockBotState, monqueryData, nowIdx, botType, occup
         const dev = cardStates.find(d => d.dev_id === c);
         if (dev && dev.status !== 'idle') {
           for (const user of dev.current_users || []) {
-            const occ = buildOccupationRange(user.start_time, user.duration, user.user_id);
+            const occ = buildOccupationRange(user.start_time, user.duration, user.user_id, dayRange);
             // 卡片级直接追加，节点级由后续合并
-            cardOccupations[c].push(occ);
+            if (occ) cardOccupations[c].push(occ);
           }
         }
       }

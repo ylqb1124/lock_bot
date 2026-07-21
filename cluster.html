@@ -758,10 +758,10 @@ function adaptAndRender(stateResults, monqueryData, status, occupancyHistory = [
 
   let allNodes = [];
   if (Object.keys(deviceState).length) {
-    allNodes.push(...adaptNodeData(deviceState, monqueryData, nowIdx, 'DEVICE', occupancyHistory));
+    allNodes.push(...adaptNodeData(deviceState, monqueryData, nowIdx, 'DEVICE', occupancyHistory, formatChinaDate(new Date())));
   }
   if (Object.keys(nodeState).length) {
-    allNodes.push(...adaptNodeData(nodeState, monqueryData, nowIdx, 'NODE', occupancyHistory));
+    allNodes.push(...adaptNodeData(nodeState, monqueryData, nowIdx, 'NODE', occupancyHistory, formatChinaDate(new Date())));
   }
 
   if (allNodes.length > 0) {

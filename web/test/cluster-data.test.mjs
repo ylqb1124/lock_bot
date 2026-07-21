@@ -7,6 +7,7 @@ import { adaptNodeData } from '../src/services/adapter.js';
 import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } from '../src/services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../src/services/chart-data.js';
 import { CARD_COUNT, mergeLockBotStates } from '../src/services/cluster-state.js';
+import { CURRENT_MONQUERY_TIMEOUT_MS, DEFAULT_MONQUERY_TIMEOUT_MS } from '../src/services/api.js';
 
 const require = createRequire(import.meta.url);
 const { createTrendService, _private } = require('../server/trend-service.cjs');
@@ -21,6 +22,11 @@ test('cluster scope uses the fixed 46-node, 368-card computation denominator', (
   assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 368);
   assert.equal(clusterScope.nodeIds.includes(15), false);
   assert.equal(clusterScope.nodeIds.includes(16), false);
+});
+
+test('current Monquery timeout is shorter than the general request timeout', () => {
+  assert.equal(CURRENT_MONQUERY_TIMEOUT_MS, 12_000);
+  assert.ok(CURRENT_MONQUERY_TIMEOUT_MS < DEFAULT_MONQUERY_TIMEOUT_MS);
 });
 
 test('empty Monquery arrays remain unknown instead of becoming free', () => {
@@ -78,10 +84,43 @@ test('China-time occupancy records land on the correct Beijing timeline slot', (
     end_time_cn: '2026-07-17T13:39:13',
     duration_seconds: 21600,
     day_key_cn: '2026-07-17',
-  }]);
+  }], '2026-07-17');
 
   assert.equal(node.occupations[0].start, 91);
   assert.equal(node.occupations[0].end, 163);
+});
+
+test('cross-day occupancy is clipped to the displayed China date instead of becoming a future block', () => {
+  const [node] = adaptNodeData({
+    node1: { status: 'idle', current_users: [], booking_list: [] },
+  }, [], 0, 'NODE', [{
+    node_key: 'node1',
+    user_id: 'zhangfan51',
+    start_time_cn: '2026-07-20T22:30:50',
+    end_time_cn: '2026-07-21T04:30:50',
+    duration_seconds: 21600,
+    day_key_cn: '2026-07-20',
+  }], '2026-07-21');
+
+  assert.deepEqual(node.occupations, [{ start: 0, end: 54, user: 'zhangfan51' }]);
+});
+
+test('an occupancy crossing midnight is split correctly between today and tomorrow', () => {
+  const history = [{
+    node_key: 'node1',
+    user_id: 'night-user',
+    start_time_cn: '2026-07-21T22:30:50',
+    end_time_cn: '2026-07-22T04:30:50',
+    duration_seconds: 21600,
+    day_key_cn: '2026-07-21',
+  }];
+  const state = { node1: { status: 'idle', current_users: [], booking_list: [] } };
+
+  const [today] = adaptNodeData(state, [], 0, 'NODE', history, '2026-07-21');
+  const [tomorrow] = adaptNodeData(state, [], 0, 'NODE', history, '2026-07-22');
+
+  assert.deepEqual(today.occupations, [{ start: 270, end: 288, user: 'night-user' }]);
+  assert.deepEqual(tomorrow.occupations, [{ start: 0, end: 54, user: 'night-user' }]);
 });
 
 test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {

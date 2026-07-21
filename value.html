@@ -428,6 +428,31 @@ td.mono { font-family: "SF Mono", Consolas, monospace; }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { background: #f1f5f9; }
 .gtp-tz-link { color: #64748b; cursor: pointer; }
+/* /app 风格紧凑筛选条 */
+.cluster-filter-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cluster-filter-head .gtp-time-label { font: 600 13px/1 inherit; color: #111827; }
+.cluster-filter-head .gtp-toggle-btn { padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font: 600 12px/1 inherit; color: #374151; cursor: pointer; }
+.cluster-filter-head .gtp-refresh-btn { margin-left: auto; }
+.cluster-filter-head .data-as-of { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; }
+.cluster-filter-head .data-as-of-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; display: inline-block; }
+.cluster-range-panel { border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb; padding: 12px 14px; margin-bottom: 14px; }
+.cluster-range-panel.hidden { display: none; }
+.cluster-range-title { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+.cluster-range-grid { display: grid; grid-template-columns: 1fr 260px; gap: 20px; }
+.cluster-range-absolute .cluster-field { margin-bottom: 8px; }
+.cluster-range-absolute label { display: block; font-size: 12px; color: #64748b; margin-bottom: 3px; }
+.cluster-range-absolute input[type="datetime-local"] { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font: 13px inherit; color: #111827; }
+.cluster-range-actions { display: flex; gap: 6px; margin-top: 8px; }
+.cluster-icon-btn { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font-size: 12px; color: #374151; cursor: pointer; }
+.cluster-apply-btn { flex: 1; padding: 6px 10px; border: none; border-radius: 4px; background: #3b82f6; color: #fff; font: 600 12px/1 inherit; cursor: pointer; }
+.cluster-quick-search { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font: 12px inherit; color: #111827; margin-bottom: 8px; outline: none; }
+.cluster-quick-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.cluster-quick-item { padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 999px; background: #fff; font-size: 12px; color: #374151; cursor: pointer; }
+.cluster-quick-item:hover { background: #f1f5f9; }
+.cluster-quick-item.active { background: #f97316; border-color: #f97316; color: #fff; font-weight: 600; }
+@media (max-width: 720px) {
+  .cluster-range-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -435,8 +460,7 @@ th.sortable:hover { background: #f1f5f9; }
   <header class="topbar">
     <div>
       <div class="kicker">Next version wireframe</div>
-      <h1>XPU 资源监控下一版原型：集群 / 个人 / 团队价值视图</h1>
-      <p class="lede">这是一张低保真原型图，用来评审下一版网站的信息结构。页面中的数值均为示意，重点说明「集群」如何判断资源投入是否有效，「团队」如何判断资源申请、使用质量和分配问题。</p>
+      <h1>开发机监控大盘 - 团队视图</h1>
     </div>
     <a class="return-link" href="index.html">返回当前仪表盘</a>
   </header>
@@ -452,343 +476,15 @@ th.sortable:hover { background: #f1f5f9; }
     <div class="app-header">
       <div class="app-title">
         <h2>开发机资源监控面板</h2>
-        <span>按集群、个人、团队三个层级看投入效果、协作细节和资源归因</span>
+        <span>按团队、个人两个层级看资源使用和分配问题</span>
       </div>
     </div>
 
     <div class="content">
-      <section class="section" id="background">
-        <div class="section-head">
-          <h3>背景</h3>
-          <button class="collapse-toggle" type="button" data-collapse-target="background-content" aria-expanded="false">展开背景说明</button>
-        </div>
-        <div class="background-grid" id="background-content" hidden>
-          <div class="panel">
-            <p class="panel-title">为什么「集群」和「团队」都要做原型</p>
-            <ul class="problem-list">
-              <li>老板关心全局投入是否有效：新增共享存储、优化镜像拉取后，集群 XPU 和显存利用率有没有明显变化。</li>
-              <li>资源协调不能只看 lock 数量，还要看被锁定后的真实 XPU 和显存利用率。</li>
-              <li>团队视图用于统计各团队的申请、锁定、使用质量和高峰压力。</li>
-              <li>个人视图用于研发之间协商：A lock 了但长时间不用，B 可以根据持锁人和节点细节联系 A。</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="section" id="shared-summary">
-        <div class="stats-bar" aria-label="公共顶部指标">
-          <div class="stats-bar-row">
-            <div class="stat-card total"><div class="label">总节点</div><div class="value total">48</div></div>
-            <div class="stat-card total"><div class="label">总卡数</div><div class="value total">384</div></div>
-            <div class="stat-card xpu-avg"><div class="label">XPU平均利用率</div><div class="value xpu-avg pct">5.6%</div></div>
-            <div class="stat-card mem-avg"><div class="label">显存平均利用率</div><div class="value mem-avg pct">32.0%</div></div>
-          </div>
-          <div class="stats-bar-row">
-            <div class="stat-card locked"><div class="label">LOCKED 节点</div><div class="value locked">46</div></div>
-            <div class="stat-card busy"><div class="label">BUSY 节点</div><div class="value busy">30</div></div>
-            <div class="stat-card locked"><div class="label">LOCKED 卡数</div><div class="value locked">356</div></div>
-            <div class="stat-card busy"><div class="label">BUSY 卡数</div><div class="value busy">172</div></div>
-          </div>
-        </div>
-      </section>
-
       <nav class="tabs" aria-label="原型视图切换">
-        <button class="tab active" type="button" data-view-tab="all" aria-selected="true">集群</button>
-        <button class="tab" type="button" data-view-tab="team" aria-selected="false">团队</button>
+        <button class="tab active" type="button" data-view-tab="team" aria-selected="true">团队</button>
         <button class="tab" type="button" data-view-tab="personal" aria-selected="false">个人</button>
       </nav>
-
-      <div class="view-pane active" data-view-pane="all">
-      <section class="section" id="all-summary">
-        <div class="section-head">
-          <h3>全集群趋势筛选</h3>
-          <div class="section-note">按开始～结束看所有开发机的 XPU / 显存平均利用率和峰值变化</div>
-        </div>
-
-        <!-- Grafana 风格时间选择器 -->
-        <div class="grafana-time-picker">
-          <div class="gtp-trigger-bar">
-            <button class="gtp-trigger-btn" type="button">&#128339; Last 24 hours &#8595;</button>
-            <button class="gtp-zoom-btn" type="button">&#8854;</button>
-            <button class="gtp-refresh-btn" type="button">&#8635; Refresh &#9662;</button>
-          </div>
-          <div class="gtp-dropdown">
-            <div class="gtp-left">
-              <div class="gtp-section-title">Absolute time range</div>
-              <div class="gtp-field">
-                <label>From</label>
-                <div class="gtp-input-wrap"><input type="text" value="2026-07-01 00:00:00" readonly><span class="gtp-cal-icon">&#128197;</span></div>
-              </div>
-              <div class="gtp-field">
-                <label>To</label>
-                <div class="gtp-input-wrap"><input type="text" value="2026-07-09 23:59:59" readonly><span class="gtp-cal-icon">&#128197;</span></div>
-              </div>
-              <div class="gtp-actions">
-                <button class="gtp-copy-btn" type="button">&#128203;</button>
-                <button class="gtp-paste-btn" type="button">&#128195;</button>
-                <button class="gtp-apply-btn" type="button">Apply time range</button>
-              </div>
-              <div class="gtp-recent">
-                <div class="gtp-recent-title">Recently used absolute ranges</div>
-                <div class="gtp-recent-item">2026-07-08 00:00:00 to 2026-07-10 23:59:59</div>
-                <div class="gtp-recent-item">2026-07-01 00:00:00 to 2026-07-03 23:59:59</div>
-              </div>
-            </div>
-            <div class="gtp-right">
-              <input class="gtp-search" type="text" placeholder="Search quick ranges" readonly>
-              <div class="gtp-quick-list">
-                <div class="gtp-quick-item">Last 5 minutes</div>
-                <div class="gtp-quick-item">Last 15 minutes</div>
-                <div class="gtp-quick-item">Last 30 minutes</div>
-                <div class="gtp-quick-item">Last 1 hour</div>
-                <div class="gtp-quick-item">Last 3 hours</div>
-                <div class="gtp-quick-item">Last 6 hours</div>
-                <div class="gtp-quick-item">Last 12 hours</div>
-                <div class="gtp-quick-item active">Last 24 hours</div>
-                <div class="gtp-quick-item">Last 2 days</div>
-                <div class="gtp-quick-item">Last 7 days</div>
-                <div class="gtp-quick-item">Last 30 days</div>
-              </div>
-            </div>
-            <div class="gtp-footer"><span>中国标准时间</span></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="section" id="all-charts">
-        <div class="section-head">
-          <h3>集群趋势图</h3>
-          <div class="section-note">直接复用现有平均利用率趋势图效果：XPU / 显存分别展示今日、均值线和峰值提示</div>
-        </div>
-        <div class="chart-grid" style="grid-template-columns:1fr;">
-        <article class="chart-card">
-          <div class="chart-title">XPU利用率趋势 <span>平均移动利用率，示意</span></div>
-          <div class="avg-prototype-chart" aria-label="现有平均利用率趋势图原型">
-            <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="XPU利用率趋势示意图">
-              <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-              <line class="avg-grid-line" x1="70" y1="96" x2="1030" y2="96"></line>
-              <line class="avg-grid-line" x1="70" y1="142" x2="1030" y2="142"></line>
-              <line class="avg-grid-line" x1="70" y1="188" x2="1030" y2="188"></line>
-              <line class="avg-grid-line" x1="70" y1="234" x2="1030" y2="234"></line>
-              <line class="avg-grid-line" x1="70" y1="280" x2="1030" y2="280"></line>
-              <line class="avg-grid-line" x1="70" y1="303" x2="1030" y2="303"></line>
-              <line class="avg-grid-line" x1="70" y1="326" x2="1030" y2="326"></line>
-              <line class="avg-grid-line" x1="150" y1="50" x2="150" y2="326"></line>
-              <line class="avg-grid-line" x1="230" y1="50" x2="230" y2="326"></line>
-              <line class="avg-grid-line" x1="310" y1="50" x2="310" y2="326"></line>
-              <line class="avg-grid-line" x1="390" y1="50" x2="390" y2="326"></line>
-              <line class="avg-grid-line" x1="470" y1="50" x2="470" y2="326"></line>
-              <line class="avg-grid-line" x1="550" y1="50" x2="550" y2="326"></line>
-              <line class="avg-grid-line" x1="630" y1="50" x2="630" y2="326"></line>
-              <line class="avg-grid-line" x1="710" y1="50" x2="710" y2="326"></line>
-              <line class="avg-grid-line" x1="790" y1="50" x2="790" y2="326"></line>
-              <line class="avg-grid-line" x1="870" y1="50" x2="870" y2="326"></line>
-              <line class="avg-grid-line" x1="950" y1="50" x2="950" y2="326"></line>
-              <line class="avg-axis-line" x1="70" y1="50" x2="70" y2="326"></line>
-              <line class="avg-axis-line" x1="70" y1="326" x2="1030" y2="326"></line>
-              <text class="avg-axis-text" x="28" y="54">35%</text>
-              <text class="avg-axis-text" x="28" y="100">30%</text>
-              <text class="avg-axis-text" x="28" y="146">25%</text>
-              <text class="avg-axis-text" x="28" y="192">20%</text>
-              <text class="avg-axis-text" x="28" y="238">15%</text>
-              <text class="avg-axis-text" x="28" y="284">10%</text>
-              <text class="avg-axis-text" x="36" y="307">5%</text>
-              <text class="avg-axis-text" x="36" y="330">0%</text>
-              <text class="avg-time-text" x="54" y="352">00:00</text>
-              <text class="avg-time-text" x="134" y="352">02:00</text>
-              <text class="avg-time-text" x="214" y="352">04:00</text>
-              <text class="avg-time-text" x="294" y="352">06:00</text>
-              <text class="avg-time-text" x="374" y="352">08:00</text>
-              <text class="avg-time-text" x="454" y="352">10:00</text>
-              <text class="avg-time-text" x="534" y="352">12:00</text>
-              <text class="avg-time-text" x="614" y="352">14:00</text>
-              <text class="avg-time-text" x="694" y="352">16:00</text>
-              <text class="avg-time-text" x="774" y="352">18:00</text>
-              <text class="avg-time-text" x="854" y="352">20:00</text>
-              <text class="avg-time-text" x="934" y="352">22:00</text>
-              <line class="avg-mean-line" x1="70" y1="282" x2="1030" y2="282"></line>
-              <polyline class="avg-today-line" points="70,306 78,304 90,305 110,305 130,304 150,304 190,305 230,304 270,305 310,304 350,305 390,304 430,303 470,300 488,296 500,300 512,296 526,300 538,296 550,282 562,236 570,116 578,86 586,92 594,172 602,286 610,306 622,292 634,308 646,304 658,292 666,176 674,98 682,122 692,210 700,288 710,305 720,306 730,286 740,236 750,184 760,260 770,238 780,62 786,76 794,152 802,94 810,146 820,138 828,58 836,124 844,74 852,136 862,158 872,170 884,104 894,146 904,120 914,108 924,166 934,82 944,104 954,148 962,112 972,156 982,130 990,172 1000,186 1012,236 1024,224 1030,228"></polyline>
-              <circle class="avg-hover-dot" cx="828" cy="58" r="5"></circle>
-              <text class="avg-peak-label" x="842" y="50">★ 峰值 18.9%</text>
-            </svg>
-            <div class="avg-chart-tooltip">15:00<br>● 今日 <b>18.9%</b><br>━ 今日均值 <b>5.6%</b><br>⊙ 今日峰值 <b>18.9%</b></div>
-          </div>
-          <div class="avg-chart-legend"><span><i class="avg-legend-line"></i>今日</span><span><i class="avg-legend-line mean"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
-          <div class="chart-use">老板视角：看今日平均移动利用率、均值线和峰值点，判断全局利用率是否持续抬升，而不是只看某个瞬时尖峰。</div>
-        </article>
-        <article class="chart-card">
-          <div class="chart-title">显存利用率趋势 <span>平均移动利用率，示意</span></div>
-          <div class="avg-prototype-chart" aria-label="显存平均利用率趋势图原型">
-            <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="显存利用率趋势示意图">
-              <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-              <line class="avg-grid-line" x1="70" y1="96" x2="1030" y2="96"></line>
-              <line class="avg-grid-line" x1="70" y1="142" x2="1030" y2="142"></line>
-              <line class="avg-grid-line" x1="70" y1="188" x2="1030" y2="188"></line>
-              <line class="avg-grid-line" x1="70" y1="234" x2="1030" y2="234"></line>
-              <line class="avg-grid-line" x1="70" y1="280" x2="1030" y2="280"></line>
-              <line class="avg-grid-line" x1="70" y1="326" x2="1030" y2="326"></line>
-              <line class="avg-grid-line" x1="150" y1="50" x2="150" y2="326"></line>
-              <line class="avg-grid-line" x1="230" y1="50" x2="230" y2="326"></line>
-              <line class="avg-grid-line" x1="310" y1="50" x2="310" y2="326"></line>
-              <line class="avg-grid-line" x1="390" y1="50" x2="390" y2="326"></line>
-              <line class="avg-grid-line" x1="470" y1="50" x2="470" y2="326"></line>
-              <line class="avg-grid-line" x1="550" y1="50" x2="550" y2="326"></line>
-              <line class="avg-grid-line" x1="630" y1="50" x2="630" y2="326"></line>
-              <line class="avg-grid-line" x1="710" y1="50" x2="710" y2="326"></line>
-              <line class="avg-grid-line" x1="790" y1="50" x2="790" y2="326"></line>
-              <line class="avg-grid-line" x1="870" y1="50" x2="870" y2="326"></line>
-              <line class="avg-grid-line" x1="950" y1="50" x2="950" y2="326"></line>
-              <line class="avg-axis-line" x1="70" y1="50" x2="70" y2="326"></line>
-              <line class="avg-axis-line" x1="70" y1="326" x2="1030" y2="326"></line>
-              <text class="avg-axis-text" x="28" y="54">70%</text>
-              <text class="avg-axis-text" x="28" y="100">60%</text>
-              <text class="avg-axis-text" x="28" y="146">50%</text>
-              <text class="avg-axis-text" x="28" y="192">40%</text>
-              <text class="avg-axis-text" x="28" y="238">30%</text>
-              <text class="avg-axis-text" x="28" y="284">20%</text>
-              <text class="avg-axis-text" x="36" y="330">0%</text>
-              <text class="avg-time-text" x="54" y="352">00:00</text>
-              <text class="avg-time-text" x="134" y="352">02:00</text>
-              <text class="avg-time-text" x="214" y="352">04:00</text>
-              <text class="avg-time-text" x="294" y="352">06:00</text>
-              <text class="avg-time-text" x="374" y="352">08:00</text>
-              <text class="avg-time-text" x="454" y="352">10:00</text>
-              <text class="avg-time-text" x="534" y="352">12:00</text>
-              <text class="avg-time-text" x="614" y="352">14:00</text>
-              <text class="avg-time-text" x="694" y="352">16:00</text>
-              <text class="avg-time-text" x="774" y="352">18:00</text>
-              <text class="avg-time-text" x="854" y="352">20:00</text>
-              <text class="avg-time-text" x="934" y="352">22:00</text>
-              <line class="avg-mean-line mem" x1="70" y1="200" x2="1030" y2="200"></line>
-              <polyline class="avg-today-line mem" points="70,184 82,186 94,184 110,184 126,184 142,184 150,192 160,184 190,184 230,184 250,198 270,200 292,198 310,190 334,184 350,184 370,192 390,200 430,200 470,200 502,198 526,202 550,198 574,210 590,224 610,222 634,228 658,236 682,234 704,230 724,238 742,248 760,228 780,242 798,220 812,236 826,206 840,212 856,188 870,210 886,206 902,198 918,164 934,200 948,170 960,214 974,180 986,222 1000,230 1014,210 1030,224"></polyline>
-              <circle class="avg-hover-dot mem" cx="918" cy="164" r="5"></circle>
-              <text class="avg-peak-label mem" x="932" y="158">★ 峰值 37.9%</text>
-            </svg>
-            <div class="avg-chart-tooltip">16:40<br>● 今日 <b>37.9%</b><br>━ 今日均值 <b>32.0%</b><br>⊙ 今日峰值 <b>37.9%</b></div>
-          </div>
-          <div class="avg-chart-legend"><span><i class="avg-legend-line mem"></i>今日显存</span><span><i class="avg-legend-line mean mem"></i>今日均值</span><span><span class="legend-star">★</span>峰值</span></div>
-          <div class="chart-use">老板视角：显存趋势用于补充 XPU 利用率判断，避免只看到算力低但显存长期占用的场景；如果显存持续高位但 XPU 曲线偏低，需要进一步查看团队和节点明细。</div>
-        </article>
-        </div>
-      </section>
-
-      <section class="section" id="peak-view">
-        <div class="section-head">
-          <div class="peak-head-row">
-            <h3 style="margin:0">峰值视图</h3>
-            <div class="peak-stat-card">
-              <span class="peak-label">算力峰值</span>
-              <span class="peak-value">79%</span>
-            </div>
-            <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?
-              <span class="usage-rank-tooltip" style="width:260px">峰值统计最小粒度为天。选定时间范围内，每天取该天的最高瞬时值作为当日峰值，折线图展示各天峰值变化趋势。若选定时间 &lt; 24h，则仅显示当天峰值一个点。</span>
-            </span>
-          </div>
-          <div class="section-note">选定时间段内的每日峰值变化趋势</div>
-        </div>
-        <div class="peak-tabs" style="margin-bottom:12px">
-          <button class="pill active" type="button" data-peak="compute">算力</button>
-          <button class="pill" type="button" data-peak="mem">显存</button>
-          <button class="pill" type="button" data-peak="kashi">卡时</button>
-        </div>
-        <article class="chart-card">
-          <div class="chart-title">每日峰值趋势 <span>最小粒度：天</span></div>
-          <div class="avg-prototype-chart" aria-label="峰值趋势图">
-            <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="峰值趋势折线图">
-              <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-              <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
-              <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
-              <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
-              <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
-              <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-              <text class="avg-axis-text" x="24" y="54">100%</text>
-              <text class="avg-axis-text" x="32" y="114">75%</text>
-              <text class="avg-axis-text" x="32" y="174">50%</text>
-              <text class="avg-axis-text" x="32" y="234">25%</text>
-              <text class="avg-axis-text" x="40" y="294">0%</text>
-              <text class="avg-time-text" x="70" y="320">07-01</text>
-              <text class="avg-time-text" x="230" y="320">07-02</text>
-              <text class="avg-time-text" x="390" y="320">07-03</text>
-              <text class="avg-time-text" x="550" y="320">07-04</text>
-              <text class="avg-time-text" x="710" y="320">07-05</text>
-              <text class="avg-time-text" x="870" y="320">07-06</text>
-              <text class="avg-time-text" x="1000" y="320">07-07</text>
-              <!-- 算力峰值折线 -->
-              <polyline id="peak-line-compute" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,86 230,74 390,98 550,62 710,86 870,74 1030,62"></polyline>
-              <!-- 显存峰值折线 (hidden by default) -->
-              <polyline id="peak-line-mem" fill="none" stroke="#8b5cf6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,110 230,98 390,122 550,86 710,110 870,98 1030,86" style="display:none"></polyline>
-              <!-- 卡时峰值折线 (hidden by default) -->
-              <polyline id="peak-line-kashi" fill="none" stroke="#06b6d4" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,170 230,146 390,158 550,134 710,146 870,122 1030,110" style="display:none"></polyline>
-              <!-- 最高峰值标记 -->
-              <circle class="avg-hover-dot" cx="1030" cy="62" r="5" fill="#f59e0b"></circle>
-              <text class="avg-peak-label" x="940" y="54">★ 最高峰值 79%</text>
-            </svg>
-          </div>
-          <div class="avg-chart-legend">
-            <span><i class="avg-legend-line" style="border-color:#f59e0b"></i>每日算力峰值</span>
-          </div>
-        </article>
-      </section>
-
-      <section class="section" id="team-xpu-rank">
-        <div class="section-head">
-          <h3 style="display:inline">利用率团队排名</h3>
-          <span class="usage-rank-help" style="margin-left:6px;position:relative;cursor:pointer;font-size:13px;color:#64748b">?
-            <span class="usage-rank-tooltip" style="width:280px">统计各团队在选定时间段内的平均利用率（算力或显存），按从高到低排序。高于全集群均值的团队标记为 Top，低于均值且锁定规模较大的团队建议下钻排查。</span>
-          </span>
-          <div class="section-note">按团队平均利用率从高到低排序，横向柱状图展示团队差距</div>
-        </div>
-        <div style="margin-bottom:12px">
-          <button class="pill active" type="button" data-rank-type="xpu">算力</button>
-          <button class="pill" type="button" data-rank-type="mem">显存</button>
-        </div>
-        <article class="chart-card">
-          <div class="chart-title" id="rank-chart-title">XPU利用率团队排名 <span>今日均值，示意</span></div>
-          <div class="horizontal-rank-chart" aria-label="利用率团队横向排名柱状图原型">
-            <div class="rank-axis-y">团队名</div>
-            <div class="rank-axis-x" id="rank-axis-x-label">XPU 平均利用率 →</div>
-            <div class="rank-baseline" id="rank-baseline-label"><span>全集群均值 5.2%</span></div>
-            <div class="rank-bars" id="rank-bars-container">
-              <div class="rank-row"><span class="rank-team">团队 B</span><span class="rank-track"><span class="rank-bar top" style="--w: 93%;"></span></span><span class="rank-value">18.6%</span></div>
-              <div class="rank-row"><span class="rank-team">团队 A</span><span class="rank-track"><span class="rank-bar top" style="--w: 76%;"></span></span><span class="rank-value">15.2%</span></div>
-              <div class="rank-row"><span class="rank-team">团队 C</span><span class="rank-track"><span class="rank-bar" style="--w: 57%;"></span></span><span class="rank-value">11.4%</span></div>
-              <div class="rank-row"><span class="rank-team">团队 D</span><span class="rank-track"><span class="rank-bar" style="--w: 39%;"></span></span><span class="rank-value">7.8%</span></div>
-              <div class="rank-row"><span class="rank-team">团队 E</span><span class="rank-track"><span class="rank-bar" style="--w: 25%;"></span></span><span class="rank-value">4.9%</span></div>
-              <div class="rank-row"><span class="rank-team">团队 F</span><span class="rank-track"><span class="rank-bar" style="--w: 16%;"></span></span><span class="rank-value">3.1%</span></div>
-            </div>
-            <div class="rank-ticks" id="rank-ticks-container"><span>0%</span><span>5%</span><span>10%</span><span>15%</span><span>20%</span></div>
-          </div>
-          <div class="chart-use">管理视角：横向条越长代表团队平均利用率越高；从上到下按利用率排序，高于全集群均值的团队可作为有效使用样本，低于均值且锁定规模较大的团队需要继续下钻到节点和持锁人。</div>
-        </article>
-      </section>
-
-      <section class="section" id="investment-compare">
-        <div class="section-head">
-          <h3>投入效果判断</h3>
-          <div class="section-note">把开始～结束的今日曲线、均值和峰值转成管理层讨论语言</div>
-        </div>
-        <div class="compare-grid">
-          <article class="compare-card">
-            <h4>今日表现</h4>
-            <div class="compare-number">今日均值 5.2%</div>
-            <p>看今日曲线是否持续高于均值线，以及峰值是否集中在业务高峰时段。</p>
-          </article>
-          <article class="compare-card">
-            <h4>均值判断</h4>
-            <div class="compare-number">今日均值 5.2%</div>
-            <p>结合今日均值线和曲线形态，避免把单日偶发尖峰误判为整体资源效率提升。</p>
-          </article>
-          <article class="compare-card">
-            <h4>老板判断</h4>
-            <div class="compare-number">持续观察</div>
-            <p>如果今日均值、峰值和高利用时段都稳定提升，说明全局利用率变好；如果只是峰值变高但均值不变，需要继续看节点和团队明细。</p>
-          </article>
-        </div>
-      </section>
-      </div>
 
       <div class="view-pane" data-view-pane="personal" hidden>
       <section class="section" id="personal-body">
@@ -913,354 +609,234 @@ th.sortable:hover { background: #f1f5f9; }
       </section>
       </div>
 
-      <div class="view-pane" data-view-pane="team" hidden>
+      <div class="view-pane active" data-view-pane="team">
       <section class="section" id="team-body">
         <div class="section-head">
           <h3>团队视图主体</h3>
-          <div class="section-note">选择时间范围和团队，查看团队资源使用情况</div>
+          <div class="section-note">选择你所在的团队和时间范围，查看本团队锁定节点数与利用率趋势</div>
         </div>
 
-        <!-- Grafana 风格时间选择器 -->
-        <div class="grafana-time-picker" id="team-gtp">
-          <div class="gtp-trigger-bar">
-            <button class="gtp-trigger-btn" type="button" data-gtp="team">&#128339; Last 24 hours &#8595;</button>
-            <button class="gtp-zoom-btn" type="button">&#8854;</button>
-            <button class="gtp-refresh-btn" type="button">&#8635; Refresh &#9662;</button>
-          </div>
-          <div class="gtp-dropdown" id="team-gtp-dropdown">
-            <div class="gtp-left">
-              <div class="gtp-section-title">Absolute time range</div>
-              <div class="gtp-field">
-                <label>From</label>
-                <div class="gtp-input-wrap"><input type="text" value="2026-07-01 00:00:00" readonly><span class="gtp-cal-icon">&#128197;</span></div>
-              </div>
-              <div class="gtp-field">
-                <label>To</label>
-                <div class="gtp-input-wrap"><input type="text" value="2026-07-09 23:59:59" readonly><span class="gtp-cal-icon">&#128197;</span></div>
-              </div>
-              <div class="gtp-actions">
-                <button class="gtp-copy-btn" type="button">&#128203;</button>
-                <button class="gtp-paste-btn" type="button">&#128195;</button>
-                <button class="gtp-apply-btn" type="button">Apply time range</button>
-              </div>
-              <div class="gtp-recent">
-                <div class="gtp-recent-title">Recently used absolute ranges</div>
-                <div class="gtp-recent-item">2026-07-08 00:00:00 to 2026-07-10 23:59:59</div>
-                <div class="gtp-recent-item">2026-07-01 00:00:00 to 2026-07-03 23:59:59</div>
+        <!-- 团队历史趋势筛选条：口径锚定"昨天"（T-1），非当前实时窗口 -->
+        <div class="cluster-filter-head" id="team-gtp">
+          <span class="gtp-time-label" data-gtp-label>最近 30 天（至昨日 07-19）</span>
+          <button class="gtp-toggle-btn" type="button" data-gtp-toggle aria-expanded="true" aria-controls="team-range-panel">隐藏筛选</button>
+          <button class="gtp-refresh-btn" type="button">&#8635; 刷新</button>
+          <span class="data-as-of"><span>截至昨日 24:00 已完成计算</span></span>
+        </div>
+        <div class="cluster-range-panel" id="team-range-panel">
+          <div class="cluster-range-grid">
+            <div class="cluster-range-quick">
+              <input class="cluster-quick-search" type="search" placeholder="搜索快捷时间">
+              <div class="cluster-quick-list">
+                <button class="cluster-quick-item" type="button">最近 1 天</button>
+                <button class="cluster-quick-item" type="button">最近 2 天</button>
+                <button class="cluster-quick-item" type="button">最近 7 天</button>
+                <button class="cluster-quick-item active" type="button">最近 30 天</button>
+                <button class="cluster-quick-item" type="button">最近 90 天</button>
+                <button class="cluster-quick-item" type="button">最近 6 个月</button>
               </div>
             </div>
-            <div class="gtp-right">
-              <input class="gtp-search" type="text" placeholder="Search quick ranges" readonly>
-              <div class="gtp-quick-list">
-                <div class="gtp-quick-item">Last 5 minutes</div>
-                <div class="gtp-quick-item">Last 15 minutes</div>
-                <div class="gtp-quick-item">Last 30 minutes</div>
-                <div class="gtp-quick-item">Last 1 hour</div>
-                <div class="gtp-quick-item">Last 3 hours</div>
-                <div class="gtp-quick-item">Last 6 hours</div>
-                <div class="gtp-quick-item">Last 12 hours</div>
-                <div class="gtp-quick-item active">Last 24 hours</div>
-                <div class="gtp-quick-item">Last 2 days</div>
-                <div class="gtp-quick-item">Last 7 days</div>
-                <div class="gtp-quick-item">Last 30 days</div>
-              </div>
+            <div class="cluster-range-absolute">
+              <div class="cluster-range-title">时间范围筛选（最晚至昨日 24:00）</div>
+              <div class="cluster-field"><label for="team-start-time">开始时间</label><input id="team-start-time" type="datetime-local" step="60" value="2026-06-19T00:00" max="2026-07-19T24:00"></div>
+              <div class="cluster-field"><label for="team-end-time">结束时间</label><input id="team-end-time" type="datetime-local" step="60" value="2026-07-19T24:00" max="2026-07-19T24:00"></div>
+              <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围">复制区间</button><button type="button" class="cluster-icon-btn" title="重置为最近 30 天">默认筛选</button><button type="button" class="cluster-apply-btn">筛选</button></div>
             </div>
-            <div class="gtp-footer"><span>中国标准时间</span></div>
           </div>
         </div>
 
-        <div class="team-layout">
-          <div>
-            <article class="chart-card">
-              <div class="chart-title">团队卡时趋势 <span>最近 7 天各团队卡时使用情况</span></div>
-              <div class="team-hero-chart" aria-label="团队卡时趋势图">
-                <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队卡时趋势示意图">
-                  <!-- 网格线 -->
-                  <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-                  <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
-                  <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
-                  <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
-                  <!-- 坐标轴 -->
-                  <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
-                  <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-                  <!-- Y轴标签（卡时） -->
-                  <text class="avg-axis-text" x="32" y="54">100</text>
-                  <text class="avg-axis-text" x="40" y="114">75</text>
-                  <text class="avg-axis-text" x="40" y="174">50</text>
-                  <text class="avg-axis-text" x="40" y="234">25</text>
-                  <text class="avg-axis-text" x="48" y="294">0</text>
-                  <!-- X轴标签（最近7天日期） -->
-                  <text class="avg-time-text" x="70" y="320">07-01</text>
-                  <text class="avg-time-text" x="230" y="320">07-02</text>
-                  <text class="avg-time-text" x="390" y="320">07-03</text>
-                  <text class="avg-time-text" x="550" y="320">07-04</text>
-                  <text class="avg-time-text" x="710" y="320">07-05</text>
-                  <text class="avg-time-text" x="870" y="320">07-06</text>
-                  <text class="avg-time-text" x="1000" y="320">07-07</text>
-                  <!-- A团队 橙色 -->
-                  <polyline data-team="a" fill="none" stroke="#ea580c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                    points="70,170 230,146 390,158 550,122 710,134 870,110 1030,118"></polyline>
-                  <!-- B团队 蓝色 -->
-                  <polyline data-team="b" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                    points="70,206 230,194 390,182 550,170 710,158 870,146 1030,134"></polyline>
-                  <!-- C团队 绿色 -->
-                  <polyline data-team="c" fill="none" stroke="#16a34a" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                    points="70,242 230,230 390,242 550,218 710,230 870,218 1030,206"></polyline>
-                  <!-- 整体（总和） 黄色 -->
-                  <polyline data-team="total" fill="none" stroke="#eab308" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                    points="70,86 230,62 390,74 550,50 710,62 870,50 1030,54"></polyline>
-                </svg>
-                <div class="avg-chart-legend" id="team-kashi-legend">
-                  <span data-legend="a" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#ea580c"></i>团队 A</span>
-                  <span data-legend="b" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#3b82f6"></i>团队 B</span>
-                  <span data-legend="c" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#16a34a"></i>团队 C</span>
-                  <span data-legend="total" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#eab308"></i>整体</span>
+        <section class="section" id="team-kashi-compare">
+          <div class="section-head">
+            <h3>团队效率 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">团队总卡时/算力利用率排名与节点使用占比，均为历史数据，截止昨日 24:00，不代表当前实时锁定状态。</span></span></h3>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div class="section-note">按算力利用率排序的团队总卡时/算力利用率排名，与右侧团队节点使用率占比对照</div>
+              <button class="gtp-toggle-btn" type="button" data-collapse-toggle aria-expanded="false" aria-controls="team-kashi-body">展开</button>
+            </div>
+          </div>
+          <div class="team-layout" id="team-kashi-body" hidden>
+            <div style="grid-column:1 / -1;margin:0 0 18px;padding-bottom:18px;border-bottom:2px dashed #e2e8f0">
+              <h4 style="margin:0 0 4px;font-size:15px;color:#475569">补充：跨团队对比参考</h4>
+              <div class="section-note">以下为多团队横向对比，供管理层高层概览</div>
+            </div>
+            <div>
+              <article class="chart-card">
+                <div class="chart-title">团队效率 <span>按算力利用率排序，快速定位高效和低效团队</span></div>
+                <div class="table-wrap">
+                  <table id="team-efficiency-table">
+                    <thead>
+                      <tr>
+                        <th>排名</th>
+                        <th>团队</th>
+                        <th class="sortable" data-sort="kashi">团队总卡时 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">团队总卡时为历史累计值（锁定时长之和），截止昨日 24:00。</span></span></th>
+                        <th class="sortable" data-sort="xpu">算力利用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">算力使用率 = Σ(机器锁定时长 × 锁定期间平均算力利用率) ÷ Σ(机器锁定时长)<br><br>即以各机器锁定时长为权重，对算力利用率做加权平均。<br><br>示例：锁定 2 台机器各 2h，利用率分别为 50%、10%，则使用率 = (0.5×2 + 0.1×2) ÷ 4 = 30%<br><br>统计范围：前一日 00:00-24:00 已完成的锁定时段，数据截止昨日，与当前锁定状态非同一时效。</span></span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td class="mono">1</td><td>团队 B</td><td class="mono" data-val="268">268.8</td><td class="mono" data-val="71">71%</td></tr>
+                      <tr><td class="mono">2</td><td>团队 A</td><td class="mono" data-val="192">192.0</td><td class="mono" data-val="28">28%</td></tr>
+                      <tr><td class="mono">3</td><td>团队 D</td><td class="mono" data-val="56">56.0</td><td class="mono" data-val="65">65%</td></tr>
+                      <tr><td class="mono">4</td><td>团队 C</td><td class="mono" data-val="144">144.0</td><td class="mono" data-val="18">18%</td></tr>
+                    </tbody>
+                  </table>
                 </div>
+                <div class="chart-use">管理视角：团队总卡时反映真实占用规模，算力利用率反映资源使用效率；两者结合可以识别"占用多但利用率低"的团队。数据为历史累计值，截止昨日 24:00，与实时锁定节点/卡数是两套口径，不能直接相加对比。</div>
+              </article>
+            </div>
+            <div class="team-pie-card">
+              <div class="chart-title">团队节点使用率占比</div>
+              <svg viewBox="0 0 200 200" width="200" height="200">
+                <!-- 团队A 29% 橙色 -->
+                <path d="M100,100 L100,20 A80,80 0 0,1 177.49,119.90 Z" fill="#ea580c"></path>
+                <!-- 团队B 41% 蓝色 -->
+                <path d="M100,100 L177.49,119.90 A80,80 0 0,1 23.91,124.72 Z" fill="#3b82f6"></path>
+                <!-- 团队C 22% 绿色 -->
+                <path d="M100,100 L23.91,124.72 A80,80 0 0,1 61.46,29.90 Z" fill="#16a34a"></path>
+                <!-- 团队D 8% 紫色 -->
+                <path d="M100,100 L61.46,29.90 A80,80 0 0,1 100,20 Z" fill="#8b5cf6"></path>
+              </svg>
+              <div class="team-pie-legend">
+                <span><i style="background:#ea580c"></i>团队 A 29%</span>
+                <span><i style="background:#3b82f6"></i>团队 B 41%</span>
+                <span><i style="background:#16a34a"></i>团队 C 22%</span>
+                <span><i style="background:#8b5cf6"></i>团队 D 8%</span>
               </div>
-            </article>
-          </div>
-          <div class="team-pie-card">
-            <div class="chart-title">团队卡时占比</div>
-            <svg viewBox="0 0 200 200" width="200" height="200">
-              <!-- 团队A 35% 橙色 -->
-              <circle cx="100" cy="100" r="80" fill="transparent" stroke="#ea580c" stroke-width="40"
-                stroke-dasharray="175.9 502.7" stroke-dashoffset="0" transform="rotate(-90 100 100)"></circle>
-              <!-- 团队B 40% 蓝色 -->
-              <circle cx="100" cy="100" r="80" fill="transparent" stroke="#3b82f6" stroke-width="40"
-                stroke-dasharray="201.1 502.7" stroke-dashoffset="-175.9" transform="rotate(-90 100 100)"></circle>
-              <!-- 团队C 25% 绿色 -->
-              <circle cx="100" cy="100" r="80" fill="transparent" stroke="#16a34a" stroke-width="40"
-                stroke-dasharray="125.7 502.7" stroke-dashoffset="-377.0" transform="rotate(-90 100 100)"></circle>
-            </svg>
-            <div class="team-pie-legend">
-              <span><i style="background:#ea580c"></i>团队 A 35%</span>
-              <span><i style="background:#3b82f6"></i>团队 B 40%</span>
-              <span><i style="background:#16a34a"></i>团队 C 25%</span>
             </div>
           </div>
+        </section>
+
+        <div class="control-row" style="margin-bottom:10px">
+          <span class="control-title">选择团队</span>
+          <div class="control-select" style="cursor:pointer"><span>团队</span>团队 A &#8595;</div>
+        </div>
+
+        <div class="stats-bar" aria-label="团队实时锁定快照" style="margin-bottom:14px">
+          <div class="stats-bar-row">
+            <div class="stat-card locked"><div class="label">团队A锁定节点数<span class="usage-rank-help" style="margin-left:4px;position:relative;cursor:pointer;font-size:11px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">当前时刻团队成员所占节点数，每五分钟自动刷新。</span></span></div><div class="value locked">8</div></div>
+            <div class="stat-card busy"><div class="label">团队A锁定卡数<span class="usage-rank-help" style="margin-left:4px;position:relative;cursor:pointer;font-size:11px;color:#64748b">?<span class="usage-rank-tooltip" style="width:300px">当前时刻团队成员所占卡数 = 锁定节点数 × 8（整机锁定的卡）+ 单独 DEVICE 锁的卡数，每五分钟自动刷新。</span></span></div><div class="value busy pct" style="font-size:15px">8 &times; 8 + 5 = 69</div></div>
+          </div>
+        </div>
+        <div class="section-note" style="margin-bottom:14px">锁定节点数/锁定卡数为 Lock Bot 当前实时锁定状态（节点数来自 NODE/QUEUE 整机锁，卡数为节点锁覆盖的卡数加上单独 DEVICE 锁的卡数）；下方 XPU、显存利用率均为前一日已完成锁定时段的加权平均，非实时。</div>
+
+        <div class="chart-grid" style="grid-template-columns:1fr;">
+          <article class="chart-card">
+            <div class="chart-title">团队A锁定节点数趋势 <span>最近 30 天（至昨日 07-19），Lock Bot 锁定快照的历史轨迹</span></div>
+            <div class="avg-prototype-chart" aria-label="团队锁定节点数趋势图">
+              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队锁定节点数趋势示意图">
+                <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
+                <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
+                <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
+                <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
+                <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
+                <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
+                <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
+                <line class="avg-grid-line" x1="710" y1="40" x2="710" y2="290"></line>
+                <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
+                <text class="avg-axis-text" x="32" y="54">16</text>
+                <text class="avg-axis-text" x="40" y="114">12</text>
+                <text class="avg-axis-text" x="40" y="174">8</text>
+                <text class="avg-axis-text" x="40" y="234">4</text>
+                <text class="avg-axis-text" x="48" y="294">0</text>
+                <text class="avg-time-text" x="70" y="320">06-20</text>
+                <text class="avg-time-text" x="230" y="320">06-25</text>
+                <text class="avg-time-text" x="390" y="320">06-30</text>
+                <text class="avg-time-text" x="550" y="320">07-05</text>
+                <text class="avg-time-text" x="710" y="320">07-10</text>
+                <text class="avg-time-text" x="870" y="320">07-14</text>
+                <text class="avg-time-text" x="1000" y="320">07-19</text>
+                <polyline data-team="lockcount" fill="none" stroke="#d97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
+                  points="70,218 150,214 230,206 310,210 390,194 470,198 550,182 630,170 710,158 790,146 870,110 950,122 1030,134"></polyline>
+                <circle class="avg-hover-dot" cx="870" cy="110" r="5" fill="#d97706"></circle>
+                <text class="avg-peak-label" x="784" y="102">★ 峰值 12 台</text>
+              </svg>
+              <div class="avg-chart-tooltip">07-14<br>团队A锁定节点数 <b>12</b> 台</div>
+            </div>
+            <div class="chart-use">团队视角：本图为团队锁定节点数的历史轨迹（非当前实时值，实时值见页面上方快照卡片），用于判断锁定规模是持续增长还是临时冲高，辅助向上申请或释放机器预算。</div>
+          </article>
+          <article class="chart-card">
+            <div class="chart-title">团队A XPU利用率趋势 <span>最近 30 天（至昨日 07-19），基于前一日已完成锁定时段的加权平均</span></div>
+            <div class="avg-prototype-chart" aria-label="团队XPU利用率趋势图">
+              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队XPU利用率趋势示意图">
+                <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
+                <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
+                <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
+                <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
+                <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
+                <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
+                <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
+                <line class="avg-grid-line" x1="710" y1="40" x2="710" y2="290"></line>
+                <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
+                <text class="avg-axis-text" x="24" y="54">40%</text>
+                <text class="avg-axis-text" x="32" y="114">30%</text>
+                <text class="avg-axis-text" x="32" y="174">20%</text>
+                <text class="avg-axis-text" x="32" y="234">10%</text>
+                <text class="avg-axis-text" x="40" y="294">0%</text>
+                <text class="avg-time-text" x="70" y="320">06-20</text>
+                <text class="avg-time-text" x="230" y="320">06-25</text>
+                <text class="avg-time-text" x="390" y="320">06-30</text>
+                <text class="avg-time-text" x="550" y="320">07-05</text>
+                <text class="avg-time-text" x="710" y="320">07-10</text>
+                <text class="avg-time-text" x="870" y="320">07-14</text>
+                <text class="avg-time-text" x="1000" y="320">07-19</text>
+                <polyline data-team="xpuself" fill="none" stroke="#7c3aed" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
+                  points="70,242 150,238 230,244 310,236 390,230 470,238 550,224 630,230 710,218 790,224 870,230 950,220 1030,224"></polyline>
+                <circle class="avg-hover-dot" cx="1030" cy="224" r="5" fill="#7c3aed"></circle>
+                <text class="avg-peak-label" x="944" y="216">★ 峰值 13%</text>
+              </svg>
+              <div class="avg-chart-tooltip">07-19<br>团队A XPU利用率 <b>13%</b></div>
+            </div>
+            <div class="chart-use">团队视角：结合上方锁定节点数趋势看——如果锁定规模较大但算力利用率长期偏低，说明本团队存在"锁而不用"，可以主动释放部分机器；如果利用率已接近饱和，可作为申请扩容的依据。数据基于前一日已完成锁定时段计算，非实时。</div>
+          </article>
+          <article class="chart-card">
+            <div class="chart-title">团队A 显存利用率趋势 <span>最近 30 天（至昨日 07-19），基于前一日已完成锁定时段的加权平均</span></div>
+            <div class="avg-prototype-chart" aria-label="团队显存利用率趋势图">
+              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队显存利用率趋势示意图">
+                <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
+                <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
+                <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
+                <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
+                <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
+                <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
+                <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
+                <line class="avg-grid-line" x1="710" y1="40" x2="710" y2="290"></line>
+                <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
+                <text class="avg-axis-text" x="24" y="54">70%</text>
+                <text class="avg-axis-text" x="32" y="114">50%</text>
+                <text class="avg-axis-text" x="32" y="174">30%</text>
+                <text class="avg-axis-text" x="32" y="234">10%</text>
+                <text class="avg-axis-text" x="40" y="294">0%</text>
+                <text class="avg-time-text" x="70" y="320">06-20</text>
+                <text class="avg-time-text" x="230" y="320">06-25</text>
+                <text class="avg-time-text" x="390" y="320">06-30</text>
+                <text class="avg-time-text" x="550" y="320">07-05</text>
+                <text class="avg-time-text" x="710" y="320">07-10</text>
+                <text class="avg-time-text" x="870" y="320">07-14</text>
+                <text class="avg-time-text" x="1000" y="320">07-19</text>
+                <polyline data-team="memself" fill="none" stroke="#ea580c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
+                  points="70,134 150,128 230,122 310,116 390,104 470,110 550,98 630,104 710,98 790,92 870,86 950,92 1030,98"></polyline>
+                <circle class="avg-hover-dot" cx="870" cy="86" r="5" fill="#ea580c"></circle>
+                <text class="avg-peak-label" x="784" y="78">★ 峰值 46%</text>
+              </svg>
+              <div class="avg-chart-tooltip">07-14<br>团队A 显存利用率 <b>46%</b></div>
+            </div>
+            <div class="chart-use">团队视角：显存长期高位但算力偏低，可能存在进程占着显存却没有实际计算负载的情况，建议排查具体持锁人和进程。数据基于前一日已完成锁定时段计算，非实时。</div>
+          </article>
         </div>
       </section>
 
-      <section class="section" id="team-trend-compare">
-        <div class="section-head">
-          <h3>团队算力对比 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:320px">团队算力使用率 = Σ(团队成员机器锁定时长 × 锁定期间平均算力利用率) ÷ Σ(机器锁定时长)<br><br>即以各机器锁定时长为权重，对算力利用率做加权平均。<br><br>示例：锁定 2 台机器各 2h，利用率分别为 50%、10%，则使用率 = (0.5×2 + 0.1×2) ÷ 4 = 30%<br><br>统计范围：当日 00:00 至当前时刻。</span></span></h3>
-          <div class="section-note">最近 7 天各团队算力利用率对比，数据截止至今天 0:00</div>
-        </div>
-        <div class="comparison-controls" aria-label="团队算力对比筛选控件">
-          <div class="control-row">
-            <span class="control-title">对比团队</span>
-            <span class="pill active">团队 A</span>
-            <span class="pill active">团队 B</span>
-            <span class="pill active">团队 C</span>
-            <span class="pill">团队 D</span>
-            <span class="pill">团队 E</span>
-            <span class="sort-pill">全选</span>
-            <span class="sort-pill">反选</span>
-          </div>
-        </div>
-        <article class="chart-card">
-          <div class="chart-title">团队算力对比 <span>最近 7 天算力利用率</span></div>
-          <div class="avg-prototype-chart" aria-label="团队算力对比图">
-            <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队算力利用率对比示意图">
-              <!-- 网格线 -->
-              <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-              <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
-              <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
-              <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
-              <!-- 坐标轴 -->
-              <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
-              <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-              <!-- Y轴标签 -->
-              <text class="avg-axis-text" x="24" y="54">100%</text>
-              <text class="avg-axis-text" x="32" y="114">75%</text>
-              <text class="avg-axis-text" x="32" y="174">50%</text>
-              <text class="avg-axis-text" x="32" y="234">25%</text>
-              <text class="avg-axis-text" x="40" y="294">0%</text>
-              <!-- X轴标签（最近7天） -->
-              <text class="avg-time-text" x="70" y="320">07-01</text>
-              <text class="avg-time-text" x="230" y="320">07-02</text>
-              <text class="avg-time-text" x="390" y="320">07-03</text>
-              <text class="avg-time-text" x="550" y="320">07-04</text>
-              <text class="avg-time-text" x="710" y="320">07-05</text>
-              <text class="avg-time-text" x="870" y="320">07-06</text>
-              <text class="avg-time-text" x="1000" y="320">07-07</text>
-              <!-- A团队 橙色（算力低） -->
-              <polyline data-team="a2" fill="none" stroke="#ea580c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,236 230,230 390,242 550,236 710,224 870,230 1030,224"></polyline>
-              <!-- B团队 蓝色（算力高） -->
-              <polyline data-team="b2" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,134 230,122 390,110 550,98 710,110 870,98 1030,86"></polyline>
-              <!-- C团队 绿色（算力中等） -->
-              <polyline data-team="c2" fill="none" stroke="#16a34a" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,206 230,194 390,200 550,188 710,182 870,176 1030,170"></polyline>
-              <!-- 集群均值 黄色 -->
-              <polyline data-team="avg2" fill="none" stroke="#eab308" stroke-width="2" stroke-dasharray="8 4" stroke-linejoin="round" stroke-linecap="round"
-                points="70,200 230,194 390,194 550,188 710,182 870,182 1030,176"></polyline>
-            </svg>
-          </div>
-          <div class="avg-chart-legend" id="team-compute-legend">
-            <span data-legend="a2" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#ea580c"></i>团队 A</span>
-            <span data-legend="b2" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#3b82f6"></i>团队 B</span>
-            <span data-legend="c2" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#16a34a"></i>团队 C</span>
-            <span data-legend="avg2" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#eab308;border-style:dashed"></i>集群均值</span>
-          </div>
-        </article>
-      </section>
-
-      <section class="section" id="team-mem-compare">
-        <div class="section-head">
-          <h3>团队显存对比 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:320px">团队显存使用率 = Σ(团队成员机器锁定时长 × 锁定期间平均显存利用率) ÷ Σ(机器锁定时长)<br><br>即以各机器锁定时长为权重，对显存利用率做加权平均。<br><br>示例：锁定 2 台机器各 2h，利用率分别为 50%、10%，则使用率 = (0.5×2 + 0.1×2) ÷ 4 = 30%<br><br>统计范围：当日 00:00 至当前时刻。</span></span></h3>
-          <div class="section-note">最近 7 天各团队显存利用率对比，数据截止至今天 0:00</div>
-        </div>
-        <div class="comparison-controls" aria-label="团队显存对比筛选控件">
-          <div class="control-row">
-            <span class="control-title">对比团队</span>
-            <span class="pill active">团队 A</span>
-            <span class="pill active">团队 B</span>
-            <span class="pill active">团队 C</span>
-            <span class="pill">团队 D</span>
-            <span class="pill">团队 E</span>
-            <span class="sort-pill">全选</span>
-            <span class="sort-pill">反选</span>
-          </div>
-        </div>
-        <article class="chart-card">
-          <div class="chart-title">团队显存对比 <span>最近 7 天显存利用率</span></div>
-          <div class="avg-prototype-chart" aria-label="团队显存对比图">
-            <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队显存利用率对比示意图">
-              <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-              <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
-              <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
-              <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
-              <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
-              <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-              <text class="avg-axis-text" x="24" y="54">100%</text>
-              <text class="avg-axis-text" x="32" y="114">75%</text>
-              <text class="avg-axis-text" x="32" y="174">50%</text>
-              <text class="avg-axis-text" x="32" y="234">25%</text>
-              <text class="avg-axis-text" x="40" y="294">0%</text>
-              <text class="avg-time-text" x="70" y="320">07-01</text>
-              <text class="avg-time-text" x="230" y="320">07-02</text>
-              <text class="avg-time-text" x="390" y="320">07-03</text>
-              <text class="avg-time-text" x="550" y="320">07-04</text>
-              <text class="avg-time-text" x="710" y="320">07-05</text>
-              <text class="avg-time-text" x="870" y="320">07-06</text>
-              <text class="avg-time-text" x="1000" y="320">07-07</text>
-              <!-- A团队 橙色（显存高） -->
-              <polyline data-team="a3" fill="none" stroke="#ea580c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,122 230,110 390,98 550,110 710,98 870,86 1030,98"></polyline>
-              <!-- B团队 蓝色（显存低） -->
-              <polyline data-team="b3" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,230 230,236 390,224 550,230 710,236 870,242 1030,230"></polyline>
-              <!-- C团队 绿色（显存中等） -->
-              <polyline data-team="c3" fill="none" stroke="#16a34a" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                points="70,182 230,176 390,188 550,176 710,170 870,176 1030,164"></polyline>
-              <!-- 集群均值 黄色 -->
-              <polyline data-team="avg3" fill="none" stroke="#eab308" stroke-width="2" stroke-dasharray="8 4" stroke-linejoin="round" stroke-linecap="round"
-                points="70,182 230,182 390,176 550,176 710,176 870,176 1030,170"></polyline>
-            </svg>
-          </div>
-          <div class="avg-chart-legend" id="team-mem-legend">
-            <span data-legend="a3" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#ea580c"></i>团队 A</span>
-            <span data-legend="b3" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#3b82f6"></i>团队 B</span>
-            <span data-legend="c3" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#16a34a"></i>团队 C</span>
-            <span data-legend="avg3" style="cursor:pointer"><i class="avg-legend-line" style="border-color:#eab308;border-style:dashed"></i>集群均值</span>
-          </div>
-        </article>
-      </section>
-
-      <section class="section" id="team-compare">
-        <div class="section-head">
-          <h3>团队效率表</h3>
-          <div class="section-note">按算力/显存利用率排序，快速定位高效和低效团队</div>
-        </div>
-        <div class="table-wrap">
-          <table id="team-efficiency-table">
-            <thead>
-              <tr>
-                <th>排名</th>
-                <th>团队</th>
-                <th class="sortable" data-sort="kashi">团队总卡时 ↕</th>
-                <th class="sortable" data-sort="xpu">算力利用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">算力使用率 = Σ(机器锁定时长 × 锁定期间平均算力利用率) ÷ Σ(机器锁定时长)<br><br>即以各机器锁定时长为权重，对算力利用率做加权平均。<br><br>示例：锁定 2 台机器各 2h，利用率分别为 50%、10%，则使用率 = (0.5×2 + 0.1×2) ÷ 4 = 30%<br><br>统计范围：当日 00:00 至当前时刻。</span></span></th>
-                <th class="sortable" data-sort="mem">显存利用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">显存使用率 = Σ(机器锁定时长 × 锁定期间平均显存利用率) ÷ Σ(机器锁定时长)<br><br>即以各机器锁定时长为权重，对显存利用率做加权平均。<br><br>示例：锁定 2 台机器各 2h，利用率分别为 50%、10%，则使用率 = (0.5×2 + 0.1×2) ÷ 4 = 30%<br><br>统计范围：当日 00:00 至当前时刻。</span></span></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td class="mono">1</td><td>团队 B</td><td class="mono" data-val="268">268.8</td><td class="mono" data-val="71">71%</td><td class="mono" data-val="32">32%</td></tr>
-              <tr><td class="mono">2</td><td>团队 A</td><td class="mono" data-val="192">192.0</td><td class="mono" data-val="28">28%</td><td class="mono" data-val="72">72%</td></tr>
-              <tr><td class="mono">3</td><td>团队 D</td><td class="mono" data-val="56">56.0</td><td class="mono" data-val="65">65%</td><td class="mono" data-val="45">45%</td></tr>
-              <tr><td class="mono">4</td><td>团队 C</td><td class="mono" data-val="144">144.0</td><td class="mono" data-val="18">18%</td><td class="mono" data-val="9">9%</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
       </div>
 
-      <section class="section" id="decision">
-        <div class="section-head">
-          <h3>管理判断入口</h3>
-          <div class="section-note">把集群、团队、个人三个视角连到具体问题</div>
-        </div>
-        <div class="decision-grid">
-          <article class="decision-card">
-            <h4>投入是否有效</h4>
-            <p>看集群视图的 XPU / 显存平均利用率、峰值和投入前后对比，判断共享存储等投入是否改善整体效率。</p>
-          </article>
-          <article class="decision-card">
-            <h4>是否需要扩容</h4>
-            <p>看集群视图高峰利用率，再结合团队峰值 XPU 利用率，判断高峰压力是否集中在少数团队。</p>
-          </article>
-          <article class="decision-card">
-            <h4>资源是否分配合理</h4>
-            <p>看团队锁定机器数、锁定卡数和今日团队资源使用对比，判断哪些团队需求高且使用充分。</p>
-          </article>
-          <article class="decision-card">
-            <h4>资源是否锁而不用</h4>
-            <p>看团队锁定资源利用率；需要落到具体人时，个人视图用于查看持锁人并协调释放或复用。</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section" id="assumptions">
-        <div class="section-head">
-          <h3>数据基础与后续补齐</h3>
-          <div class="section-note">说明哪些数据已经可用，哪些数据需要在下一版接入</div>
-        </div>
-        <div class="assumption-grid">
-          <div class="assumption">
-            <h4>为什么用加权平均</h4>
-            <ul>
-              <li>在资源评估中，谁占用的时间长、占用的机器多，谁的算力、显存使用率就应该在团队大盘中占主导地位。</li>
-              <li>所以，当你在报表上看到"团队CPU利用率=60%"时，它的潜台词是："在过去这段时间里，你的团队所消耗的所有机器时中，平均每一台机器在每一个小时里，实际只输出了其最大算力的60%。"</li>
-            </ul>
-          </div>
-          <div class="assumption">
-            <h4>下一版需要补齐</h4>
-            <ul>
-              <li>补齐日期对比能力，用于查看投入前后 XPU 与显存利用率变化。</li>
-              <li>补齐 user_id 到团队的映射，或直接接入 Lock Bot / 组织接口返回的团队字段。</li>
-              <li>补齐团队维度的整机锁、单卡锁统计，让团队视图能展示锁定机器数和锁定卡数。</li>
-            </ul>
-          </div>
-        </div>
-      </section>
     </div>
   </main>
 
-  <footer class="footer">低保真原型，仅用于确认下一版集群 / 个人 / 团队价值视图的信息结构、指标口径和老板视角价值。</footer>
+  <footer class="footer">低保真原型，仅用于确认团队 / 个人价值视图的信息结构、指标口径和管理视角价值。</footer>
 </div>
 <script>
-  const collapseToggle = document.querySelector('[data-collapse-target]');
-  if (collapseToggle) {
-    const collapseTarget = document.getElementById(collapseToggle.dataset.collapseTarget);
-    collapseToggle.addEventListener('click', () => {
-      const expanded = collapseToggle.getAttribute('aria-expanded') === 'true';
-      collapseToggle.setAttribute('aria-expanded', String(!expanded));
-      collapseToggle.textContent = expanded ? '展开背景说明' : '收起背景说明';
-      collapseTarget.hidden = expanded;
-    });
-  }
-
   const tabs = document.querySelectorAll('[data-view-tab]');
   const panes = document.querySelectorAll('[data-view-pane]');
 
@@ -1282,43 +858,43 @@ th.sortable:hover { background: #f1f5f9; }
     });
   });
 
-  // Grafana time picker toggle
-  document.querySelectorAll('.gtp-trigger-btn').forEach(btn => {
+  // 团队自观察筛选条：展开/收起 + 快捷范围切换
+  document.querySelectorAll('[data-gtp-toggle]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const picker = btn.closest('.grafana-time-picker');
-      const dropdown = picker.querySelector('.gtp-dropdown');
-      const isOpen = dropdown.classList.toggle('open');
-      btn.innerHTML = isOpen
-        ? '&#128339; Last 24 hours &#8593;'
-        : '&#128339; Last 24 hours &#8595;';
+      const panel = document.getElementById(btn.getAttribute('aria-controls'));
+      const collapsed = panel.classList.toggle('hidden');
+      btn.textContent = collapsed ? '点击筛选' : '隐藏筛选';
+      btn.setAttribute('aria-expanded', String(!collapsed));
     });
   });
 
-  // 团队图例点击交互（卡时趋势 + 算力对比）
-  document.querySelectorAll('#team-kashi-legend, #team-compute-legend, #team-mem-legend').forEach(legendContainer => {
-    const chart = legendContainer.closest('.chart-card') || legendContainer.closest('.team-hero-chart').parentElement;
-    const svg = chart.querySelector('svg');
-    const legends = legendContainer.querySelectorAll('[data-legend]');
-    legends.forEach(legend => {
-      legend.addEventListener('click', () => {
-        const team = legend.dataset.legend;
-        const allDimmed = [...legends].every(l => l === legend || l.classList.contains('dimmed'));
-        if (!legend.classList.contains('dimmed') && !allDimmed) {
-          legends.forEach(l => {
-            if (l !== legend) l.classList.add('dimmed');
-            else l.classList.remove('dimmed');
-          });
-          svg.querySelectorAll('polyline[data-team]').forEach(line => {
-            line.style.opacity = line.dataset.team === team ? '1' : '0.1';
-          });
-        } else {
-          legends.forEach(l => l.classList.remove('dimmed'));
-          svg.querySelectorAll('polyline[data-team]').forEach(line => {
-            line.style.opacity = '1';
-          });
-        }
+  // 通用区块展开/收起（如团队效率表+饼图，默认收起）
+  document.querySelectorAll('[data-collapse-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.getAttribute('aria-controls'));
+      const expanded = target.hidden;
+      target.hidden = !expanded;
+      btn.textContent = expanded ? '收起' : '展开';
+      btn.setAttribute('aria-expanded', String(expanded));
+    });
+  });
+  document.querySelectorAll('.cluster-range-panel').forEach(panel => {
+    const label = panel.previousElementSibling?.querySelector('[data-gtp-label]');
+    panel.querySelectorAll('.cluster-quick-item').forEach(item => {
+      item.addEventListener('click', () => {
+        panel.querySelectorAll('.cluster-quick-item').forEach(other => other.classList.toggle('active', other === item));
+        if (label) label.textContent = `${item.textContent}（至昨日 07-19）`;
       });
     });
+    const search = panel.querySelector('.cluster-quick-search');
+    if (search) {
+      search.addEventListener('input', () => {
+        const keyword = search.value.trim();
+        panel.querySelectorAll('.cluster-quick-item').forEach(item => {
+          item.style.display = item.textContent.includes(keyword) ? '' : 'none';
+        });
+      });
+    }
   });
 
   // 团队效率表排序
@@ -1330,7 +906,7 @@ th.sortable:hover { background: #f1f5f9; }
       th.addEventListener('click', (e) => {
         if (e.target.closest('.usage-rank-help')) return;
         const col = th.dataset.sort;
-        const colIdx = col === 'kashi' ? 2 : col === 'xpu' ? 3 : 4;
+        const colIdx = col === 'kashi' ? 2 : 3;
         if (currentSort.col === col) {
           currentSort.asc = !currentSort.asc;
         } else {

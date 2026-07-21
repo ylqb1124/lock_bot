@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { fetchAllBotStates, fetchClusterTrend, fetchLockBotList, fetchMonqueryUtilization } from '../services/api.js';
+import { CURRENT_MONQUERY_TIMEOUT_MS, fetchAllBotStates, fetchClusterTrend, fetchLockBotList, fetchMonqueryUtilization } from '../services/api.js';
 import { adaptNodeData } from '../services/adapter.js';
 import { nextAutoRefreshDelay, shouldAutoRefresh } from '../services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../services/chart-data.js';
@@ -74,6 +74,7 @@ const lockStateComplete = ref(true);
 const failedStateBotIds = ref([]);
 const lockTrendComplete = ref(true);
 const lockTrendFailureCount = ref(0);
+const currentMetricsError = ref('');
 
 const xpuCanvas = ref(null);
 const memoryCanvas = ref(null);
@@ -114,6 +115,7 @@ const stats = computed(() => currentStatsReady.value
 const dataWarning = computed(() => {
   const messages = [];
   if (!lockStateComplete.value) messages.push(`当前 Lock Bot 状态不完整（${failedStateBotIds.value.length} 个 Bot 请求失败），锁定相关统计暂不显示`);
+  if (currentMetricsError.value) messages.push('当前 XPU/显存指标暂缺，系统将在下次自动刷新时重试');
   if (!lockTrendComplete.value) messages.push(`历史 Lock Bot 数据不完整（${lockTrendFailureCount.value} 个请求失败），锁定趋势暂不显示`);
   return messages.join('；');
 });
@@ -413,6 +415,7 @@ async function load() {
   loading.value = true;
   trendLoading.value = true;
   error.value = '';
+  currentMetricsError.value = '';
   try {
     if (!bots.value.length) bots.value = await fetchLockBotList(props.token);
     botListEndedAt = performance.now();
@@ -436,7 +439,13 @@ async function load() {
       })))
       .finally(() => { requestTimings.lockStates = performance.now() - lockStatesStartedAt; });
     const currentMonqueryStartedAt = performance.now();
-    const currentPromise = fetchMonqueryUtilization(formatMonqueryDateTime(currentMetricsStart), formatMonqueryDateTime(today))
+    const currentPromise = fetchMonqueryUtilization(
+      formatMonqueryDateTime(currentMetricsStart),
+      formatMonqueryDateTime(today),
+      { timeoutMs: CURRENT_MONQUERY_TIMEOUT_MS },
+    )
+      .then(data => ({ ok: true, data }))
+      .catch(caught => ({ ok: false, caught }))
       .finally(() => { requestTimings.currentMonquery = performance.now() - currentMonqueryStartedAt; });
     const trendStartedAt = performance.now();
     const trendPromise = fetchClusterTrend(queryStart, queryEnd, props.token, intervalSeconds)
@@ -445,9 +454,12 @@ async function load() {
       data => ({ ok: true, data }),
       caught => ({ ok: false, caught }),
     );
-    const [stateResults, currentData] = await Promise.all([statePromise, currentPromise]);
+    const [stateResults, currentOutcome] = await Promise.all([statePromise, currentPromise]);
     if (sequence !== requestSequence) return;
-    const currentState = adaptStates(stateResults, currentData, currentSlotAtRequest);
+    if (!currentOutcome.ok) {
+      currentMetricsError.value = currentOutcome.caught?.message || '当前 Monquery 指标请求失败';
+    }
+    const currentState = adaptStates(stateResults, currentOutcome.ok ? currentOutcome.data : [], currentSlotAtRequest);
     lastRefreshAt.value = Date.now();
     nodes.value = currentState.nodes;
     lockStateComplete.value = currentState.lockStateComplete;

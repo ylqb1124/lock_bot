@@ -551,7 +551,7 @@ function adaptAndRender(stateResults, monqueryData, status, occupancyHistory = [
     }
   }
 
-  nodes = adaptNodeData(deviceState, monqueryData, nowIdx, 'DEVICE', occupancyHistory)
+  nodes = adaptNodeData(deviceState, monqueryData, nowIdx, 'DEVICE', occupancyHistory, formatChinaDate(new Date()))
     .filter(node => MONITORED_NODE_NAMES.has(node.name))
     .sort((a, b) => {
       const parse = name => {

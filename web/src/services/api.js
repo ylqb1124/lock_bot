@@ -29,6 +29,8 @@ const MONQUERY_CARD_XPU_ITEMS = Array.from({ length: CARDS_PER_NODE }, (_, c) =>
 const MONQUERY_CARD_MEM_ITEMS = Array.from({ length: CARDS_PER_NODE }, (_, c) => `XPU${c}_MEM_UTILIZATION`);
 const MONQUERY_CARD_ITEMS = [...MONQUERY_CARD_XPU_ITEMS, ...MONQUERY_CARD_MEM_ITEMS];
 const MONQUERY_ITEMS = [...MONQUERY_NODE_ITEMS, ...MONQUERY_CARD_ITEMS];
+export const DEFAULT_MONQUERY_TIMEOUT_MS = 60_000;
+export const CURRENT_MONQUERY_TIMEOUT_MS = 12_000;
 
 function fetchWithTimeout(url, options = {}, timeout = 30000) {
   const controller = new AbortController();
@@ -113,7 +115,7 @@ export async function fetchLockBotOccupancy(botId, date, token) {
  * @param {string[]} items - 指标名
  * @returns {Promise<Array>} monquery data[] 数组
  */
-async function fetchMonqueryItems(start, end, nodeNums, items) {
+async function fetchMonqueryItems(start, end, nodeNums, items, options = {}) {
   if (!nodeNums.length || !items.length) return [];
   const namespaces = nodeNums.map(buildNamespace).join(',');
   const url = `${MONQUERY_BASE}/monquery/getHistoryitemdata` +
@@ -122,7 +124,7 @@ async function fetchMonqueryItems(start, end, nodeNums, items) {
     `&start=${start}&end=${end}&interval=300`;
   let resp;
   try {
-    resp = await fetchWithTimeout(url, {}, 60000);
+    resp = await fetchWithTimeout(url, {}, options.timeoutMs ?? DEFAULT_MONQUERY_TIMEOUT_MS);
   } catch (error) {
     if (error?.name === 'AbortError' || /aborted/i.test(error?.message || '')) {
       throw new Error('Monquery 请求超时，请缩短时间范围后重试');
@@ -257,14 +259,14 @@ export async function fetchClusterTrend(start, end, token, intervalSeconds, node
   return resp.json();
 }
 
-export async function fetchMonqueryUtilization(start, end) {
+export async function fetchMonqueryUtilization(start, end, options = {}) {
   const tasks = [];
   for (const [sliceStart, sliceEnd] of makeTimeSlices(start, end)) {
     for (const nodeNums of makeNodeBatches(16)) {
-      tasks.push(() => fetchMonqueryItems(sliceStart, sliceEnd, nodeNums, MONQUERY_ITEMS));
+      tasks.push(() => fetchMonqueryItems(sliceStart, sliceEnd, nodeNums, MONQUERY_ITEMS, options));
     }
   }
-  const results = await runWithConcurrency(tasks, 6);
+  const results = await runWithConcurrency(tasks, options.concurrency ?? 6);
   return mergeMonquerySlices(results);
 }
 

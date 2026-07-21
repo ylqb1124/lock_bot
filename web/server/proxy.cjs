@@ -15,6 +15,7 @@ const LEGACY_STATIC_FILES = new Set([
   'timeline.js',
   'china-time.js',
   'styles.css',
+  'value.html',
 ]);
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
 const TREND_NODE_NAMES = new Set(clusterScope.nodeIds.map(node => `node${node}`));
