@@ -613,15 +613,15 @@ th.sortable:hover { background: #f1f5f9; }
       <section class="section" id="team-body">
         <div class="section-head">
           <h3>团队视图主体</h3>
-          <div class="section-note">选择你所在的团队和时间范围，查看本团队锁定节点数与利用率趋势</div>
+          <div class="section-note">选择你所在的团队和时间范围，查看本团队节点使用率与利用率趋势</div>
         </div>
 
-        <!-- 团队历史趋势筛选条：口径锚定"昨天"（T-1），非当前实时窗口 -->
+        <!-- 团队趋势筛选条：可统计至当前最新可用采样点 -->
         <div class="cluster-filter-head" id="team-gtp">
-          <span class="gtp-time-label" data-gtp-label>最近 30 天（至昨日 07-19）</span>
+          <span class="gtp-time-label" data-gtp-label>最近 30 天（截至最新采样点 07-20 14:30）</span>
           <button class="gtp-toggle-btn" type="button" data-gtp-toggle aria-expanded="true" aria-controls="team-range-panel">隐藏筛选</button>
           <button class="gtp-refresh-btn" type="button">&#8635; 刷新</button>
-          <span class="data-as-of"><span>截至昨日 24:00 已完成计算</span></span>
+          <span class="data-as-of"><span>截至最新可用采样点 07-20 14:30（刷新时更新）</span></span>
         </div>
         <div class="cluster-range-panel" id="team-range-panel">
           <div class="cluster-range-grid">
@@ -637,9 +637,9 @@ th.sortable:hover { background: #f1f5f9; }
               </div>
             </div>
             <div class="cluster-range-absolute">
-              <div class="cluster-range-title">时间范围筛选（最晚至昨日 24:00）</div>
-              <div class="cluster-field"><label for="team-start-time">开始时间</label><input id="team-start-time" type="datetime-local" step="60" value="2026-06-19T00:00" max="2026-07-19T24:00"></div>
-              <div class="cluster-field"><label for="team-end-time">结束时间</label><input id="team-end-time" type="datetime-local" step="60" value="2026-07-19T24:00" max="2026-07-19T24:00"></div>
+              <div class="cluster-range-title">时间范围筛选（可选至当前时间）</div>
+              <div class="cluster-field"><label for="team-start-time">开始时间</label><input id="team-start-time" type="datetime-local" step="60" value="2026-06-20T14:30"></div>
+              <div class="cluster-field"><label for="team-end-time">结束时间</label><input id="team-end-time" type="datetime-local" step="60" value="2026-07-20T14:30"></div>
               <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围">复制区间</button><button type="button" class="cluster-icon-btn" title="重置为最近 30 天">默认筛选</button><button type="button" class="cluster-apply-btn">筛选</button></div>
             </div>
           </div>
@@ -647,9 +647,9 @@ th.sortable:hover { background: #f1f5f9; }
 
         <section class="section" id="team-kashi-compare">
           <div class="section-head">
-            <h3>团队效率 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">团队总卡时/算力利用率排名与节点使用占比，均为历史数据，截止昨日 24:00，不代表当前实时锁定状态。</span></span></h3>
+            <h3>团队效率 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">团队总卡时、算力利用率排名与团队总卡时占比均按所选范围统计，最晚截至 Lock Bot 与监控指标可对齐的最新采样点。</span></span></h3>
             <div style="display:flex;align-items:center;gap:12px">
-              <div class="section-note">按算力利用率排序的团队总卡时/算力利用率排名，与右侧团队节点使用率占比对照</div>
+              <div class="section-note">按算力利用率排序的团队总卡时/算力利用率排名，与右侧团队总卡时占比对照</div>
               <button class="gtp-toggle-btn" type="button" data-collapse-toggle aria-expanded="false" aria-controls="team-kashi-body">展开</button>
             </div>
           </div>
@@ -667,8 +667,8 @@ th.sortable:hover { background: #f1f5f9; }
                       <tr>
                         <th>排名</th>
                         <th>团队</th>
-                        <th class="sortable" data-sort="kashi">团队总卡时 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">团队总卡时为历史累计值（锁定时长之和），截止昨日 24:00。</span></span></th>
-                        <th class="sortable" data-sort="xpu">算力利用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">算力使用率 = Σ(机器锁定时长 × 锁定期间平均算力利用率) ÷ Σ(机器锁定时长)<br><br>即以各机器锁定时长为权重，对算力利用率做加权平均。<br><br>示例：锁定 2 台机器各 2h，利用率分别为 50%、10%，则使用率 = (0.5×2 + 0.1×2) ÷ 4 = 30%<br><br>统计范围：前一日 00:00-24:00 已完成的锁定时段，数据截止昨日，与当前锁定状态非同一时效。</span></span></th>
+                        <th class="sortable" data-sort="kashi">团队总卡时 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">团队总卡时为所选范围内的锁定时长之和，统计至最新可对齐采样点。</span></span></th>
+                        <th class="sortable" data-sort="xpu">算力利用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">每个采样点：NODE/QUEUE 锁取节点 XPU 利用率，DEVICE 锁取对应单卡 XPU 利用率。团队利用率 = 锁定资源利用率之和 ÷ 全部锁定资源数；任一锁定资源缺指标时该指标点为空。所选范围内再对有效采样点做算术平均。整机锁只使用少量卡时，较低的节点平均利用率仍归因给持锁团队。<br><br>统计范围：所选时间范围内截至最新可对齐采样点；当前日期数据会随刷新更新。</span></span></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -679,11 +679,11 @@ th.sortable:hover { background: #f1f5f9; }
                     </tbody>
                   </table>
                 </div>
-                <div class="chart-use">管理视角：团队总卡时反映真实占用规模，算力利用率反映资源使用效率；两者结合可以识别"占用多但利用率低"的团队。数据为历史累计值，截止昨日 24:00，与实时锁定节点/卡数是两套口径，不能直接相加对比。</div>
+                <div class="chart-use">管理视角：团队总卡时反映真实占用规模，算力利用率反映资源使用效率；两者结合可以识别"占用多但利用率低"的团队。统计会持续更新至最新可对齐采样点；当前锁定节点/卡数仍是独立的实时快照，不能直接相加对比。</div>
               </article>
             </div>
             <div class="team-pie-card">
-              <div class="chart-title">团队节点使用率占比</div>
+              <div class="chart-title">团队总卡时占比</div>
               <svg viewBox="0 0 200 200" width="200" height="200">
                 <!-- 团队A 29% 橙色 -->
                 <path d="M100,100 L100,20 A80,80 0 0,1 177.49,119.90 Z" fill="#ea580c"></path>
@@ -715,17 +715,16 @@ th.sortable:hover { background: #f1f5f9; }
             <div class="stat-card busy"><div class="label">团队A锁定卡数<span class="usage-rank-help" style="margin-left:4px;position:relative;cursor:pointer;font-size:11px;color:#64748b">?<span class="usage-rank-tooltip" style="width:300px">当前时刻团队成员所占卡数 = 锁定节点数 × 8（整机锁定的卡）+ 单独 DEVICE 锁的卡数，每五分钟自动刷新。</span></span></div><div class="value busy pct" style="font-size:15px">8 &times; 8 + 5 = 69</div></div>
           </div>
         </div>
-        <div class="section-note" style="margin-bottom:14px">锁定节点数/锁定卡数为 Lock Bot 当前实时锁定状态（节点数来自 NODE/QUEUE 整机锁，卡数为节点锁覆盖的卡数加上单独 DEVICE 锁的卡数）；下方 XPU、显存利用率均为前一日已完成锁定时段的加权平均，非实时。</div>
+        <div class="section-note" style="margin-bottom:14px">锁定节点数/锁定卡数为 Lock Bot 当前实时锁定状态（节点数来自 NODE/QUEUE 整机锁，卡数为节点锁覆盖的卡数加上单独 DEVICE 锁的卡数）；下方 XPU、显存利用率按所选范围内的锁定资源采样点算术平均，统计至最新可对齐采样点并随刷新更新。</div>
 
         <div class="chart-grid" style="grid-template-columns:1fr;">
           <article class="chart-card">
-            <div class="chart-title">团队A锁定节点数趋势 <span>最近 30 天（至昨日 07-19），Lock Bot 锁定快照的历史轨迹</span></div>
-            <div class="avg-prototype-chart" aria-label="团队锁定节点数趋势图">
-              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队锁定节点数趋势示意图">
+            <div class="chart-title">团队A节点使用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），团队锁定卡数占全集群 368 卡的比例</span></div>
+            <div class="avg-prototype-chart" aria-label="团队节点使用率趋势图">
+              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队节点使用率趋势示意图">
                 <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-                <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
-                <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
-                <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
+                <line class="avg-grid-line" x1="70" y1="130" x2="1030" y2="130"></line>
+                <line class="avg-grid-line" x1="70" y1="210" x2="1030" y2="210"></line>
                 <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
                 <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
                 <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
@@ -733,29 +732,28 @@ th.sortable:hover { background: #f1f5f9; }
                 <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
                 <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
                 <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-                <text class="avg-axis-text" x="32" y="54">16</text>
-                <text class="avg-axis-text" x="40" y="114">12</text>
-                <text class="avg-axis-text" x="40" y="174">8</text>
-                <text class="avg-axis-text" x="40" y="234">4</text>
-                <text class="avg-axis-text" x="48" y="294">0</text>
+                <text class="avg-axis-text" x="24" y="54">30%</text>
+                <text class="avg-axis-text" x="24" y="134">20%</text>
+                <text class="avg-axis-text" x="24" y="214">10%</text>
+                <text class="avg-axis-text" x="40" y="294">0%</text>
                 <text class="avg-time-text" x="70" y="320">06-20</text>
                 <text class="avg-time-text" x="230" y="320">06-25</text>
                 <text class="avg-time-text" x="390" y="320">06-30</text>
                 <text class="avg-time-text" x="550" y="320">07-05</text>
                 <text class="avg-time-text" x="710" y="320">07-10</text>
                 <text class="avg-time-text" x="870" y="320">07-14</text>
-                <text class="avg-time-text" x="1000" y="320">07-19</text>
-                <polyline data-team="lockcount" fill="none" stroke="#d97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                  points="70,218 150,214 230,206 310,210 390,194 470,198 550,182 630,170 710,158 790,146 870,110 950,122 1030,134"></polyline>
-                <circle class="avg-hover-dot" cx="870" cy="110" r="5" fill="#d97706"></circle>
-                <text class="avg-peak-label" x="784" y="102">★ 峰值 12 台</text>
+                <text class="avg-time-text" x="1000" y="320">07-20</text>
+                <polyline data-team="nodeutilization" fill="none" stroke="#d97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
+                  points="70,207 150,202 230,193 310,197 390,179 470,183 550,165 630,151 710,137 790,123 870,81 950,95 1030,109"></polyline>
+                <circle class="avg-hover-dot" cx="870" cy="81" r="5" fill="#d97706"></circle>
+                <text class="avg-peak-label" x="784" y="73">★ 峰值 26.1%</text>
               </svg>
-              <div class="avg-chart-tooltip">07-14<br>团队A锁定节点数 <b>12</b> 台</div>
+              <div class="avg-chart-tooltip">07-14<br>团队A节点使用率 <b>26.1%</b><br>96 / 368 卡</div>
             </div>
-            <div class="chart-use">团队视角：本图为团队锁定节点数的历史轨迹（非当前实时值，实时值见页面上方快照卡片），用于判断锁定规模是持续增长还是临时冲高，辅助向上申请或释放机器预算。</div>
+            <div class="chart-use">团队节点使用率 = 团队已锁定卡数 ÷ 46 个计算节点的总卡数（368）× 100%。NODE/QUEUE 整机锁按 8 卡计，DEVICE 锁按实际卡数计；本图为历史轨迹，实时锁定节点数和锁定卡数仍见页面上方快照卡片。</div>
           </article>
           <article class="chart-card">
-            <div class="chart-title">团队A XPU利用率趋势 <span>最近 30 天（至昨日 07-19），基于前一日已完成锁定时段的加权平均</span></div>
+            <div class="chart-title">团队A XPU利用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），按锁定资源的采样点算术平均</span></div>
             <div class="avg-prototype-chart" aria-label="团队XPU利用率趋势图">
               <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队XPU利用率趋势示意图">
                 <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
@@ -780,18 +778,18 @@ th.sortable:hover { background: #f1f5f9; }
                 <text class="avg-time-text" x="550" y="320">07-05</text>
                 <text class="avg-time-text" x="710" y="320">07-10</text>
                 <text class="avg-time-text" x="870" y="320">07-14</text>
-                <text class="avg-time-text" x="1000" y="320">07-19</text>
+                <text class="avg-time-text" x="1000" y="320">07-20</text>
                 <polyline data-team="xpuself" fill="none" stroke="#7c3aed" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
                   points="70,242 150,238 230,244 310,236 390,230 470,238 550,224 630,230 710,218 790,224 870,230 950,220 1030,224"></polyline>
                 <circle class="avg-hover-dot" cx="1030" cy="224" r="5" fill="#7c3aed"></circle>
                 <text class="avg-peak-label" x="944" y="216">★ 峰值 13%</text>
               </svg>
-              <div class="avg-chart-tooltip">07-19<br>团队A XPU利用率 <b>13%</b></div>
+              <div class="avg-chart-tooltip">07-20<br>团队A XPU利用率 <b>13%</b></div>
             </div>
-            <div class="chart-use">团队视角：结合上方锁定节点数趋势看——如果锁定规模较大但算力利用率长期偏低，说明本团队存在"锁而不用"，可以主动释放部分机器；如果利用率已接近饱和，可作为申请扩容的依据。数据基于前一日已完成锁定时段计算，非实时。</div>
+            <div class="chart-use">团队视角：结合上方节点使用率趋势看——如果锁定规模较大但算力利用率长期偏低，说明本团队存在"锁而不用"，可以主动释放部分机器；如果利用率已接近饱和，可作为申请扩容的依据。数据会持续更新至最新可对齐采样点。</div>
           </article>
           <article class="chart-card">
-            <div class="chart-title">团队A 显存利用率趋势 <span>最近 30 天（至昨日 07-19），基于前一日已完成锁定时段的加权平均</span></div>
+            <div class="chart-title">团队A 显存利用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），按锁定资源的采样点算术平均</span></div>
             <div class="avg-prototype-chart" aria-label="团队显存利用率趋势图">
               <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队显存利用率趋势示意图">
                 <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
@@ -816,7 +814,7 @@ th.sortable:hover { background: #f1f5f9; }
                 <text class="avg-time-text" x="550" y="320">07-05</text>
                 <text class="avg-time-text" x="710" y="320">07-10</text>
                 <text class="avg-time-text" x="870" y="320">07-14</text>
-                <text class="avg-time-text" x="1000" y="320">07-19</text>
+                <text class="avg-time-text" x="1000" y="320">07-20</text>
                 <polyline data-team="memself" fill="none" stroke="#ea580c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
                   points="70,134 150,128 230,122 310,116 390,104 470,110 550,98 630,104 710,98 790,92 870,86 950,92 1030,98"></polyline>
                 <circle class="avg-hover-dot" cx="870" cy="86" r="5" fill="#ea580c"></circle>
@@ -824,7 +822,7 @@ th.sortable:hover { background: #f1f5f9; }
               </svg>
               <div class="avg-chart-tooltip">07-14<br>团队A 显存利用率 <b>46%</b></div>
             </div>
-            <div class="chart-use">团队视角：显存长期高位但算力偏低，可能存在进程占着显存却没有实际计算负载的情况，建议排查具体持锁人和进程。数据基于前一日已完成锁定时段计算，非实时。</div>
+            <div class="chart-use">团队视角：显存长期高位但算力偏低，可能存在进程占着显存却没有实际计算负载的情况，建议排查具体持锁人和进程。数据会持续更新至最新可对齐采样点。</div>
           </article>
         </div>
       </section>
@@ -883,7 +881,7 @@ th.sortable:hover { background: #f1f5f9; }
     panel.querySelectorAll('.cluster-quick-item').forEach(item => {
       item.addEventListener('click', () => {
         panel.querySelectorAll('.cluster-quick-item').forEach(other => other.classList.toggle('active', other === item));
-        if (label) label.textContent = `${item.textContent}（至昨日 07-19）`;
+        if (label) label.textContent = `${item.textContent}（截至最新采样点）`;
       });
     });
     const search = panel.querySelector('.cluster-quick-search');
