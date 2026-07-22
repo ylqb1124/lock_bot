@@ -17,6 +17,7 @@ import {
   parseChinaDatetimeLocal,
   startOfChinaDay,
 } from '../services/china-time.js';
+import clusterScope from '../../shared/cluster-scope.json' with { type: 'json' };
 import '../cluster-dashboard.css';
 
 const props = defineProps({ token: { type: String, required: true } });
@@ -48,8 +49,31 @@ const X_AXIS_TICK_OPTIONS = [
   60, 120, 240, 300, 600, 900, 1200, 1800, 3600, 7200, 14400, 21600,
   28800, 43200, 86400, 172800, 259200, 432000, 604800, 1209600, 1296000,
 ];
+const ALL_NODE_NAMES = clusterScope.nodeIds.map(id => `node${id}`);
 const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
 const CURRENT_METRICS_LOOKBACK_MS = 3 * 60 * 60 * 1000;
+const NODE_SELECTION_STORAGE_KEY = 'cluster-dashboard-selected-nodes';
+
+function loadStoredNodeSelection() {
+  try {
+    const raw = localStorage.getItem(NODE_SELECTION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const validNames = new Set(ALL_NODE_NAMES);
+    return parsed.filter(name => validNames.has(name));
+  } catch {
+    return [];
+  }
+}
+
+function persistNodeSelection(names) {
+  try {
+    localStorage.setItem(NODE_SELECTION_STORAGE_KEY, JSON.stringify(names));
+  } catch {
+    // 存储不可用（如隐私模式）时静默忽略，不影响筛选功能本身
+  }
+}
 
 const rangeStart = ref(null);
 const rangeEnd = ref(null);
@@ -59,6 +83,9 @@ const lastRefreshAt = ref(null);
 const draftStart = ref('');
 const draftEnd = ref('');
 const quickSearch = ref('');
+const selectedNodes = ref([]);
+const draftSelectedNodes = ref([]);
+const nodeSearch = ref('');
 const panelCollapsed = ref(true);
 const meanVisible = ref(true);
 const openTip = ref('');
@@ -94,8 +121,23 @@ const filteredQuickRanges = computed(() => {
   const filter = quickSearch.value.trim().toLowerCase();
   return QUICK_RANGES.filter(range => !filter || range.label.toLowerCase().includes(filter));
 });
+const filteredNodeOptions = computed(() => {
+  const filter = nodeSearch.value.trim().toLowerCase();
+  return ALL_NODE_NAMES.filter(name => !filter || name.toLowerCase().includes(filter));
+});
 const timeLabel = computed(() => {
   return QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label || '自定义时间范围';
+});
+const nodeRangeLabel = computed(() => selectedNodes.value.length
+  ? `已筛选 ${selectedNodes.value.length} 个节点`
+  : '全部节点');
+const filteredCurrentNodes = computed(() => selectedNodes.value.length
+  ? nodes.value.filter(node => selectedNodes.value.includes(node.name))
+  : nodes.value);
+const nodeSelectionPending = computed(() => {
+  const applied = new Set(selectedNodes.value);
+  const draft = draftSelectedNodes.value;
+  return applied.size !== draft.length || draft.some(name => !applied.has(name));
 });
 function formatClock(value) {
   if (!value) return '--:--';
@@ -110,7 +152,7 @@ const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
   ? `${formatDateTimeLabel(rangeStart.value)} 至 ${formatDateTimeLabel(rangeEnd.value)}`
   : '');
 const stats = computed(() => currentStatsReady.value
-  ? buildStats(nodes.value, series.value.xpu, series.value.memory, lockStateComplete.value)
+  ? buildStats(filteredCurrentNodes.value, series.value.xpu, series.value.memory, lockStateComplete.value)
   : buildLoadingStats());
 const dataWarning = computed(() => {
   const messages = [];
@@ -332,7 +374,22 @@ function refreshData() {
 
 function resetRange() {
   setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
+  selectedNodes.value = [];
+  draftSelectedNodes.value = [];
+  persistNodeSelection([]);
   load();
+}
+
+function commitNodeSelection() {
+  selectedNodes.value = [...draftSelectedNodes.value];
+  persistNodeSelection(selectedNodes.value);
+}
+
+function invertNodeSelection() {
+  const visible = filteredNodeOptions.value;
+  const selected = new Set(draftSelectedNodes.value);
+  draftSelectedNodes.value = visible.filter(name => !selected.has(name))
+    .concat(draftSelectedNodes.value.filter(name => !visible.includes(name)));
 }
 
 function applyRange() {
@@ -351,8 +408,12 @@ function applyRange() {
     return;
   }
   const { queryStart, queryEnd } = normalizeRange(start, end);
+  const rangeUnchanged = rangeStart.value && rangeEnd.value
+    && queryStart.getTime() === rangeStart.value.getTime()
+    && queryEnd.getTime() === rangeEnd.value.getTime();
   setRange(queryStart, queryEnd);
-  quickRangeId.value = null;
+  if (!rangeUnchanged) quickRangeId.value = null;
+  commitNodeSelection();
   load();
 }
 
@@ -448,7 +509,13 @@ async function load() {
       .catch(caught => ({ ok: false, caught }))
       .finally(() => { requestTimings.currentMonquery = performance.now() - currentMonqueryStartedAt; });
     const trendStartedAt = performance.now();
-    const trendPromise = fetchClusterTrend(queryStart, queryEnd, props.token, intervalSeconds)
+    const trendPromise = fetchClusterTrend(
+      queryStart,
+      queryEnd,
+      props.token,
+      intervalSeconds,
+      selectedNodes.value.length ? selectedNodes.value : undefined,
+    )
       .finally(() => { requestTimings.trend = performance.now() - trendStartedAt; });
     const trendOutcome = trendPromise.then(
       data => ({ ok: true, data }),
@@ -683,6 +750,9 @@ function scheduleAutoRefresh() {
 
 onMounted(async () => {
   setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
+  const storedNodes = loadStoredNodeSelection();
+  selectedNodes.value = storedNodes;
+  draftSelectedNodes.value = [...storedNodes];
   scheduleAutoRefresh();
   resizeHandler = () => { if (series.value.xpu.length || series.value.lock.length) drawAllCharts(); };
   window.addEventListener('resize', resizeHandler);
@@ -719,7 +789,7 @@ onBeforeUnmount(() => {
     <section id="average-view">
       <div class="cluster-filter-head">
         <div class="gtp-trigger-bar">
-          <span class="gtp-time-label">{{ timeLabel }}</span>
+          <span class="gtp-time-label">{{ timeLabel }} · {{ nodeRangeLabel }}</span>
           <button type="button" class="gtp-zoom-btn" :title="panelCollapsed ? '点击筛选' : '隐藏筛选'" :aria-label="panelCollapsed ? '点击筛选' : '隐藏筛选'" aria-controls="cluster-range-panel" :aria-expanded="!panelCollapsed" @click="panelCollapsed = !panelCollapsed">{{ panelCollapsed ? '点击筛选' : '隐藏筛选' }}</button>
           <button type="button" class="gtp-refresh-btn" :disabled="loading" @click="refreshData()">{{ loading ? '正在加载…' : '⟲ 刷新' }}</button>
           <span class="data-as-of"><span class="data-as-of-dot" aria-hidden="true"></span><span>{{ dataAsOf }}</span><span class="refresh-status">{{ refreshStatus }}</span></span>
@@ -731,11 +801,37 @@ onBeforeUnmount(() => {
             <div class="cluster-range-title">时间范围筛选</div>
             <div class="cluster-field"><label for="cluster-start-time">开始时间</label><input id="cluster-start-time" v-model="draftStart" type="datetime-local" step="60" /></div>
             <div class="cluster-field"><label for="cluster-end-time">结束时间</label><input id="cluster-end-time" v-model="draftEnd" type="datetime-local" step="60" /></div>
-            <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围" @click="copyRange">复制区间</button><button type="button" class="cluster-icon-btn" title="重置为最近 3 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
+            <div class="cluster-range-actions cluster-range-actions-secondary"><button type="button" class="cluster-icon-btn cluster-copy-btn" title="复制时间范围" @click="copyRange">复制区间</button></div>
           </div>
-          <div class="cluster-range-quick"><input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="搜索快捷时间" /><div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.id" type="button" class="cluster-quick-item" :class="{ active: quickRangeId === quick.id }" :disabled="loading" @click="setQuickRange(quick); load()">{{ quick.label }}</button></div></div>
+          <div class="cluster-range-quick">
+            <input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="搜索快捷时间" />
+            <div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.id" type="button" class="cluster-quick-item" :class="{ active: quickRangeId === quick.id }" :disabled="loading" @click="setQuickRange(quick); commitNodeSelection(); load()">{{ quick.label }}</button></div>
+            <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="重置为最近 3 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
+          </div>
+          <div class="cluster-range-nodes">
+            <div class="cluster-range-title">节点筛选</div>
+            <div class="cluster-node-toolbar">
+              <label class="cluster-node-all">
+                <input type="checkbox" :checked="draftSelectedNodes.length === 0" @change="draftSelectedNodes = []" />
+                全部节点（{{ ALL_NODE_NAMES.length }}）
+              </label>
+              <button type="button" class="cluster-icon-btn cluster-node-invert" title="反选当前可见节点" @click="invertNodeSelection">反选</button>
+            </div>
+            <input v-model="nodeSearch" class="cluster-node-search" type="search" placeholder="搜索节点，如 node5" />
+            <div class="cluster-node-list">
+              <label v-for="name in filteredNodeOptions" :key="name" class="cluster-node-item">
+                <input type="checkbox" :value="name" v-model="draftSelectedNodes" />{{ name }}
+              </label>
+            </div>
+            <div class="cluster-node-summary">
+              {{ draftSelectedNodes.length
+                ? (nodeSelectionPending ? `已选 ${draftSelectedNodes.length} 个节点，点击"筛选"生效` : `已选 ${draftSelectedNodes.length} 个节点（已生效，已记住选择）`)
+                : '未筛选，默认全部节点' }}
+            </div>
+          </div>
         </div>
       </div>
+
 
       <section class="charts-row">
         <article class="chart-panel"><div class="chart-panel-head"><div class="chart-panel-title chart-title-with-tip">节点使用率趋势<button type="button" class="tip-icon" aria-label="查看绘图规则" @click.stop="openTip = openTip === 'lock-chart' ? '' : 'lock-chart'">?</button><div class="tip-popup" :class="{ show: openTip === 'lock-chart' }"><div>展示所选时段内已锁定 XPU 卡占 46 个计算节点总卡数的变化。</div><div>用于观察计算资源分配规模及任务排期趋势。</div></div></div><button type="button" class="avg-mean-toggle" :class="{ active: meanVisible }" :aria-pressed="meanVisible" @click="meanVisible = !meanVisible; drawAllCharts()">均值线</button></div><div class="chart-wrap"><canvas ref="lockCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="lockTooltip" class="chart-tooltip"></div></div></article>
