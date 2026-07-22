@@ -249,6 +249,16 @@ h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
 .avg-legend-line.team-b { border-color: #ea580c; }
 .avg-legend-line.team-c { border-color: #16a34a; }
 .avg-legend-line.team-d { border-color: #dc2626; border-top-style: dashed; }
+.team-detail-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.team-detail-overlay[hidden] { display: none; }
+.team-detail-panel { background: #fff; border-radius: 12px; padding: 20px 22px; width: min(820px, 92vw); max-height: 82vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(15,23,42,.35); }
+.team-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+.team-detail-head h4 { margin: 0; font-size: 16px; }
+.team-detail-close { border: 1px solid #d1d5db; border-radius: 6px; background: #fff; width: 28px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; color: #475569; flex-shrink: 0; }
+.team-detail-close:hover { background: #f1f5f9; }
+.team-detail-tab { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 999px; background: #fff; font-size: 12px; color: #374151; cursor: pointer; }
+.team-detail-tab.active { background: #7c3aed; border-color: #7c3aed; color: #fff; font-weight: 600; }
+.avg-hover-capture:hover { fill: rgba(124,58,237,.03); }
 .legend-star { color: #8b5cf6; font-weight: 700; margin-right: 5px; }
 .callout { position: absolute; max-width: 210px; border: 1px solid #111827; background: #fff; padding: 6px 8px; font-size: 12px; line-height: 1.45; box-shadow: 3px 3px 0 #e5e7eb; }
 .callout::before { content: ''; position: absolute; width: 36px; border-top: 1px solid #111827; transform-origin: left center; }
@@ -647,39 +657,39 @@ th.sortable:hover { background: #f1f5f9; }
 
         <section class="section" id="team-kashi-compare">
           <div class="section-head">
-            <h3>团队效率 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">团队总卡时、算力利用率排名与团队总卡时占比均按所选范围统计，最晚截至 Lock Bot 与监控指标可对齐的最新采样点。</span></span></h3>
+            <h3>团队效率 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">左侧表格按节点使用率、算力利用率统计；右侧团队总卡时占比是另一个独立指标。两者均按所选范围统计，最晚截至 Lock Bot 与监控指标可对齐的最新采样点。</span></span></h3>
             <div style="display:flex;align-items:center;gap:12px">
-              <div class="section-note">按算力利用率排序的团队总卡时/算力利用率排名，与右侧团队总卡时占比对照</div>
-              <button class="gtp-toggle-btn" type="button" data-collapse-toggle aria-expanded="false" aria-controls="team-kashi-body">展开</button>
+              <div class="section-note">按节点使用率与算力利用率的差值排序，优先展示"占用多、利用率低"的团队</div>
+              <button class="gtp-toggle-btn" type="button" data-collapse-toggle aria-expanded="true" aria-controls="team-kashi-body">收起</button>
             </div>
           </div>
-          <div class="team-layout" id="team-kashi-body" hidden>
+          <div class="team-layout" id="team-kashi-body">
             <div style="grid-column:1 / -1;margin:0 0 18px;padding-bottom:18px;border-bottom:2px dashed #e2e8f0">
               <h4 style="margin:0 0 4px;font-size:15px;color:#475569">补充：跨团队对比参考</h4>
               <div class="section-note">以下为多团队横向对比，供管理层高层概览</div>
             </div>
             <div>
               <article class="chart-card">
-                <div class="chart-title">团队效率 <span>按算力利用率排序，快速定位高效和低效团队</span></div>
+                <div class="chart-title">团队效率 <span>按"节点使用率-算力利用率"差值排序，快速定位高效和低效团队</span></div>
                 <div class="table-wrap">
                   <table id="team-efficiency-table">
                     <thead>
                       <tr>
-                        <th>排名</th>
                         <th>团队</th>
-                        <th class="sortable" data-sort="kashi">团队总卡时 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">团队总卡时为所选范围内的锁定时长之和，统计至最新可对齐采样点。</span></span></th>
+                        <th class="sortable" data-sort="node">节点使用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">团队已锁定卡数 ÷ 46 个计算节点的总卡数（368）× 100%，与下方节点使用率趋势线口径一致，统计至最新可对齐采样点。</span></span></th>
                         <th class="sortable" data-sort="xpu">算力利用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">每个采样点：NODE/QUEUE 锁取节点 XPU 利用率，DEVICE 锁取对应单卡 XPU 利用率。团队利用率 = 锁定资源利用率之和 ÷ 全部锁定资源数；任一锁定资源缺指标时该指标点为空。所选范围内再对有效采样点做算术平均。整机锁只使用少量卡时，较低的节点平均利用率仍归因给持锁团队。<br><br>统计范围：所选时间范围内截至最新可对齐采样点；当前日期数据会随刷新更新。</span></span></th>
+                        <th>显存利用率 <span class="usage-rank-help">?<span class="usage-rank-tooltip">口径与算力利用率一致：NODE/QUEUE 锁取节点8卡显存平均，DEVICE 锁取对应单卡显存利用率，按锁定资源算术平均。</span></span></th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr><td class="mono">1</td><td>团队 B</td><td class="mono" data-val="268">268.8</td><td class="mono" data-val="71">71%</td></tr>
-                      <tr><td class="mono">2</td><td>团队 A</td><td class="mono" data-val="192">192.0</td><td class="mono" data-val="28">28%</td></tr>
-                      <tr><td class="mono">3</td><td>团队 D</td><td class="mono" data-val="56">56.0</td><td class="mono" data-val="65">65%</td></tr>
-                      <tr><td class="mono">4</td><td>团队 C</td><td class="mono" data-val="144">144.0</td><td class="mono" data-val="18">18%</td></tr>
+                      <tr><td>团队 A</td><td class="mono" data-val="58">58%</td><td class="mono" data-val="22">22%</td><td class="mono">35%</td></tr>
+                      <tr><td>团队 C</td><td class="mono" data-val="44">44%</td><td class="mono" data-val="18">18%</td><td class="mono">25%</td></tr>
+                      <tr><td>团队 B</td><td class="mono" data-val="82">82%</td><td class="mono" data-val="71">71%</td><td class="mono">68%</td></tr>
+                      <tr><td>团队 D</td><td class="mono" data-val="16">16%</td><td class="mono" data-val="65">65%</td><td class="mono">58%</td></tr>
                     </tbody>
                   </table>
                 </div>
-                <div class="chart-use">管理视角：团队总卡时反映真实占用规模，算力利用率反映资源使用效率；两者结合可以识别"占用多但利用率低"的团队。统计会持续更新至最新可对齐采样点；当前锁定节点/卡数仍是独立的实时快照，不能直接相加对比。</div>
+                <div class="chart-use">管理视角：团队节点使用率反映真实占用规模，算力利用率反映资源使用效率；两者结合可以识别"占用多但利用率低"的团队（默认排序靠前）。显存利用率作为算力利用率的补充参考，长期偏高但算力偏低可能存在"占显存不计算"的情况。统计会持续更新至最新可对齐采样点；当前锁定节点/卡数仍是独立的实时快照，不能直接相加对比。</div>
               </article>
             </div>
             <div class="team-pie-card">
@@ -713,18 +723,26 @@ th.sortable:hover { background: #f1f5f9; }
           <div class="stats-bar-row">
             <div class="stat-card locked"><div class="label">团队A锁定节点数<span class="usage-rank-help" style="margin-left:4px;position:relative;cursor:pointer;font-size:11px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">当前时刻团队成员所占节点数，每五分钟自动刷新。</span></span></div><div class="value locked">8</div></div>
             <div class="stat-card busy"><div class="label">团队A锁定卡数<span class="usage-rank-help" style="margin-left:4px;position:relative;cursor:pointer;font-size:11px;color:#64748b">?<span class="usage-rank-tooltip" style="width:300px">当前时刻团队成员所占卡数 = 锁定节点数 × 8（整机锁定的卡）+ 单独 DEVICE 锁的卡数，每五分钟自动刷新。</span></span></div><div class="value busy pct" style="font-size:15px">8 &times; 8 + 5 = 69</div></div>
+            <div class="stat-card device-free"><div class="label">团队A锁定人数<span class="usage-rank-help" style="margin-left:4px;position:relative;cursor:pointer;font-size:11px;color:#64748b">?<span class="usage-rank-tooltip" style="width:300px">当前时刻团队成员中正在持有任意锁（NODE/QUEUE/DEVICE）的用户数，按 user_id 去重，每五分钟自动刷新。</span></span></div><div class="value device-free">11</div></div>
+            <div class="stat-card total"><div class="label">集群锁定总人数<span class="usage-rank-help" style="margin-left:4px;position:relative;cursor:pointer;font-size:11px;color:#64748b">?<span class="usage-rank-tooltip" style="width:300px">当前时刻整个集群中正在持有任意锁的用户总数（跨团队去重汇总），用于与左侧团队锁定人数对照，每五分钟自动刷新。</span></span></div><div class="value total">57</div></div>
           </div>
         </div>
-        <div class="section-note" style="margin-bottom:14px">锁定节点数/锁定卡数为 Lock Bot 当前实时锁定状态（节点数来自 NODE/QUEUE 整机锁，卡数为节点锁覆盖的卡数加上单独 DEVICE 锁的卡数）；下方 XPU、显存利用率按所选范围内的锁定资源采样点算术平均，统计至最新可对齐采样点并随刷新更新。</div>
+        <div class="section-note" style="margin-bottom:14px">锁定节点数/锁定卡数为 Lock Bot 当前实时锁定状态（节点数来自 NODE/QUEUE 整机锁，卡数为节点锁覆盖的卡数加上单独 DEVICE 锁的卡数）；锁定人数按持锁用户 user_id 去重统计，团队人数与集群总人数便于对照团队规模占比；下方 XPU、显存利用率按所选范围内的锁定资源采样点算术平均，统计至最新可对齐采样点并随刷新更新。</div>
 
         <div class="chart-grid" style="grid-template-columns:1fr;">
           <article class="chart-card">
-            <div class="chart-title">团队A节点使用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），团队锁定卡数占全集群 368 卡的比例</span></div>
-            <div class="avg-prototype-chart" aria-label="团队节点使用率趋势图">
-              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队节点使用率趋势示意图">
-                <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-                <line class="avg-grid-line" x1="70" y1="130" x2="1030" y2="130"></line>
-                <line class="avg-grid-line" x1="70" y1="210" x2="1030" y2="210"></line>
+            <div class="chart-title">团队A 节点使用率 / XPU利用率 / 显存利用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），统一按 0-100% 坐标对照三项指标</span></div>
+            <div class="chart-legend" style="display:flex;gap:16px;align-items:center;margin-bottom:8px;font-size:12px;color:#475569">
+              <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d97706;margin-right:5px;vertical-align:middle"></i>节点使用率</span>
+              <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7c3aed;margin-right:5px;vertical-align:middle"></i>XPU利用率</span>
+              <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ea580c;margin-right:5px;vertical-align:middle"></i>显存利用率</span>
+            </div>
+            <div class="avg-prototype-chart" aria-label="团队指标合并趋势图">
+              <svg class="avg-chart-svg" id="team-merged-chart" viewBox="0 0 1080 360" role="img" aria-label="团队节点使用率、XPU利用率、显存利用率合并趋势示意图">
+                <line class="avg-grid-line" x1="70" y1="90" x2="1030" y2="90"></line>
+                <line class="avg-grid-line" x1="70" y1="140" x2="1030" y2="140"></line>
+                <line class="avg-grid-line" x1="70" y1="190" x2="1030" y2="190"></line>
+                <line class="avg-grid-line" x1="70" y1="240" x2="1030" y2="240"></line>
                 <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
                 <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
                 <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
@@ -732,9 +750,11 @@ th.sortable:hover { background: #f1f5f9; }
                 <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
                 <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
                 <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-                <text class="avg-axis-text" x="24" y="54">30%</text>
-                <text class="avg-axis-text" x="24" y="134">20%</text>
-                <text class="avg-axis-text" x="24" y="214">10%</text>
+                <text class="avg-axis-text" x="24" y="44">100%</text>
+                <text class="avg-axis-text" x="24" y="94">80%</text>
+                <text class="avg-axis-text" x="24" y="144">60%</text>
+                <text class="avg-axis-text" x="24" y="194">40%</text>
+                <text class="avg-axis-text" x="24" y="244">20%</text>
                 <text class="avg-axis-text" x="40" y="294">0%</text>
                 <text class="avg-time-text" x="70" y="320">06-20</text>
                 <text class="avg-time-text" x="230" y="320">06-25</text>
@@ -744,86 +764,44 @@ th.sortable:hover { background: #f1f5f9; }
                 <text class="avg-time-text" x="870" y="320">07-14</text>
                 <text class="avg-time-text" x="1000" y="320">07-20</text>
                 <polyline data-team="nodeutilization" fill="none" stroke="#d97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                  points="70,207 150,202 230,193 310,197 390,179 470,183 550,165 630,151 710,137 790,123 870,81 950,95 1030,109"></polyline>
-                <circle class="avg-hover-dot" cx="870" cy="81" r="5" fill="#d97706"></circle>
-                <text class="avg-peak-label" x="784" y="73">★ 峰值 26.1%</text>
-              </svg>
-              <div class="avg-chart-tooltip">07-14<br>团队A节点使用率 <b>26.1%</b><br>96 / 368 卡</div>
-            </div>
-            <div class="chart-use">团队节点使用率 = 团队已锁定卡数 ÷ 46 个计算节点的总卡数（368）× 100%。NODE/QUEUE 整机锁按 8 卡计，DEVICE 锁按实际卡数计；本图为历史轨迹，实时锁定节点数和锁定卡数仍见页面上方快照卡片。</div>
-          </article>
-          <article class="chart-card">
-            <div class="chart-title">团队A XPU利用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），按锁定资源的采样点算术平均</span></div>
-            <div class="avg-prototype-chart" aria-label="团队XPU利用率趋势图">
-              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队XPU利用率趋势示意图">
-                <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-                <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
-                <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
-                <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
-                <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
-                <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
-                <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
-                <line class="avg-grid-line" x1="710" y1="40" x2="710" y2="290"></line>
-                <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
-                <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
-                <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-                <text class="avg-axis-text" x="24" y="54">40%</text>
-                <text class="avg-axis-text" x="32" y="114">30%</text>
-                <text class="avg-axis-text" x="32" y="174">20%</text>
-                <text class="avg-axis-text" x="32" y="234">10%</text>
-                <text class="avg-axis-text" x="40" y="294">0%</text>
-                <text class="avg-time-text" x="70" y="320">06-20</text>
-                <text class="avg-time-text" x="230" y="320">06-25</text>
-                <text class="avg-time-text" x="390" y="320">06-30</text>
-                <text class="avg-time-text" x="550" y="320">07-05</text>
-                <text class="avg-time-text" x="710" y="320">07-10</text>
-                <text class="avg-time-text" x="870" y="320">07-14</text>
-                <text class="avg-time-text" x="1000" y="320">07-20</text>
+                  points="70,264.0 150,262.5 230,259.8 310,261.0 390,255.2 470,256.5 550,251.0 630,246.5 710,242.2 790,237.8 870,224.8 950,229.0 1030,243.0"></polyline>
                 <polyline data-team="xpuself" fill="none" stroke="#7c3aed" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                  points="70,242 150,238 230,244 310,236 390,230 470,238 550,224 630,230 710,218 790,224 870,230 950,220 1030,224"></polyline>
-                <circle class="avg-hover-dot" cx="1030" cy="224" r="5" fill="#7c3aed"></circle>
-                <text class="avg-peak-label" x="944" y="216">★ 峰值 13%</text>
-              </svg>
-              <div class="avg-chart-tooltip">07-20<br>团队A XPU利用率 <b>13%</b></div>
-            </div>
-            <div class="chart-use">团队视角：结合上方节点使用率趋势看——如果锁定规模较大但算力利用率长期偏低，说明本团队存在"锁而不用"，可以主动释放部分机器；如果利用率已接近饱和，可作为申请扩容的依据。数据会持续更新至最新可对齐采样点。</div>
-          </article>
-          <article class="chart-card">
-            <div class="chart-title">团队A 显存利用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），按锁定资源的采样点算术平均</span></div>
-            <div class="avg-prototype-chart" aria-label="团队显存利用率趋势图">
-              <svg class="avg-chart-svg" viewBox="0 0 1080 360" role="img" aria-label="团队显存利用率趋势示意图">
-                <line class="avg-grid-line" x1="70" y1="50" x2="1030" y2="50"></line>
-                <line class="avg-grid-line" x1="70" y1="110" x2="1030" y2="110"></line>
-                <line class="avg-grid-line" x1="70" y1="170" x2="1030" y2="170"></line>
-                <line class="avg-grid-line" x1="70" y1="230" x2="1030" y2="230"></line>
-                <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
-                <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
-                <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
-                <line class="avg-grid-line" x1="710" y1="40" x2="710" y2="290"></line>
-                <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
-                <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
-                <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
-                <text class="avg-axis-text" x="24" y="54">70%</text>
-                <text class="avg-axis-text" x="32" y="114">50%</text>
-                <text class="avg-axis-text" x="32" y="174">30%</text>
-                <text class="avg-axis-text" x="32" y="234">10%</text>
-                <text class="avg-axis-text" x="40" y="294">0%</text>
-                <text class="avg-time-text" x="70" y="320">06-20</text>
-                <text class="avg-time-text" x="230" y="320">06-25</text>
-                <text class="avg-time-text" x="390" y="320">06-30</text>
-                <text class="avg-time-text" x="550" y="320">07-05</text>
-                <text class="avg-time-text" x="710" y="320">07-10</text>
-                <text class="avg-time-text" x="870" y="320">07-14</text>
-                <text class="avg-time-text" x="1000" y="320">07-20</text>
+                  points="70,270.0 150,268.2 230,270.8 310,267.5 390,265.0 470,268.2 550,262.5 630,265.0 710,260.0 790,262.5 870,265.0 950,260.8 1030,257.5"></polyline>
                 <polyline data-team="memself" fill="none" stroke="#ea580c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                  points="70,134 150,128 230,122 310,116 390,104 470,110 550,98 630,104 710,98 790,92 870,86 950,92 1030,98"></polyline>
-                <circle class="avg-hover-dot" cx="870" cy="86" r="5" fill="#ea580c"></circle>
-                <text class="avg-peak-label" x="784" y="78">★ 峰值 46%</text>
+                  points="70,205.0 150,210.0 230,215.0 310,207.5 390,200.0 470,195.0 550,190.0 630,185.0 710,180.0 790,177.5 870,175.0 950,182.5 1030,187.5"></polyline>
+                <circle id="team-hover-dot-node" class="avg-hover-dot" cx="1030" cy="243.0" r="5" fill="#d97706"></circle>
+                <circle id="team-hover-dot-xpu" class="avg-hover-dot" cx="1030" cy="257.5" r="5" fill="#7c3aed"></circle>
+                <circle id="team-hover-dot-mem" class="avg-hover-dot" cx="1030" cy="187.5" r="5" fill="#ea580c"></circle>
+                <rect id="team-hover-capture" class="avg-hover-capture" x="70" y="40" width="960" height="250" fill="transparent" style="cursor:pointer"></rect>
               </svg>
-              <div class="avg-chart-tooltip">07-14<br>团队A 显存利用率 <b>46%</b></div>
+              <div class="avg-chart-tooltip" id="team-merged-tooltip">07-20<br>节点使用率 <b>18.8%</b>　XPU利用率 <b>13%</b>　显存利用率 <b>41%</b><br>锁定节点数 <b>8</b>　锁定卡数 <b>69</b>　锁定人数 <b>11</b><br><span style="color:#94a3b8">点击查看该时刻持锁明细 →</span></div>
             </div>
-            <div class="chart-use">团队视角：显存长期高位但算力偏低，可能存在进程占着显存却没有实际计算负载的情况，建议排查具体持锁人和进程。数据会持续更新至最新可对齐采样点。</div>
+            <div class="chart-use">管理视角：结合三条线看——如果节点使用率较高但 XPU 利用率长期偏低，说明本团队存在"锁而不用"，可以主动释放部分机器；如果显存长期高位但算力偏低，可能存在进程占着显存却没有实际计算负载，建议排查具体持锁人和进程；如果利用率已接近饱和，可作为申请扩容的依据。鼠标移到图上可查看该时刻团队锁定的节点数、卡数和人数；点击图表可弹出该时刻的持锁人明细（按 XPU 利用率最低排序），定位具体该找谁沟通。数据会持续更新至最新可对齐采样点。</div>
           </article>
+        </div>
+
+        <div class="team-detail-overlay" id="team-detail-overlay" hidden>
+          <div class="team-detail-panel">
+            <div class="team-detail-head">
+              <div>
+                <h4 id="team-detail-title">团队A 持锁明细 · 07-20</h4>
+                <div class="section-note" id="team-detail-note" style="margin:4px 0 0">按XPU利用率从低到高排列，用于定位"占着资源但没在算"的具体人员</div>
+              </div>
+              <button type="button" class="team-detail-close" id="team-detail-close" aria-label="关闭">&times;</button>
+            </div>
+            <div class="team-detail-tabs" style="display:flex;gap:8px;margin:14px 0 4px">
+              <button type="button" class="team-detail-tab active" data-detail-tab="moment">当前时刻明细</button>
+              <button type="button" class="team-detail-tab" data-detail-tab="range">区间整体排名</button>
+            </div>
+            <div class="table-wrap" style="margin-top:8px">
+              <table>
+                <thead id="team-detail-thead">
+                  <tr><th>持锁人</th><th>占用资源</th><th>XPU利用率</th><th>显存利用率</th></tr>
+                </thead>
+                <tbody id="team-detail-tbody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -904,7 +882,7 @@ th.sortable:hover { background: #f1f5f9; }
       th.addEventListener('click', (e) => {
         if (e.target.closest('.usage-rank-help')) return;
         const col = th.dataset.sort;
-        const colIdx = col === 'kashi' ? 2 : 3;
+        const colIdx = col === 'node' ? 1 : 2;
         if (currentSort.col === col) {
           currentSort.asc = !currentSort.asc;
         } else {
@@ -918,8 +896,7 @@ th.sortable:hover { background: #f1f5f9; }
           const vb = parseInt(b.cells[colIdx].dataset.val);
           return currentSort.asc ? va - vb : vb - va;
         });
-        rows.forEach((row, i) => {
-          row.cells[0].textContent = i + 1;
+        rows.forEach(row => {
           tbody.appendChild(row);
         });
         headers.forEach(h => {
@@ -932,6 +909,186 @@ th.sortable:hover { background: #f1f5f9; }
       });
     });
   }
+
+  // 团队合并趋势图：节点使用率/XPU利用率/显存利用率 hover 交互
+  const teamTrendSamples = [
+    { date: '06-20', nodeUtil: 10.4, xpuUtil: 8, memUtil: 34, lockedNodeCount: 4, lockedCardCount: 38, lockedPersonCount: 6 },
+    { date: '06-22', nodeUtil: 11, xpuUtil: 8.7, memUtil: 32, lockedNodeCount: 4, lockedCardCount: 40, lockedPersonCount: 6 },
+    { date: '06-25', nodeUtil: 12.1, xpuUtil: 7.7, memUtil: 30, lockedNodeCount: 5, lockedCardCount: 44, lockedPersonCount: 7 },
+    { date: '06-27', nodeUtil: 11.6, xpuUtil: 9, memUtil: 33, lockedNodeCount: 5, lockedCardCount: 43, lockedPersonCount: 7 },
+    { date: '06-30', nodeUtil: 13.9, xpuUtil: 10, memUtil: 36, lockedNodeCount: 5, lockedCardCount: 51, lockedPersonCount: 8 },
+    { date: '07-03', nodeUtil: 13.4, xpuUtil: 8.7, memUtil: 38, lockedNodeCount: 5, lockedCardCount: 49, lockedPersonCount: 8 },
+    { date: '07-05', nodeUtil: 15.6, xpuUtil: 11, memUtil: 40, lockedNodeCount: 6, lockedCardCount: 57, lockedPersonCount: 9 },
+    { date: '07-08', nodeUtil: 17.4, xpuUtil: 10, memUtil: 42, lockedNodeCount: 6, lockedCardCount: 64, lockedPersonCount: 9 },
+    { date: '07-10', nodeUtil: 19.1, xpuUtil: 12, memUtil: 44, lockedNodeCount: 7, lockedCardCount: 70, lockedPersonCount: 10 },
+    { date: '07-13', nodeUtil: 20.9, xpuUtil: 11, memUtil: 45, lockedNodeCount: 7, lockedCardCount: 77, lockedPersonCount: 10 },
+    { date: '07-14', nodeUtil: 26.1, xpuUtil: 10, memUtil: 46, lockedNodeCount: 8, lockedCardCount: 96, lockedPersonCount: 12 },
+    { date: '07-17', nodeUtil: 24.4, xpuUtil: 11.7, memUtil: 43, lockedNodeCount: 8, lockedCardCount: 90, lockedPersonCount: 11 },
+    { date: '07-20', nodeUtil: 18.8, xpuUtil: 13, memUtil: 41, lockedNodeCount: 8, lockedCardCount: 69, lockedPersonCount: 11 },
+  ];
+  const teamChartX0 = 70;
+  const teamChartStep = 80;
+  const teamChartY0 = 290;
+  const teamChartPxPerPct = 2.5;
+  const teamValueToY = pct => teamChartY0 - pct * teamChartPxPerPct;
+  const teamHoverCapture = document.getElementById('team-hover-capture');
+  let teamCurrentSampleIndex = teamTrendSamples.length - 1;
+  if (teamHoverCapture) {
+    const dotNode = document.getElementById('team-hover-dot-node');
+    const dotXpu = document.getElementById('team-hover-dot-xpu');
+    const dotMem = document.getElementById('team-hover-dot-mem');
+    const tooltip = document.getElementById('team-merged-tooltip');
+    const svg = document.getElementById('team-merged-chart');
+    const renderSample = index => {
+      teamCurrentSampleIndex = index;
+      const sample = teamTrendSamples[index];
+      const x = teamChartX0 + index * teamChartStep;
+      dotNode.setAttribute('cx', x);
+      dotNode.setAttribute('cy', teamValueToY(sample.nodeUtil));
+      dotXpu.setAttribute('cx', x);
+      dotXpu.setAttribute('cy', teamValueToY(sample.xpuUtil));
+      dotMem.setAttribute('cx', x);
+      dotMem.setAttribute('cy', teamValueToY(sample.memUtil));
+      tooltip.innerHTML = `${sample.date}<br>节点使用率 <b>${sample.nodeUtil}%</b>　XPU利用率 <b>${sample.xpuUtil}%</b>　显存利用率 <b>${sample.memUtil}%</b><br>锁定节点数 <b>${sample.lockedNodeCount}</b>　锁定卡数 <b>${sample.lockedCardCount}</b>　锁定人数 <b>${sample.lockedPersonCount}</b><br><span style="color:#94a3b8">点击查看该时刻持锁明细 →</span>`;
+    };
+    const indexFromEvent = event => {
+      const rect = svg.getBoundingClientRect();
+      const scaleX = 1080 / rect.width;
+      const svgX = (event.clientX - rect.left) * scaleX;
+      const index = Math.round((svgX - teamChartX0) / teamChartStep);
+      return Math.max(0, Math.min(teamTrendSamples.length - 1, index));
+    };
+    teamHoverCapture.addEventListener('mousemove', event => {
+      renderSample(indexFromEvent(event));
+    });
+    teamHoverCapture.addEventListener('mouseleave', () => {
+      renderSample(teamTrendSamples.length - 1);
+    });
+    teamHoverCapture.addEventListener('click', event => {
+      openTeamDetail(indexFromEvent(event));
+    });
+  }
+
+  // 团队持锁明细弹窗：默认「当前时刻明细」（随点击的采样点变化），可切换到「区间整体排名」（固定，不随采样点变化，只随所选筛选区间变化）
+  function seededRandom(seed) {
+    let s = seed % 2147483647;
+    if (s <= 0) s += 2147483646;
+    return function next() {
+      s = (s * 16807) % 2147483647;
+      return (s - 1) / 2147483646;
+    };
+  }
+  const teamMemberPool = ['chenlei12', 'wangfang03', 'zhaomin08', 'liuyang21', 'sunhao17', 'huangjie05', 'zhoukai33', 'xujing19', 'maqiang27', 'gaofei14', 'luowei09', 'dengna22'];
+  function buildTeamDetailRows(sample, sampleIndex) {
+    const rand = seededRandom(1000 + sampleIndex * 37);
+    const personCount = sample.lockedPersonCount;
+    let remainingNodeLocks = sample.lockedNodeCount;
+    let remainingDeviceCards = Math.max(0, sample.lockedCardCount - sample.lockedNodeCount * 8);
+    const rows = [];
+    for (let i = 0; i < personCount; i += 1) {
+      const name = teamMemberPool[(sampleIndex * 3 + i) % teamMemberPool.length];
+      let resource;
+      if (remainingNodeLocks > 0) {
+        resource = `node${10 + i}（整机 8 卡）`;
+        remainingNodeLocks -= 1;
+      } else {
+        const remainingPeople = personCount - i;
+        const cardsForThisPerson = i === personCount - 1
+          ? remainingDeviceCards
+          : Math.max(1, Math.round(remainingDeviceCards / remainingPeople));
+        const devIds = Array.from({ length: Math.max(cardsForThisPerson, 1) }, (_, k) => k).join(',');
+        resource = `node${30 + i} · 卡${devIds}`;
+        remainingDeviceCards -= cardsForThisPerson;
+      }
+      const xpuUtil = Math.round(rand() * 90);
+      const memUtil = Math.round(rand() * 90);
+      rows.push({ name, resource, xpuUtil, memUtil });
+    }
+    rows.sort((a, b) => a.xpuUtil - b.xpuUtil);
+    return rows;
+  }
+
+  // 所选筛选区间（06-20 ~ 07-20）内团队成员的总卡时与区间利用率均值，与点击的采样点无关，切换时刻不会变化
+  const teamRangeSummary = [
+    { name: 'wangfang03', totalCardHours: 312.5, xpuUtil: 8, memUtil: 22 },
+    { name: 'zhoukai33', totalCardHours: 288.0, xpuUtil: 14, memUtil: 31 },
+    { name: 'gaofei14', totalCardHours: 265.4, xpuUtil: 19, memUtil: 28 },
+    { name: 'xujing19', totalCardHours: 240.8, xpuUtil: 26, memUtil: 45 },
+    { name: 'chenlei12', totalCardHours: 210.2, xpuUtil: 33, memUtil: 40 },
+    { name: 'dengna22', totalCardHours: 188.6, xpuUtil: 41, memUtil: 52 },
+    { name: 'zhaomin08', totalCardHours: 165.0, xpuUtil: 47, memUtil: 58 },
+    { name: 'luowei09', totalCardHours: 140.4, xpuUtil: 55, memUtil: 61 },
+    { name: 'liuyang21', totalCardHours: 118.2, xpuUtil: 62, memUtil: 66 },
+    { name: 'maqiang27', totalCardHours: 96.5, xpuUtil: 71, memUtil: 73 },
+    { name: 'huangjie05', totalCardHours: 72.8, xpuUtil: 78, memUtil: 80 },
+    { name: 'sunhao17', totalCardHours: 45.6, xpuUtil: 85, memUtil: 84 },
+  ];
+
+  const teamDetailOverlay = document.getElementById('team-detail-overlay');
+  const teamDetailTitle = document.getElementById('team-detail-title');
+  const teamDetailNote = document.getElementById('team-detail-note');
+  const teamDetailThead = document.getElementById('team-detail-thead');
+  const teamDetailTbody = document.getElementById('team-detail-tbody');
+  const teamDetailClose = document.getElementById('team-detail-close');
+  const teamDetailTabs = document.querySelectorAll('.team-detail-tab');
+  let teamDetailMode = 'moment';
+  let teamDetailIndex = teamTrendSamples.length - 1;
+
+  function renderTeamDetail() {
+    if (teamDetailMode === 'range') {
+      teamDetailTitle.textContent = `团队A 区间整体排名 · ${teamTrendSamples[0].date} ~ ${teamTrendSamples[teamTrendSamples.length - 1].date}`;
+      teamDetailNote.textContent = '按总卡时最长、XPU利用率最低排列，展示所选筛选区间内的团队成员使用效率；切换时刻不影响此排名，只随筛选区间变化。';
+      teamDetailThead.innerHTML = '<tr><th>持锁人</th><th>区间总卡时</th><th>XPU利用率</th><th>显存利用率</th></tr>';
+      teamDetailTbody.innerHTML = teamRangeSummary.map(row => `
+        <tr>
+          <td>${row.name}</td>
+          <td class="mono">${row.totalCardHours}h</td>
+          <td class="mono">${row.xpuUtil}%</td>
+          <td class="mono">${row.memUtil}%</td>
+        </tr>
+      `).join('');
+      return;
+    }
+    const sample = teamTrendSamples[teamDetailIndex];
+    const rows = buildTeamDetailRows(sample, teamDetailIndex);
+    teamDetailTitle.textContent = `团队A 持锁明细 · ${sample.date}`;
+    teamDetailNote.textContent = '按XPU利用率从低到高排列，用于定位"占着资源但没在算"的具体人员；切换到不同时刻，明细会随之变化。';
+    teamDetailThead.innerHTML = '<tr><th>持锁人</th><th>占用资源</th><th>XPU利用率</th><th>显存利用率</th></tr>';
+    teamDetailTbody.innerHTML = rows.map(row => `
+      <tr>
+        <td>${row.name}</td>
+        <td>${row.resource}</td>
+        <td class="mono">${row.xpuUtil}%</td>
+        <td class="mono">${row.memUtil}%</td>
+      </tr>
+    `).join('');
+  }
+
+  function openTeamDetail(index) {
+    teamDetailIndex = index;
+    teamDetailMode = 'moment';
+    teamDetailTabs.forEach(tab => tab.classList.toggle('active', tab.dataset.detailTab === 'moment'));
+    renderTeamDetail();
+    teamDetailOverlay.hidden = false;
+  }
+  teamDetailTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      teamDetailMode = tab.dataset.detailTab;
+      teamDetailTabs.forEach(t => t.classList.toggle('active', t === tab));
+      renderTeamDetail();
+    });
+  });
+  if (teamDetailClose) {
+    teamDetailClose.addEventListener('click', () => { teamDetailOverlay.hidden = true; });
+  }
+  if (teamDetailOverlay) {
+    teamDetailOverlay.addEventListener('click', event => {
+      if (event.target === teamDetailOverlay) teamDetailOverlay.hidden = true;
+    });
+  }
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && teamDetailOverlay && !teamDetailOverlay.hidden) teamDetailOverlay.hidden = true;
+  });
   // 峰值视图切换
   const peakSection = document.getElementById('peak-view');
   if (peakSection) {
