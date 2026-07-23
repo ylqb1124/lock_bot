@@ -5,6 +5,7 @@ import { adaptNodeData } from '../services/adapter.js';
 import { nextAutoRefreshDelay, shouldAutoRefresh } from '../services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../services/chart-data.js';
 import { CARD_COUNT, mergeLockBotStates } from '../services/cluster-state.js';
+import { now, syncServerTimeOffset } from '../services/server-time.js';
 import {
   chinaSlotIndex,
   chinaTimeParts,
@@ -195,7 +196,7 @@ function floorToInterval(value, intervalSeconds) {
 }
 
 function normalizeRange(start, end) {
-  const rawEnd = end || new Date();
+  const rawEnd = end || now();
   const rawStart = start || rawEnd;
   const intervalSeconds = trendIntervalSeconds(Math.max(0, (rawEnd - rawStart) / 60_000));
   const queryEnd = floorToInterval(rawEnd, intervalSeconds);
@@ -359,7 +360,7 @@ function setRange(start, end) {
 function setQuickRange(range) {
   quickRangeId.value = range.id;
   const intervalSeconds = range.months ? 43200 : trendIntervalSeconds(range.minutes);
-  const end = floorToInterval(new Date(), intervalSeconds);
+  const end = floorToInterval(now(), intervalSeconds);
   const start = range.months
     ? subtractChinaMonths(end, range.months)
     : new Date(end.getTime() - range.minutes * 60_000);
@@ -481,7 +482,7 @@ async function load() {
     if (!bots.value.length) bots.value = await fetchLockBotList(props.token);
     botListEndedAt = performance.now();
     const { queryStart, queryEnd, intervalSeconds } = normalizeRange(rangeStart.value, rangeEnd.value);
-    const today = new Date();
+    const today = now();
     const todayStart = startOfChinaDay(today);
     const currentMetricsStart = new Date(Math.max(todayStart.getTime(), today.getTime() - CURRENT_METRICS_LOOKBACK_MS));
     const currentSlotAtRequest = chinaSlotIndex(today);
@@ -749,6 +750,7 @@ function scheduleAutoRefresh() {
 }
 
 onMounted(async () => {
+  await syncServerTimeOffset();
   setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
   const storedNodes = loadStoredNodeSelection();
   selectedNodes.value = storedNodes;

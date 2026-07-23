@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XPU 资源监控下一版原型 - 团队价值视图</title>
+<style>
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #1f2933;
+  background: #f4f5f7;
+  line-height: 1.6;
+}
+a { color: inherit; }
+.prototype-shell { max-width: 1240px; margin: 0 auto; padding: 24px; }
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.kicker { font-size: 12px; color: #6b7280; letter-spacing: .08em; text-transform: uppercase; }
+h1 { margin: 4px 0 8px; font-size: 30px; line-height: 1.2; }
+.lede { margin: 0; max-width: 880px; color: #4b5563; font-size: 15px; }
+.return-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #9ca3af;
+  border-radius: 4px;
+  background: #fff;
+  color: #374151;
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.notice {
+  border: 1px dashed #6b7280;
+  background: #fff;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  color: #374151;
+  font-size: 13px;
+}
+.frame {
+  background: #fff;
+  border: 2px solid #111827;
+  box-shadow: 6px 6px 0 #d1d5db;
+}
+.browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 2px solid #111827;
+  padding: 10px 12px;
+  background: #e5e7eb;
+}
+.dots { display: flex; gap: 5px; }
+.dot { width: 9px; height: 9px; border: 1px solid #111827; border-radius: 50%; background: #fff; }
+.url-box { flex: 1; border: 1px solid #9ca3af; background: #f9fafb; padding: 4px 10px; color: #6b7280; font: 12px "SF Mono", Consolas, monospace; }
+.app-header { padding: 18px 20px 0; border-bottom: 1px solid #9ca3af; }
+.app-title { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 14px; }
+.app-title h2 { margin: 0; font-size: 20px; }
+.app-title span { color: #6b7280; font-size: 13px; }
+.content { padding: 20px; }
+.section { margin-bottom: 30px; }
+.section-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+.section-grid-2col .section { margin-bottom: 0; }
+.peak-big-number { font-size: 28px; font-weight: 700; color: #f59e0b; margin-left: 16px; vertical-align: middle; }
+.peak-head-row { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.peak-stat-card { background: #fff; border-radius: 10px; padding: 4px 16px; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.03); position: relative; overflow: visible; height: 32px; }
+.peak-stat-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 2px 0 0 2px; background: var(--peak-accent, #f59e0b); }
+.peak-stat-card .peak-label { font-size: 12px; color: #64748b; white-space: nowrap; }
+.peak-stat-card .peak-value { font-size: 16px; font-weight: 700; font-family: "SF Mono","Cascadia Code","JetBrains Mono","Consolas",monospace; color: var(--peak-accent, #f59e0b); white-space: nowrap; }
+.section:last-child { margin-bottom: 0; }
+.section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.section-head.compact { margin-bottom: 8px; }
+.section h3 { margin: 0; font-size: 18px; }
+.section-note { color: #6b7280; font-size: 13px; }
+.collapse-toggle { border: 1px solid #9ca3af; background: #fff; color: #111827; padding: 6px 10px; font: 700 12px/1 inherit; cursor: pointer; }
+.collapse-toggle:hover { background: #f9fafb; }
+.background-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.panel {
+  border: 1px solid #9ca3af;
+  background: #fff;
+  padding: 14px;
+}
+.panel.dashed { border-style: dashed; background: #fafafa; }
+.panel-title { margin: 0 0 8px; font-weight: 700; font-size: 14px; }
+.text-lines { display: grid; gap: 8px; }
+.text-line { height: 12px; background: #e5e7eb; border: 1px solid #d1d5db; }
+.text-line.short { width: 68%; }
+.text-line.mid { width: 82%; }
+.problem-list { margin: 0; padding-left: 18px; color: #374151; font-size: 14px; }
+.problem-list li { margin: 6px 0; }
+.view-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid #111827;
+  background: #f9fafb;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.avg-filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; color: #64748b; font-size: 12px; }
+.avg-filter-bar label { font-weight: 600; }
+.avg-date-control { display: inline-flex; align-items: center; gap: 6px; }
+.avg-date-control input[type="date"] { width: 128px; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #1e293b; font: 12px "SF Mono", "JetBrains Mono", Consolas, monospace; outline: none; }
+.avg-window-toggles { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
+.avg-win-btn { padding: 3px 12px; border-radius: 6px; color: #94a3b8; font: 600 11px "SF Mono", "JetBrains Mono", Consolas, monospace; }
+.avg-win-btn.active { background: #e2e8f0; color: #1e293b; }
+.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.stats-bar { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.stats-bar-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.stat-card { background: #fff; border-radius: 10px; padding: 12px 14px; flex: 1 1 220px; max-width: 300px; display: flex; align-items: baseline; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.03); position: relative; overflow: visible; }
+.stat-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 2px 0 0 2px; }
+.stat-card.total::before { background: #4f46e5; }
+.stat-card.free::before { background: #16a34a; }
+.stat-card.busy::before { background: #dc2626; }
+.stat-card.locked::before { background: #d97706; }
+.stat-card.device-free::before { background: #0ea5e9; }
+.stat-card.xpu-avg::before { background: #7c3aed; }
+.stat-card.mem-avg::before { background: #0891b2; }
+.stat-card.node-util::before { background: #ea580c; }
+.stat-card .label { font-size: 11px; color: #64748b; letter-spacing: .3px; flex-shrink: 0; white-space: nowrap; }
+.stat-card .value { font-size: 21px; font-weight: 700; font-family: "SF Mono", "Cascadia Code", "JetBrains Mono", "Consolas", monospace; margin-left: auto; }
+.stat-card .value.total { color: #4f46e5; }
+.stat-card .value.free { color: #16a34a; }
+.stat-card .value.busy { color: #dc2626; }
+.stat-card .value.locked { color: #d97706; }
+.stat-card .value.device-free { color: #0ea5e9; }
+.stat-card .value.xpu-avg { color: #7c3aed; }
+.stat-card .value.mem-avg { color: #0891b2; }
+.stat-card .value.node-util { color: #ea580c; }
+.stats-update-badge { border: 1px dashed #cbd5e1; background: #f8fafc; padding: 6px 12px; margin-bottom: 10px; font-size: 12px; color: #64748b; border-radius: 6px; display: inline-block; }
+.stat-card { padding-right: 40px; }
+.stat-card .card-help { position: absolute; top: 8px; right: 8px; margin-left: 0; }
+.stat-card .value.pct { font-size: 16px; white-space: nowrap; letter-spacing: -0.8px; }
+.metric-card { border: 1px solid #111827; background: #fff; padding: 14px; min-height: 190px; display: flex; flex-direction: column; gap: 10px; }
+.metric-card.compact { min-height: 166px; }
+.metric-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.metric-name { font-weight: 700; font-size: 15px; }
+.badge { border: 1px solid #9ca3af; padding: 2px 6px; font-size: 11px; color: #4b5563; background: #f9fafb; white-space: nowrap; }
+.metric-value { font-size: 27px; line-height: 1; font-family: "SF Mono", Consolas, monospace; font-weight: 700; }
+.metric-sub { color: #6b7280; font-size: 12px; }
+.metric-rule { border-top: 1px dashed #9ca3af; padding-top: 8px; font-size: 12px; color: #4b5563; }
+.manager-use { margin-top: auto; border-left: 4px solid #111827; padding-left: 8px; font-size: 13px; color: #111827; }
+.prototype-main { display: grid; grid-template-columns: 280px 1fr; gap: 14px; }
+.team-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; min-width: 0; overflow: hidden; justify-content: center; }
+.table-wrap.compact-table table { min-width: 0; width: 100%; }
+.table-wrap.compact-table th, .table-wrap.compact-table td { padding: 10px 24px; }
+.team-pie-card { min-width: 0; background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.03); display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+.team-layout > div:first-child { min-width: 0; overflow: hidden; }
+.team-pie-card .chart-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; text-align: center; }
+.team-pie-legend { font-size: 12px; margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px 14px; justify-content: center; }
+.team-pie-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.team-pie-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.team-control-panel { border: 1px solid #9ca3af; padding: 10px 12px; background: #fafafa; }
+.team-kpi-block { display: grid; gap: 8px; }
+.side-panel { border: 1px solid #9ca3af; padding: 12px; background: #fafafa; }
+.filter-block { border: 1px dashed #9ca3af; background: #fff; padding: 10px; margin-bottom: 10px; }
+.team-control-panel .filter-block { margin-bottom: 0; }
+.team-control-panel .team-filter-stack { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+.filter-label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+.filter-row { height: 26px; border: 1px solid #d1d5db; background: #f9fafb; margin-bottom: 6px; }
+.team-filter-stack { display: grid; gap: 8px; margin-top: 8px; }
+.team-filter-line { display: flex; justify-content: space-between; gap: 10px; border: 1px solid #d1d5db; background: #f9fafb; padding: 7px 9px; font-size: 12px; color: #4b5563; }
+.team-filter-line strong { color: #111827; }
+.team-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.team-kpi { border: 1px solid #111827; background: #fff; padding: 12px; min-height: 112px; box-shadow: 4px 4px 0 #e5e7eb; }
+.team-kpi-label { color: #6b7280; font-size: 12px; margin-bottom: 8px; }
+.team-kpi-value { font: 700 24px/1 "SF Mono", Consolas, monospace; color: #111827; }
+.team-kpi.good .team-kpi-value { color: #16a34a; }
+.team-hero-chart { position: relative; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 12px; background: linear-gradient(135deg, #fff 0%, #fff 58%, #f8fafc 58%, #f8fafc 100%); padding: 16px 16px 10px; }
+.team-action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+.team-action-card { border: 1px dashed #6b7280; background: #fafafa; padding: 12px; }
+.team-action-card h4 { margin: 0 0 8px; font-size: 14px; }
+.team-action-card p { margin: 0; color: #374151; font-size: 13px; }
+.team-node-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.owner-chip { border-radius: 12px; padding: 2px 8px; background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 700; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.chart-grid.three { grid-template-columns: repeat(3, 1fr); }
+.chart-card { border: 1px solid #111827; padding: 14px; background: #fff; }
+.chart-title { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-weight: 700; font-size: 14px; }
+.chart-title span { color: #6b7280; font-weight: 400; font-size: 12px; }
+.chart-box {
+  height: 190px;
+  position: relative;
+  border: 1px dashed #6b7280;
+  background:
+    linear-gradient(to right, transparent 0, transparent calc(25% - 1px), #e5e7eb 25%, transparent calc(25% + 1px), transparent calc(50% - 1px), #e5e7eb 50%, transparent calc(50% + 1px), transparent calc(75% - 1px), #e5e7eb 75%, transparent calc(75% + 1px)),
+    linear-gradient(to bottom, transparent 0, transparent calc(33% - 1px), #e5e7eb 33%, transparent calc(33% + 1px), transparent calc(66% - 1px), #e5e7eb 66%, transparent calc(66% + 1px));
+}
+.line { position: absolute; left: 24px; right: 24px; height: 0; border-top: 3px solid #111827; transform-origin: left center; }
+.line.one { top: 112px; transform: rotate(-8deg); }
+.line.two { top: 78px; border-top-style: dashed; transform: rotate(6deg); }
+.line.three { top: 136px; transform: rotate(-16deg); }
+.line.four { top: 96px; border-top: 2px dotted #111827; transform: rotate(-2deg); }
+.line.xpu-line { border-color: #4f46e5; top: 118px; transform: rotate(-10deg); }
+.line.mem-line { border-color: #ea580c; top: 86px; transform: rotate(4deg); }
+.line.ma-line { border-color: #111827; border-top-style: dashed; top: 108px; transform: rotate(-5deg); }
+.avg-prototype-chart { position: relative; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; padding: 16px 16px 10px; }
+.avg-chart-svg { display: block; min-width: 900px; width: 100%; height: auto; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; }
+.avg-axis-text { fill: #111827; font-size: 13px; font-weight: 700; }
+.avg-time-text { fill: #64748b; font-size: 12px; }
+.avg-grid-line { stroke: #9fb3d1; stroke-width: 1; stroke-dasharray: 5 5; }
+.avg-axis-line { stroke: #111827; stroke-width: 3; }
+.avg-today-line { fill: none; stroke: #6d4aff; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.avg-today-line.mem { stroke: #ea580c; }
+.avg-yesterday-line { fill: none; stroke: #c4b5fd; stroke-width: 3; stroke-dasharray: 8 6; stroke-linejoin: round; stroke-linecap: round; }
+.avg-yesterday-line.mem { stroke: #fed7aa; }
+.avg-mean-line { stroke: #dc2626; stroke-width: 2; }
+.avg-mean-line.mem { stroke: #f97316; }
+.avg-peak-label { fill: #8b5cf6; font-size: 12px; font-weight: 700; }
+.avg-peak-label.mem { fill: #ea580c; }
+.avg-hover-dot { fill: #fff; stroke: #8b5cf6; stroke-width: 3; }
+.avg-hover-dot.mem { stroke: #ea580c; }
+.team-compare-line { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.team-compare-line.a { stroke: #6d4aff; }
+.team-compare-line.b { stroke: #ea580c; }
+.team-compare-line.c { stroke: #16a34a; }
+.team-compare-line.d { stroke: #dc2626; stroke-dasharray: 8 6; }
+.avg-chart-tooltip { position: absolute; left: 42%; top: 38px; background: #1e293b; color: #fff; border-radius: 6px; padding: 8px 12px; font: 12px/1.55 "SF Mono", "JetBrains Mono", Consolas, monospace; box-shadow: 0 8px 20px rgba(15,23,42,.22); }
+.avg-chart-tooltip b { color: #a78bfa; }
+.avg-chart-legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 10px; color: #64748b; font-size: 12px; }
+.avg-legend-line { display: inline-block; width: 28px; height: 0; border-top: 3px solid #6d4aff; vertical-align: middle; margin-right: 6px; }
+.avg-legend-line.mem { border-color: #ea580c; }
+.avg-legend-line.mean { border-color: #dc2626; border-top-width: 2px; }
+.avg-legend-line.mean.mem { border-color: #f97316; }
+.avg-legend-line.yesterday { border-color: #c4b5fd; border-top-style: dashed; }
+.avg-legend-line.yesterday.mem { border-color: #fed7aa; }
+.avg-legend-line.team-b { border-color: #ea580c; }
+.avg-legend-line.team-c { border-color: #16a34a; }
+.avg-legend-line.team-d { border-color: #dc2626; border-top-style: dashed; }
+.avg-hover-capture:hover { fill: rgba(124,58,237,.03); }
+.legend-star { color: #8b5cf6; font-weight: 700; margin-right: 5px; }
+.callout { position: absolute; max-width: 210px; border: 1px solid #111827; background: #fff; padding: 6px 8px; font-size: 12px; line-height: 1.45; box-shadow: 3px 3px 0 #e5e7eb; }
+.callout::before { content: ''; position: absolute; width: 36px; border-top: 1px solid #111827; transform-origin: left center; }
+.callout.right { right: 14px; top: 18px; }
+.callout.right::before { left: -34px; top: 26px; transform: rotate(150deg); }
+.callout.left { left: 18px; top: 18px; }
+.callout.left::before { right: -34px; top: 28px; transform: rotate(25deg); }
+.peak-note { position: absolute; right: 16px; top: 22px; border: 1px solid #111827; background: #fff; padding: 3px 6px; font-size: 11px; font-family: "SF Mono", Consolas, monospace; }
+.axis-labels { display: flex; justify-content: space-between; margin-top: 6px; color: #6b7280; font-size: 11px; }
+.chart-legend { display: flex; gap: 14px; align-items: center; margin-top: 8px; color: #64748b; font-size: 12px; }
+.legend-line { display: inline-block; width: 28px; height: 0; border-top: 3px solid #4f46e5; vertical-align: middle; margin-right: 5px; }
+.legend-line.mem { border-color: #ea580c; }
+.legend-line.ma { border-color: #dc2626; border-top-width: 2px; }
+.legend-line.yesterday { border-color: #c4b5fd; border-top-style: dashed; }
+.legend-star { color: #8b5cf6; font-weight: 700; margin-right: 5px; }
+.chart-use { margin-top: 10px; border-left: 4px solid #111827; padding-left: 8px; color: #111827; font-size: 13px; }
+.horizontal-rank-chart { position: relative; border: 1px solid #d1d5db; background: linear-gradient(to right, #fff 0, #fff calc(25% - 1px), #e5e7eb 25%, #fff calc(25% + 1px), #fff calc(50% - 1px), #e5e7eb 50%, #fff calc(50% + 1px), #fff calc(75% - 1px), #e5e7eb 75%, #fff calc(75% + 1px)); padding: 22px 92px 46px 118px; }
+.horizontal-rank-chart::before { content: ''; position: absolute; left: 118px; top: 18px; bottom: 46px; border-left: 3px solid #111827; }
+.horizontal-rank-chart::after { content: ''; position: absolute; left: 118px; right: 34px; bottom: 46px; border-bottom: 3px solid #111827; }
+.rank-axis-y { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 12px; font-weight: 700; }
+.rank-axis-x { position: absolute; right: 34px; bottom: 14px; color: #64748b; font-size: 12px; font-weight: 700; }
+.rank-bars { display: grid; gap: 14px; position: relative; z-index: 1; }
+.rank-row { display: grid; grid-template-columns: 72px 1fr 54px; gap: 14px; align-items: center; }
+.rank-team { color: #111827; font-size: 13px; font-weight: 700; text-align: right; }
+.rank-track { height: 26px; background: #f8fafc; border: 1px solid #e2e8f0; position: relative; }
+.rank-bar { display: block; width: var(--w); height: 100%; background: linear-gradient(90deg, #6d4aff 0%, #4f46e5 100%); border-right: 2px solid #111827; box-shadow: 4px 4px 0 #e5e7eb; }
+.rank-bar.top { background: linear-gradient(90deg, #f97316 0%, #ea580c 100%); }
+.rank-value { font: 700 13px "SF Mono", Consolas, monospace; color: #111827; white-space: nowrap; }
+.rank-baseline { position: absolute; left: calc(118px + 26%); top: 18px; bottom: 46px; border-left: 1px dashed #dc2626; z-index: 2; }
+.rank-baseline span { position: absolute; left: 6px; top: 0; color: #dc2626; font-size: 12px; font-weight: 700; background: #fff; white-space: nowrap; }
+.rank-ticks { position: absolute; left: 118px; right: 34px; bottom: 28px; display: flex; justify-content: space-between; color: #64748b; font: 11px "SF Mono", Consolas, monospace; }
+.comparison-controls { border: 1px solid #9ca3af; background: #fafafa; padding: 12px; margin-bottom: 12px; }
+.control-select { min-width: 180px; display: inline-flex; justify-content: space-between; gap: 20px; border: 1px solid #d1d5db; background: #fff; padding: 6px 10px; color: #111827; font-size: 13px; font-weight: 700; }
+.control-select span { color: #64748b; font-weight: 600; }
+.leaderboard-prototype { display: grid; grid-template-columns: 1fr 380px; gap: 12px; align-items: start; margin-bottom: 12px; }
+.leaderboard-note-card { border: 1px dashed #9ca3af; background: #fafafa; padding: 12px; min-height: 130px; }
+.leaderboard-note-card h4 { margin: 0 0 8px; font-size: 14px; color: #111827; }
+.leaderboard-note-card p { margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.55; }
+.leaderboard-drawer-proto { border: 1px solid #111827; background: #fff; box-shadow: -6px 6px 0 #e5e7eb; padding: 14px; }
+.leaderboard-drawer-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 10px; }
+.leaderboard-drawer-title { font-weight: 800; font-size: 16px; color: #dc2626; }
+.leaderboard-drawer-title.black { color: #111827; }
+.leaderboard-drawer-sub { color: #64748b; font-size: 12px; margin-top: 3px; }
+.drawer-close-proto { border: 1px solid #cbd5e1; background: #fff; border-radius: 50%; width: 24px; height: 24px; text-align: center; line-height: 22px; color: #64748b; }
+.leaderboard-list-proto { display: grid; gap: 8px; }
+.leaderboard-row-proto { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; border: 1px solid #e2e8f0; border-left: 4px solid #dc2626; border-radius: 8px; padding: 9px 10px; background: #fff; }
+.leaderboard-row-proto.black { border-left-color: #111827; }
+.leaderboard-rank-proto { font: 800 14px "SF Mono", Consolas, monospace; color: #dc2626; }
+.leaderboard-row-proto.black .leaderboard-rank-proto { color: #111827; }
+.leaderboard-user-proto { font-weight: 700; color: #111827; font-size: 13px; }
+.leaderboard-meta-proto { color: #64748b; font-size: 11px; margin-top: 2px; }
+.leaderboard-score-proto { font: 800 16px "SF Mono", Consolas, monospace; color: #111827; text-align: right; }
+.leaderboard-score-proto span { display: block; color: #94a3b8; font-size: 10px; font-family: inherit; font-weight: 600; }
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.compare-card { border: 1px dashed #6b7280; background: #fafafa; padding: 12px; }
+.usage-rank-help { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #9ca3af; background: #f9fafb; color: #6b7280; font-size: 11px; font-weight: 700; cursor: help; }
+.usage-rank-help .usage-rank-tooltip { display: none; position: absolute; left: 24px; top: -6px; width: 280px; background: #1e293b; color: #fff; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.6; font-weight: 400; box-shadow: 0 8px 20px rgba(15,23,42,.22); z-index: 100; white-space: normal; }
+.usage-rank-help:hover .usage-rank-tooltip { display: block; }
+.compare-card h4 { margin: 0 0 8px; font-size: 14px; }
+.compare-card p { margin: 0; color: #374151; font-size: 13px; }
+.compare-number { font-family: "SF Mono", Consolas, monospace; font-size: 22px; font-weight: 700; margin: 4px 0; }
+.table-wrap { border: 1px solid #111827; overflow-x: auto; background: #fff; }
+table { width: 100%; border-collapse: collapse; min-width: 860px; font-size: 13px; }
+th, td { border-bottom: 1px solid #d1d5db; padding: 10px; text-align: left; vertical-align: top; }
+th { background: #e5e7eb; font-weight: 700; color: #111827; }
+td.mono { font-family: "SF Mono", Consolas, monospace; }
+.tip { border: 1px solid #9ca3af; background: #fafafa; padding: 5px 7px; display: inline-block; color: #374151; }
+.decision-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.decision-card { border: 1px dashed #6b7280; background: #fafafa; padding: 12px; }
+.decision-card h4 { margin: 0 0 8px; font-size: 14px; }
+.decision-card p { margin: 0; font-size: 13px; color: #374151; }
+.assumption-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.assumption { border: 1px solid #9ca3af; background: #fff; padding: 12px; font-size: 13px; }
+.assumption h4 { margin: 0 0 8px; font-size: 14px; }
+.assumption ul { margin: 0; padding-left: 18px; }
+.assumption li { margin: 5px 0; }
+.footer { margin-top: 18px; color: #6b7280; font-size: 12px; text-align: center; }
+@media (max-width: 1100px) {
+  .chart-grid.three { grid-template-columns: 1fr; }
+  .team-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 980px) {
+  .background-grid, .prototype-main, .chart-grid, .assumption-grid, .compare-grid, .team-node-grid, .team-action-grid, .team-control-panel, .leaderboard-prototype { grid-template-columns: 1fr; }
+  .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .avg-filter-bar { align-items: flex-start; }
+  .decision-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .prototype-shell { padding: 14px; }
+  .topbar, .app-title, .section-head { flex-direction: column; align-items: flex-start; }
+  .metric-grid, .decision-grid, .team-kpi-grid { grid-template-columns: 1fr; }
+  .avg-date-control, .avg-window-toggles { width: 100%; }
+  .avg-date-control input[type="date"] { flex: 1; }
+  .avg-chart-tooltip { left: 18px; top: 42px; }
+  h1 { font-size: 24px; }
+}
+/* Grafana Time Picker */
+.grafana-time-picker { margin-bottom: 14px; }
+.gtp-trigger-bar { display: flex; align-items: center; gap: 4px; justify-content: flex-end; margin-bottom: 8px; }
+.gtp-trigger-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font: 600 13px/1 inherit; color: #111827; cursor: pointer; }
+.gtp-zoom-btn { width: 32px; height: 32px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font-size: 16px; color: #64748b; cursor: pointer; text-align: center; line-height: 30px; }
+.gtp-refresh-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 4px; background: #f1f5f9; font: 600 13px/1 inherit; color: #111827; cursor: pointer; }
+.avg-chart-legend span.dimmed { opacity: 0.35; }
+.avg-chart-legend span[data-legend] { cursor: pointer; user-select: none; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { background: #f1f5f9; }
+/* /app 风格紧凑筛选条 */
+.cluster-filter-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cluster-filter-head .gtp-time-label { font: 600 13px/1 inherit; color: #111827; }
+.cluster-filter-head .gtp-toggle-btn { padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font: 600 12px/1 inherit; color: #374151; cursor: pointer; }
+.cluster-filter-head .gtp-refresh-btn { margin-left: auto; }
+.cluster-filter-head .data-as-of { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; }
+.cluster-filter-head .data-as-of-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; display: inline-block; }
+.cluster-range-panel { border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb; padding: 12px 14px; margin-bottom: 14px; }
+.cluster-range-panel.hidden { display: none; }
+.cluster-range-title { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+.cluster-range-grid { display: grid; grid-template-columns: 1fr 260px; gap: 20px; }
+.cluster-range-absolute .cluster-field { margin-bottom: 8px; }
+.cluster-range-absolute label { display: block; font-size: 12px; color: #64748b; margin-bottom: 3px; }
+.cluster-range-absolute input[type="datetime-local"] { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font: 13px inherit; color: #111827; }
+.cluster-range-actions { display: flex; gap: 6px; margin-top: 8px; }
+.cluster-icon-btn { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font-size: 12px; color: #374151; cursor: pointer; }
+.cluster-apply-btn { flex: 1; padding: 6px 10px; border: none; border-radius: 4px; background: #3b82f6; color: #fff; font: 600 12px/1 inherit; cursor: pointer; }
+.cluster-quick-search { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font: 12px inherit; color: #111827; margin-bottom: 8px; outline: none; }
+.cluster-quick-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.cluster-quick-item { padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 999px; background: #fff; font-size: 12px; color: #374151; cursor: pointer; }
+.cluster-quick-item:hover { background: #f1f5f9; }
+.cluster-quick-item.active { background: #f97316; border-color: #f97316; color: #fff; font-weight: 600; }
+@media (max-width: 720px) {
+  .cluster-range-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="prototype-shell">
+  <header class="topbar">
+    <div>
+      <div class="kicker">Next version wireframe</div>
+      <h1>开发机监控大盘 - 团队视图</h1>
+    </div>
+    <a class="return-link" href="index.html">返回当前仪表盘</a>
+  </header>
+
+  <div class="notice">原型边界：当前页面只表达下一版产品方案，不接入 API，不代表日期对比或团队归因已成为当前可用能力。</div>
+
+  <main class="frame" aria-label="下一版网站原型">
+    <div class="browser-bar">
+      <div class="dots" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="url-box">/index.html?view=team-prototype</div>
+    </div>
+
+    <div class="app-header">
+      <div class="app-title">
+        <h2>开发机资源监控面板</h2>
+        <span>按团队维度看资源使用和分配问题</span>
+      </div>
+    </div>
+
+    <div class="content">
+      <section class="section" id="team-body">
+        <div class="section-head">
+          <h3>团队视图主体</h3>
+          <div class="section-note">选择你所在的团队和时间范围，查看本团队节点使用率与利用率趋势</div>
+        </div>
+
+        <!-- 团队趋势筛选条：可统计至当前最新可用采样点 -->
+        <div class="cluster-filter-head" id="team-gtp">
+          <span class="gtp-time-label" data-gtp-label>最近 30 天（截至最新采样点 07-20 14:30）</span>
+          <button class="gtp-toggle-btn" type="button" data-gtp-toggle aria-expanded="true" aria-controls="team-range-panel">隐藏筛选</button>
+          <button class="gtp-refresh-btn" type="button">&#8635; 刷新</button>
+          <span class="data-as-of"><span>截至最新可用采样点 07-20 14:30（刷新时更新）</span></span>
+        </div>
+        <div class="cluster-range-panel" id="team-range-panel">
+          <div class="cluster-range-grid">
+            <div class="cluster-range-quick">
+              <input class="cluster-quick-search" type="search" placeholder="搜索快捷时间">
+              <div class="cluster-quick-list">
+                <button class="cluster-quick-item" type="button">最近 1 天</button>
+                <button class="cluster-quick-item" type="button">最近 2 天</button>
+                <button class="cluster-quick-item" type="button">最近 7 天</button>
+                <button class="cluster-quick-item active" type="button">最近 30 天</button>
+                <button class="cluster-quick-item" type="button">最近 90 天</button>
+                <button class="cluster-quick-item" type="button">最近 6 个月</button>
+              </div>
+            </div>
+            <div class="cluster-range-absolute">
+              <div class="cluster-range-title">时间范围筛选（可选至当前时间）</div>
+              <div class="cluster-field"><label for="team-start-time">开始时间</label><input id="team-start-time" type="datetime-local" step="60" value="2026-06-20T14:30"></div>
+              <div class="cluster-field"><label for="team-end-time">结束时间</label><input id="team-end-time" type="datetime-local" step="60" value="2026-07-20T14:30"></div>
+              <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="复制时间范围">复制区间</button><button type="button" class="cluster-icon-btn" title="重置为最近 30 天">默认筛选</button><button type="button" class="cluster-apply-btn">筛选</button></div>
+            </div>
+          </div>
+        </div>
+
+        <section class="section" id="team-kashi-compare">
+          <div class="section-head">
+            <h3>团队效率 <span class="usage-rank-help" style="position:relative;cursor:pointer;font-size:13px;color:#64748b">?<span class="usage-rank-tooltip" style="width:280px">左侧表格按总卡时、算力利用率统计；右侧团队总卡时占比是同一份总卡时数据的占比展示。两者均按所选范围统计，最晚截至 Lock Bot 与监控指标可对齐的最新采样点。</span></span></h3>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div class="section-note">按总卡时与算力利用率的差值排序，优先展示"占用多、利用率低"的团队</div>
+              <button class="gtp-toggle-btn" type="button" data-collapse-toggle aria-expanded="true" aria-controls="team-kashi-body">收起</button>
+            </div>
+          </div>
+          <div class="team-layout" id="team-kashi-body">
+            <div style="grid-column:1 / -1;margin:0 0 18px;padding-bottom:18px;border-bottom:2px dashed #e2e8f0">
+              <h4 style="margin:0 0 4px;font-size:15px;color:#475569">补充：跨团队对比参考</h4>
+              <div class="section-note">以下为多团队横向对比，供管理层高层概览</div>
+            </div>
+            <div>
+              <article class="chart-card">
+                <div class="chart-title">区间范围资源统计 <span>点击行可查看详情，按"总卡时-算力利用率"差值排序，快速定位高效和低效团队</span></div>
+                <div class="table-wrap compact-table">
+                  <table id="team-efficiency-table">
+                    <thead>
+                      <tr>
+                        <th>团队</th>
+                        <th class="sortable" data-sort="node">总卡时 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">所选筛选区间内团队占用卡时的累加（节点锁按整机 8 卡计入，DEVICE 锁按实际锁定卡数计入），与右侧团队总卡时占比饼图口径一致。</span></span></th>
+                        <th class="sortable" data-sort="xpu">算力利用率 ↕ <span class="usage-rank-help">?<span class="usage-rank-tooltip">所选筛选区间内团队的算力利用率整体平均值，按锁定卡数加权：节点锁按整机 8 卡计入，DEVICE 锁按实际锁定卡数计入，避免整机锁因单张卡低利用率被平均拉低。</span></span></th>
+                        <th>显存利用率 <span class="usage-rank-help">?<span class="usage-rank-tooltip">所选筛选区间内团队的显存利用率整体平均值，口径与算力利用率一致，按锁定卡数加权平均。</span></span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>团队 A</td><td class="mono" data-val="290">290h</td><td class="mono" data-val="22">22%</td><td class="mono">35%</td></tr>
+                      <tr><td>团队 C</td><td class="mono" data-val="220">220h</td><td class="mono" data-val="18">18%</td><td class="mono">25%</td></tr>
+                      <tr><td>团队 B</td><td class="mono" data-val="410">410h</td><td class="mono" data-val="71">71%</td><td class="mono">68%</td></tr>
+                      <tr><td>团队 D</td><td class="mono" data-val="80">80h</td><td class="mono" data-val="65">65%</td><td class="mono">58%</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="chart-use">管理视角：团队总卡时反映真实占用规模，算力利用率反映资源使用效率；两者结合可以识别"占用多但利用率低"的团队（默认排序靠前）。显存利用率作为算力利用率的补充参考，长期偏高但算力偏低可能存在"占显存不计算"的情况。统计会持续更新至最新可对齐采样点；当前锁定节点/卡数仍是独立的实时快照，不能直接相加对比。</div>
+              </article>
+            </div>
+            <div class="team-pie-card">
+              <div class="chart-title">团队总卡时占比</div>
+              <svg viewBox="0 0 200 200" width="200" height="200">
+                <!-- 团队A 29% 橙色 -->
+                <path d="M100,100 L100,20 A80,80 0 0,1 177.49,119.90 Z" fill="#ea580c"></path>
+                <!-- 团队B 41% 蓝色 -->
+                <path d="M100,100 L177.49,119.90 A80,80 0 0,1 23.91,124.72 Z" fill="#3b82f6"></path>
+                <!-- 团队C 22% 绿色 -->
+                <path d="M100,100 L23.91,124.72 A80,80 0 0,1 61.46,29.90 Z" fill="#16a34a"></path>
+                <!-- 团队D 8% 紫色 -->
+                <path d="M100,100 L61.46,29.90 A80,80 0 0,1 100,20 Z" fill="#8b5cf6"></path>
+              </svg>
+              <div class="team-pie-legend">
+                <span><i style="background:#ea580c"></i>团队 A 29%</span>
+                <span><i style="background:#3b82f6"></i>团队 B 41%</span>
+                <span><i style="background:#16a34a"></i>团队 C 22%</span>
+                <span><i style="background:#8b5cf6"></i>团队 D 8%</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="control-row" style="margin-bottom:10px">
+          <span class="control-title">选择团队</span>
+          <div class="control-select" style="cursor:pointer"><span>团队</span>团队 A &#8595;</div>
+        </div>
+
+        <div class="stats-update-badge">数据更新于 14:30</div>
+        <div class="stats-bar" aria-label="团队实时锁定快照" style="margin-bottom:14px">
+          <div class="stats-bar-row">
+            <div class="stat-card node-util"><div class="label">团队A实时节点使用率</div><div class="value node-util">18.8%</div><span class="usage-rank-help card-help">?<span class="usage-rank-tooltip" style="width:280px">团队已锁定卡数占 46 个计算节点总卡数（368）的比例，取自最新可对齐采样点，与下方趋势图口径一致，每五分钟自动刷新。</span></span></div>
+            <div class="stat-card xpu-avg"><div class="label">团队A实时XPU利用率</div><div class="value xpu-avg">13%</div><span class="usage-rank-help card-help">?<span class="usage-rank-tooltip" style="width:300px">团队锁定资源在最新可对齐采样点的 XPU 利用率按锁定卡数加权平均，与下方趋势图口径一致，每五分钟自动刷新。</span></span></div>
+            <div class="stat-card mem-avg"><div class="label">团队A实时显存利用率</div><div class="value mem-avg">41%</div><span class="usage-rank-help card-help">?<span class="usage-rank-tooltip" style="width:300px">团队锁定资源在最新可对齐采样点的显存利用率按锁定卡数加权平均，与下方趋势图口径一致，每五分钟自动刷新。</span></span></div>
+          </div>
+          <div class="stats-bar-row">
+            <div class="stat-card locked"><div class="label">团队A锁定节点数</div><div class="value locked">8</div><span class="usage-rank-help card-help">?<span class="usage-rank-tooltip" style="width:280px">当前时刻团队成员所占节点数，每五分钟自动刷新。</span></span></div>
+            <div class="stat-card busy"><div class="label">团队A锁定卡数</div><div class="value busy pct" style="font-size:15px">8 &times; 8 + 5 = 69</div><span class="usage-rank-help card-help">?<span class="usage-rank-tooltip" style="width:300px">当前时刻团队成员所占卡数 = 锁定节点数 × 8（整机锁定的卡）+ 单独 DEVICE 锁的卡数，每五分钟自动刷新。</span></span></div>
+            <div class="stat-card device-free"><div class="label">团队A锁定人数</div><div class="value device-free">11</div><span class="usage-rank-help card-help">?<span class="usage-rank-tooltip" style="width:300px">当前时刻团队成员中正在持有任意锁（NODE/QUEUE/DEVICE）的用户数，按 user_id 去重，每五分钟自动刷新。</span></span></div>
+            <div class="stat-card total"><div class="label">团队A人均锁定卡数</div><div class="value total">6.3</div><span class="usage-rank-help card-help">?<span class="usage-rank-tooltip" style="width:300px">当前时刻团队锁定卡数 ÷ 锁定人数，反映人均资源占用强度，每五分钟自动刷新。</span></span></div>
+          </div>
+        </div>
+        <div class="section-note" style="margin-bottom:14px">锁定节点数/锁定卡数为 Lock Bot 当前实时锁定状态（节点数来自 NODE/QUEUE 整机锁，卡数为节点锁覆盖的卡数加上单独 DEVICE 锁的卡数）；锁定人数按持锁用户 user_id 去重统计，人均锁定卡数 = 锁定卡数 ÷ 锁定人数，反映人均资源占用强度；上排节点使用率、XPU、显存利用率取自最新可对齐采样点，与下方趋势图口径一致，统计随刷新更新。</div>
+
+        <div class="chart-grid" style="grid-template-columns:1fr;">
+          <article class="chart-card">
+            <div class="chart-title">团队A 节点使用率 / XPU利用率 / 显存利用率趋势 <span>最近 30 天（截至最新采样点 07-20 14:30），统一按 0-100% 坐标对照三项指标</span></div>
+            <div class="chart-legend" style="display:flex;gap:16px;align-items:center;margin-bottom:8px;font-size:12px;color:#475569">
+              <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d97706;margin-right:5px;vertical-align:middle"></i>节点使用率</span>
+              <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7c3aed;margin-right:5px;vertical-align:middle"></i>XPU利用率</span>
+              <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ea580c;margin-right:5px;vertical-align:middle"></i>显存利用率</span>
+            </div>
+            <div class="avg-prototype-chart" aria-label="团队指标合并趋势图">
+              <svg class="avg-chart-svg" id="team-merged-chart" viewBox="0 0 1080 360" role="img" aria-label="团队节点使用率、XPU利用率、显存利用率合并趋势示意图">
+                <line class="avg-grid-line" x1="70" y1="90" x2="1030" y2="90"></line>
+                <line class="avg-grid-line" x1="70" y1="140" x2="1030" y2="140"></line>
+                <line class="avg-grid-line" x1="70" y1="190" x2="1030" y2="190"></line>
+                <line class="avg-grid-line" x1="70" y1="240" x2="1030" y2="240"></line>
+                <line class="avg-grid-line" x1="230" y1="40" x2="230" y2="290"></line>
+                <line class="avg-grid-line" x1="390" y1="40" x2="390" y2="290"></line>
+                <line class="avg-grid-line" x1="550" y1="40" x2="550" y2="290"></line>
+                <line class="avg-grid-line" x1="710" y1="40" x2="710" y2="290"></line>
+                <line class="avg-grid-line" x1="870" y1="40" x2="870" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="290" x2="1030" y2="290"></line>
+                <line class="avg-axis-line" x1="70" y1="40" x2="70" y2="290"></line>
+                <text class="avg-axis-text" x="24" y="44">100%</text>
+                <text class="avg-axis-text" x="24" y="94">80%</text>
+                <text class="avg-axis-text" x="24" y="144">60%</text>
+                <text class="avg-axis-text" x="24" y="194">40%</text>
+                <text class="avg-axis-text" x="24" y="244">20%</text>
+                <text class="avg-axis-text" x="40" y="294">0%</text>
+                <text class="avg-time-text" x="70" y="320">06-20</text>
+                <text class="avg-time-text" x="230" y="320">06-25</text>
+                <text class="avg-time-text" x="390" y="320">06-30</text>
+                <text class="avg-time-text" x="550" y="320">07-05</text>
+                <text class="avg-time-text" x="710" y="320">07-10</text>
+                <text class="avg-time-text" x="870" y="320">07-14</text>
+                <text class="avg-time-text" x="1000" y="320">07-20</text>
+                <polyline data-team="nodeutilization" fill="none" stroke="#d97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
+                  points="70,264.0 150,262.5 230,259.8 310,261.0 390,255.2 470,256.5 550,251.0 630,246.5 710,242.2 790,237.8 870,224.8 950,229.0 1030,243.0"></polyline>
+                <polyline data-team="xpuself" fill="none" stroke="#7c3aed" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
+                  points="70,270.0 150,268.2 230,270.8 310,267.5 390,265.0 470,268.2 550,262.5 630,265.0 710,260.0 790,262.5 870,265.0 950,260.8 1030,257.5"></polyline>
+                <polyline data-team="memself" fill="none" stroke="#ea580c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
+                  points="70,205.0 150,210.0 230,215.0 310,207.5 390,200.0 470,195.0 550,190.0 630,185.0 710,180.0 790,177.5 870,175.0 950,182.5 1030,187.5"></polyline>
+                <circle id="team-hover-dot-node" class="avg-hover-dot" cx="1030" cy="243.0" r="5" fill="#d97706"></circle>
+                <circle id="team-hover-dot-xpu" class="avg-hover-dot" cx="1030" cy="257.5" r="5" fill="#7c3aed"></circle>
+                <circle id="team-hover-dot-mem" class="avg-hover-dot" cx="1030" cy="187.5" r="5" fill="#ea580c"></circle>
+                <rect id="team-hover-capture" class="avg-hover-capture" x="70" y="40" width="960" height="250" fill="transparent" style="cursor:pointer"></rect>
+              </svg>
+              <div class="avg-chart-tooltip" id="team-merged-tooltip">07-20<br>节点使用率 <b>18.8%</b>　XPU利用率 <b>13%</b>　显存利用率 <b>41%</b><br>锁定节点数 <b>8</b>　锁定卡数 <b>69</b>　锁定人数 <b>11</b></div>
+            </div>
+            <div class="chart-use">管理视角：结合三条线看——如果节点使用率较高但 XPU 利用率长期偏低，说明本团队存在"锁而不用"，可以主动释放部分机器；如果显存长期高位但算力偏低，可能存在进程占着显存却没有实际计算负载，建议排查具体持锁人和进程；如果利用率已接近饱和，可作为申请扩容的依据。鼠标移到图上可查看该时刻团队锁定的节点数、卡数和人数。数据会持续更新至最新可对齐采样点。</div>
+          </article>
+        </div>
+
+        <div class="chart-grid" style="grid-template-columns:1fr;">
+          <article class="chart-card">
+            <div class="chart-title">团队A 持锁人资源使用排名 <span class="badge">06-20 ~ 07-20</span> <span>按XPU利用率从低到高排列，用于定位"占着资源但没在算"的具体人员，不随图表点击变化</span></div>
+            <div class="table-wrap" style="margin-top:8px">
+              <table>
+                <thead>
+                  <tr><th>持锁人</th><th>区间总卡时</th><th>XPU利用率</th><th>显存利用率</th></tr>
+                </thead>
+                <tbody id="team-range-summary-tbody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">低保真原型，仅用于确认团队价值视图的信息结构、指标口径和管理视角价值。</footer>
+</div>
+<script>
+  // 团队自观察筛选条：展开/收起 + 快捷范围切换
+  document.querySelectorAll('[data-gtp-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const panel = document.getElementById(btn.getAttribute('aria-controls'));
+      const collapsed = panel.classList.toggle('hidden');
+      btn.textContent = collapsed ? '点击筛选' : '隐藏筛选';
+      btn.setAttribute('aria-expanded', String(!collapsed));
+    });
+  });
+
+  // 通用区块展开/收起（如团队效率表+饼图，默认收起）
+  document.querySelectorAll('[data-collapse-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.getAttribute('aria-controls'));
+      const expanded = target.hidden;
+      target.hidden = !expanded;
+      btn.textContent = expanded ? '收起' : '展开';
+      btn.setAttribute('aria-expanded', String(expanded));
+    });
+  });
+  document.querySelectorAll('.cluster-range-panel').forEach(panel => {
+    const label = panel.previousElementSibling?.querySelector('[data-gtp-label]');
+    panel.querySelectorAll('.cluster-quick-item').forEach(item => {
+      item.addEventListener('click', () => {
+        panel.querySelectorAll('.cluster-quick-item').forEach(other => other.classList.toggle('active', other === item));
+        if (label) label.textContent = `${item.textContent}（截至最新采样点）`;
+      });
+    });
+    const search = panel.querySelector('.cluster-quick-search');
+    if (search) {
+      search.addEventListener('input', () => {
+        const keyword = search.value.trim();
+        panel.querySelectorAll('.cluster-quick-item').forEach(item => {
+          item.style.display = item.textContent.includes(keyword) ? '' : 'none';
+        });
+      });
+    }
+  });
+
+  // 团队效率表排序
+  const effTable = document.getElementById('team-efficiency-table');
+  if (effTable) {
+    const headers = effTable.querySelectorAll('th.sortable');
+    let currentSort = { col: null, asc: true };
+    headers.forEach(th => {
+      th.addEventListener('click', (e) => {
+        if (e.target.closest('.usage-rank-help')) return;
+        const col = th.dataset.sort;
+        const colIdx = col === 'node' ? 1 : 2;
+        if (currentSort.col === col) {
+          currentSort.asc = !currentSort.asc;
+        } else {
+          currentSort.col = col;
+          currentSort.asc = true;
+        }
+        const tbody = effTable.querySelector('tbody');
+        const rows = [...tbody.querySelectorAll('tr')];
+        rows.sort((a, b) => {
+          const va = parseInt(a.cells[colIdx].dataset.val);
+          const vb = parseInt(b.cells[colIdx].dataset.val);
+          return currentSort.asc ? va - vb : vb - va;
+        });
+        rows.forEach(row => {
+          tbody.appendChild(row);
+        });
+        headers.forEach(h => {
+          const helpSpan = h.querySelector('.usage-rank-help');
+          const helpHtml = helpSpan ? ' ' + helpSpan.outerHTML : '';
+          const baseName = h.textContent.replace(/ [↑↓↕].*$/, '').replace(/\?.*$/, '').trim();
+          const arrow = h === th ? (currentSort.asc ? ' ↑' : ' ↓') : ' ↕';
+          h.innerHTML = baseName + arrow + helpHtml;
+        });
+      });
+    });
+  }
+
+  // 团队合并趋势图：节点使用率/XPU利用率/显存利用率 hover 交互
+  const teamTrendSamples = [
+    { date: '06-20', nodeUtil: 10.4, xpuUtil: 8, memUtil: 34, lockedNodeCount: 4, lockedCardCount: 38, lockedPersonCount: 6 },
+    { date: '06-22', nodeUtil: 11, xpuUtil: 8.7, memUtil: 32, lockedNodeCount: 4, lockedCardCount: 40, lockedPersonCount: 6 },
+    { date: '06-25', nodeUtil: 12.1, xpuUtil: 7.7, memUtil: 30, lockedNodeCount: 5, lockedCardCount: 44, lockedPersonCount: 7 },
+    { date: '06-27', nodeUtil: 11.6, xpuUtil: 9, memUtil: 33, lockedNodeCount: 5, lockedCardCount: 43, lockedPersonCount: 7 },
+    { date: '06-30', nodeUtil: 13.9, xpuUtil: 10, memUtil: 36, lockedNodeCount: 5, lockedCardCount: 51, lockedPersonCount: 8 },
+    { date: '07-03', nodeUtil: 13.4, xpuUtil: 8.7, memUtil: 38, lockedNodeCount: 5, lockedCardCount: 49, lockedPersonCount: 8 },
+    { date: '07-05', nodeUtil: 15.6, xpuUtil: 11, memUtil: 40, lockedNodeCount: 6, lockedCardCount: 57, lockedPersonCount: 9 },
+    { date: '07-08', nodeUtil: 17.4, xpuUtil: 10, memUtil: 42, lockedNodeCount: 6, lockedCardCount: 64, lockedPersonCount: 9 },
+    { date: '07-10', nodeUtil: 19.1, xpuUtil: 12, memUtil: 44, lockedNodeCount: 7, lockedCardCount: 70, lockedPersonCount: 10 },
+    { date: '07-13', nodeUtil: 20.9, xpuUtil: 11, memUtil: 45, lockedNodeCount: 7, lockedCardCount: 77, lockedPersonCount: 10 },
+    { date: '07-14', nodeUtil: 26.1, xpuUtil: 10, memUtil: 46, lockedNodeCount: 8, lockedCardCount: 96, lockedPersonCount: 12 },
+    { date: '07-17', nodeUtil: 24.4, xpuUtil: 11.7, memUtil: 43, lockedNodeCount: 8, lockedCardCount: 90, lockedPersonCount: 11 },
+    { date: '07-20', nodeUtil: 18.8, xpuUtil: 13, memUtil: 41, lockedNodeCount: 8, lockedCardCount: 69, lockedPersonCount: 11 },
+  ];
+  const teamChartX0 = 70;
+  const teamChartStep = 80;
+  const teamChartY0 = 290;
+  const teamChartPxPerPct = 2.5;
+  const teamValueToY = pct => teamChartY0 - pct * teamChartPxPerPct;
+  const teamHoverCapture = document.getElementById('team-hover-capture');
+  let teamCurrentSampleIndex = teamTrendSamples.length - 1;
+  if (teamHoverCapture) {
+    const dotNode = document.getElementById('team-hover-dot-node');
+    const dotXpu = document.getElementById('team-hover-dot-xpu');
+    const dotMem = document.getElementById('team-hover-dot-mem');
+    const tooltip = document.getElementById('team-merged-tooltip');
+    const svg = document.getElementById('team-merged-chart');
+    const renderSample = index => {
+      teamCurrentSampleIndex = index;
+      const sample = teamTrendSamples[index];
+      const x = teamChartX0 + index * teamChartStep;
+      dotNode.setAttribute('cx', x);
+      dotNode.setAttribute('cy', teamValueToY(sample.nodeUtil));
+      dotXpu.setAttribute('cx', x);
+      dotXpu.setAttribute('cy', teamValueToY(sample.xpuUtil));
+      dotMem.setAttribute('cx', x);
+      dotMem.setAttribute('cy', teamValueToY(sample.memUtil));
+      tooltip.innerHTML = `${sample.date}<br>节点使用率 <b>${sample.nodeUtil}%</b>　XPU利用率 <b>${sample.xpuUtil}%</b>　显存利用率 <b>${sample.memUtil}%</b><br>锁定节点数 <b>${sample.lockedNodeCount}</b>　锁定卡数 <b>${sample.lockedCardCount}</b>　锁定人数 <b>${sample.lockedPersonCount}</b>`;
+    };
+    const indexFromEvent = event => {
+      const rect = svg.getBoundingClientRect();
+      const scaleX = 1080 / rect.width;
+      const svgX = (event.clientX - rect.left) * scaleX;
+      const index = Math.round((svgX - teamChartX0) / teamChartStep);
+      return Math.max(0, Math.min(teamTrendSamples.length - 1, index));
+    };
+    teamHoverCapture.addEventListener('mousemove', event => {
+      renderSample(indexFromEvent(event));
+    });
+    teamHoverCapture.addEventListener('mouseleave', () => {
+      renderSample(teamTrendSamples.length - 1);
+    });
+  }
+
+  // 团队持锁人区间排名：固定统计，不随图表 hover/点击变化，只随所选筛选区间变化
+  const teamRangeSummary = [
+    { name: 'wangfang03', totalCardHours: 312.5, xpuUtil: 8, memUtil: 22 },
+    { name: 'zhoukai33', totalCardHours: 288.0, xpuUtil: 14, memUtil: 31 },
+    { name: 'gaofei14', totalCardHours: 265.4, xpuUtil: 19, memUtil: 28 },
+    { name: 'xujing19', totalCardHours: 240.8, xpuUtil: 26, memUtil: 45 },
+    { name: 'chenlei12', totalCardHours: 210.2, xpuUtil: 33, memUtil: 40 },
+    { name: 'dengna22', totalCardHours: 188.6, xpuUtil: 41, memUtil: 52 },
+    { name: 'zhaomin08', totalCardHours: 165.0, xpuUtil: 47, memUtil: 58 },
+    { name: 'luowei09', totalCardHours: 140.4, xpuUtil: 55, memUtil: 61 },
+    { name: 'liuyang21', totalCardHours: 118.2, xpuUtil: 62, memUtil: 66 },
+    { name: 'maqiang27', totalCardHours: 96.5, xpuUtil: 71, memUtil: 73 },
+    { name: 'huangjie05', totalCardHours: 72.8, xpuUtil: 78, memUtil: 80 },
+    { name: 'sunhao17', totalCardHours: 45.6, xpuUtil: 85, memUtil: 84 },
+  ];
+
+  function renderTeamRangeSummary() {
+    const tbody = document.getElementById('team-range-summary-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = teamRangeSummary.map(row => `
+      <tr>
+        <td>${row.name}</td>
+        <td class="mono">${row.totalCardHours}h</td>
+        <td class="mono">${row.xpuUtil}%</td>
+        <td class="mono">${row.memUtil}%</td>
+      </tr>
+    `).join('');
+  }
+  renderTeamRangeSummary();
+</script>
+</body>
+</html>

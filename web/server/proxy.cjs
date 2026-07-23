@@ -16,6 +16,7 @@ const LEGACY_STATIC_FILES = new Set([
   'china-time.js',
   'styles.css',
   'value.html',
+  'team.html',
 ]);
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
 const TREND_NODE_NAMES = new Set(clusterScope.nodeIds.map(node => `node${node}`));
@@ -198,6 +199,10 @@ const server = http.createServer((req, res) => {
       'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
     });
     return res.end();
+  }
+  if (req.url.startsWith('/api/server-time')) {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    return res.end(JSON.stringify({ now: Date.now() }));
   }
   if (req.url.startsWith('/api/cluster-trend')) {
     if (req.method !== 'GET') {

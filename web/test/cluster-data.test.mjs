@@ -8,6 +8,7 @@ import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } fro
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../src/services/chart-data.js';
 import { CARD_COUNT, mergeLockBotStates } from '../src/services/cluster-state.js';
 import { CURRENT_MONQUERY_TIMEOUT_MS, DEFAULT_MONQUERY_TIMEOUT_MS } from '../src/services/api.js';
+import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/server-time.js';
 
 const require = createRequire(import.meta.url);
 const { createTrendService, _private } = require('../server/trend-service.cjs');
@@ -209,6 +210,39 @@ test('chart helpers skip empty points, expand the scale, and cap percentage axes
     yMax: 100,
     ticks: Array.from({ length: 21 }, (_, index) => index * 5),
   });
+});
+
+test('server time offset defaults to zero and now() falls back to the local clock', () => {
+  assert.equal(currentOffsetMs(), 0);
+  const before = Date.now();
+  const nowMs = now().getTime();
+  const after = Date.now();
+  assert.ok(nowMs >= before && nowMs <= after);
+});
+
+test('syncing the server time offset corrects a skewed local clock', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const serverNow = Date.now() + 60 * 60 * 1000;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ now: serverNow }),
+  });
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await syncServerTimeOffset();
+
+  assert.ok(Math.abs(now().getTime() - serverNow) < 1000);
+});
+
+test('a failed server time request leaves the previous offset untouched', async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false });
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const offsetBefore = currentOffsetMs();
+  await syncServerTimeOffset();
+
+  assert.equal(currentOffsetMs(), offsetBefore);
 });
 
 test('automatic refresh only applies to a current range no longer than 24 hours', () => {
