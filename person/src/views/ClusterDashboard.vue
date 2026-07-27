@@ -238,13 +238,6 @@ function nodeName(value) {
   return bdc ? `bdc${Number(bdc[1])}` : null;
 }
 
-function recordCards(record) {
-  const card = Number(record?.dev_id ?? record?.device_id ?? record?.card_id);
-  return Number.isInteger(card) && card >= 0 && card < CARD_COUNT
-    ? [card]
-    : Array.from({ length: CARD_COUNT }, (_, index) => index);
-}
-
 function toSeconds(value) {
   if (value == null || value === '') return NaN;
   const numeric = Number(value);
@@ -253,80 +246,6 @@ function toSeconds(value) {
   const timestamp = /[Zz]|[+-]\d{2}:\d{2}$/.test(text) ? text : `${text}Z`;
   const parsed = Date.parse(timestamp);
   return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : NaN;
-}
-
-function firstNodeStates(stateResults) {
-  const states = new Map();
-  for (const result of stateResults) {
-    if (!result) continue;
-    for (const [name, state] of Object.entries(result.state || {})) {
-      const normalized = nodeName(name);
-      if (normalized && !states.has(normalized)) states.set(normalized, { state, type: result.type });
-    }
-  }
-  return states;
-}
-
-function liveLockIntervals(stateResults, todayBoundary, now) {
-  const intervals = [];
-  const boundary = Math.floor(todayBoundary.getTime() / 1000);
-  const current = Math.floor(now.getTime() / 1000);
-  for (const [name, result] of firstNodeStates(stateResults)) {
-    const devices = result.type === 'DEVICE' && Array.isArray(result.state)
-      ? result.state
-      : [{ ...result.state, dev_id: null }];
-    for (const device of devices) {
-      if (device?.status === 'idle' || !device?.current_users?.length) continue;
-      const deviceId = Number(device.dev_id);
-      const cards = device.dev_id != null && Number.isInteger(deviceId) && deviceId >= 0 && deviceId < CARD_COUNT
-        ? [deviceId]
-        : Array.from({ length: CARD_COUNT }, (_, index) => index);
-      for (const user of device.current_users) {
-        const rawStart = toSeconds(user.start_time);
-        const rawEnd = rawStart + Number(user.duration || 0);
-        const start = Math.max(rawStart, boundary);
-        const end = Math.min(rawEnd, current);
-        if (Number.isFinite(start) && Number.isFinite(end) && end > start) intervals.push({ node: name, cards, start, end });
-      }
-    }
-  }
-  return intervals;
-}
-
-function lockUtilization(times, occupancyRecords, liveIntervals, stateNodes, liveBoundary, now) {
-  const totalCards = stateNodes.length * CARD_COUNT;
-  if (!totalCards || !times.length) return [];
-  const locked = times.map(() => new Set());
-  const rangeStart = times[0];
-  const rangeEnd = times.at(-1) + 300;
-  const liveBoundarySeconds = Math.floor(liveBoundary.getTime() / 1000);
-  const nowSeconds = Math.floor(now.getTime() / 1000);
-  const nodeIndices = new Map(stateNodes.map((node, index) => [node.name, index]));
-
-  for (const record of occupancyRecords) {
-    const index = nodeIndices.get(nodeName(record.node_key ?? record.node ?? record.node_name));
-    const start = toSeconds(record.start_time ?? record.start);
-    const knownEnd = toSeconds(record.end_time ?? record.end);
-    const recordedEnd = Number.isFinite(knownEnd) ? knownEnd : start + Number(record.duration_seconds ?? record.duration ?? 0);
-    const end = recordedEnd > nowSeconds ? Math.min(recordedEnd, liveBoundarySeconds) : recordedEnd;
-    if (index === undefined || !Number.isFinite(start) || !Number.isFinite(end) || end <= start || end < rangeStart || start >= rangeEnd) continue;
-    const first = Math.max(0, Math.floor((start - rangeStart) / 300));
-    const last = Math.min(times.length - 1, Math.floor((Math.max(start, end - 1) - rangeStart) / 300));
-    for (let bucket = first; bucket <= last; bucket += 1) {
-      for (const card of recordCards(record)) locked[bucket].add(index * CARD_COUNT + card);
-    }
-  }
-
-  for (const interval of liveIntervals) {
-    const index = nodeIndices.get(interval.node);
-    if (index === undefined || interval.end <= rangeStart || interval.start >= rangeEnd) continue;
-    const first = Math.max(0, Math.floor((interval.start - rangeStart) / 300));
-    const last = Math.min(times.length - 1, Math.ceil((interval.end - rangeStart) / 300) - 1);
-    for (let bucket = first; bucket <= last; bucket += 1) {
-      for (const card of interval.cards) locked[bucket].add(index * CARD_COUNT + card);
-    }
-  }
-  return locked.map(cards => cards.size / totalCards * 100);
 }
 
 function currentSlot() {

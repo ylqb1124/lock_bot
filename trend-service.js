@@ -1,11 +1,16 @@
 const http = require('http');
 const crypto = require('crypto');
 const { STEP_SECONDS } = require('./trend-store');
+const clusterScope = require('./web/shared/cluster-scope.json');
+const { buildNodeTimeline, totalCardsAt } = require('./web/shared/cluster-scope-timeline.cjs');
 
 const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
-const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
-const MONITORED_NODES = Array.from({ length: 51 }, (_, index) => index + 1).filter(node => ![13, 14, 17].includes(node));
+const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
+const MONITORED_NODES = [
+  ...Array.from({ length: 51 }, (_, index) => index + 1).filter(node => ![13, 14, 15, 16, 17].includes(node)),
+  60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+];
 const ITEMS = ['XPU_AVERAGE_UTILIZATION', ...Array.from({ length: 8 }, (_, card) => `XPU${card}_MEM_UTILIZATION`)];
 const CLUSTER_KEY = crypto.createHash('sha256').update(JSON.stringify({ MONITORED_NODES, ITEMS })).digest('hex').slice(0, 16);
 const DAY_SECONDS = 24 * 60 * 60;
@@ -208,14 +213,14 @@ function createTrendService(config, store) {
     if (!authorization) return { lock: Array.from({ length: Math.floor((endAt - startAt) / STEP_SECONDS) + 1 }, () => null), lockDataAsOf: null };
     const headers = { authorization };
     const bots = await requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', headers);
-    const scopeKey = crypto.createHash('sha256').update(JSON.stringify((bots || []).map(bot => [bot.id, bot.type]).sort())).digest('hex').slice(0, 16);
-    const totalCards = MONITORED_NODES.length * CARD_COUNT;
+    const scopeKey = crypto.createHash('sha256').update(JSON.stringify({ version: 2, bots: (bots || []).map(bot => [bot.id, bot.type]).sort() })).digest('hex').slice(0, 16);
+    const timeline = buildNodeTimeline(clusterScope, MONITORED_NODES);
     const todayStart = todayStartCst();
     const historicalEnd = Math.min(endAt, todayStart - STEP_SECONDS);
     const missingDays = (historicalEnd >= startAt ? cstDayStarts(startAt, historicalEnd) : []).filter(dayStart => !store.hasLockDay(scopeKey, dayStart));
     await runWithConcurrency(missingDays, 2, async dayStart => {
       const records = (await Promise.all((bots || []).map(bot => requestJson(config.backend.lockbot.host, config.backend.lockbot.port, `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`, headers).catch(() => [])))).flat();
-      store.saveLockDay(scopeKey, dayStart, totalCards, occupancySamples(records, dayStart, dayStart + DAY_SECONDS - STEP_SECONDS));
+      store.saveLockDay(scopeKey, dayStart, totalCardsAt(timeline, CARD_COUNT, dayStart), occupancySamples(records, dayStart, dayStart + DAY_SECONDS - STEP_SECONDS));
     });
     if (endAt >= todayStart) {
       const [recordsByBot, states] = await Promise.all([
@@ -227,12 +232,13 @@ function createTrendService(config, store) {
         const endTime = toSeconds(record.end_time);
         return { node: nodeName(record.node_key ?? record.node ?? record.node_name), cards: recordCards(record), start, end: Number.isFinite(endTime) ? endTime : start + Number(record.duration_seconds ?? record.duration ?? 0) };
       }).filter(interval => interval.node).concat(stateIntervals(states.filter(Boolean), todayStart, Math.floor(Date.now() / 1000)));
-      store.saveLockDay(scopeKey, todayStart, totalCards, lockedCardSamples(intervals, todayStart, todayStart + DAY_SECONDS - STEP_SECONDS));
+      store.saveLockDay(scopeKey, todayStart, totalCardsAt(timeline, CARD_COUNT, todayStart), lockedCardSamples(intervals, todayStart, todayStart + DAY_SECONDS - STEP_SECONDS));
     }
     const rows = new Map(store.readLockRange(scopeKey, startAt, endAt).map(row => [row.sampled_at, row.locked_cards]));
     const lock = Array.from({ length: Math.floor((endAt - startAt) / STEP_SECONDS) + 1 }, (_, index) => {
-      const count = rows.get(startAt + index * STEP_SECONDS);
-      return Number.isFinite(count) ? count / totalCards * 100 : null;
+      const sampledAt = startAt + index * STEP_SECONDS;
+      const count = rows.get(sampledAt);
+      return Number.isFinite(count) ? count / totalCardsAt(timeline, CARD_COUNT, sampledAt) * 100 : null;
     });
     const last = lock.reduce((result, value, index) => Number.isFinite(value) ? startAt + index * STEP_SECONDS : result, null);
     return { lock, lockDataAsOf: last };

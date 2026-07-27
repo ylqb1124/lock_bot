@@ -344,7 +344,7 @@ function buildStats(currentNodes, xpu, memory, isLockStateComplete) {
   return [
     { label: '总节点', value: String(currentNodes.length), tone: 'total' },
     { label: '总卡数', value: String(totalCards), tone: 'total' },
-    { label: '节点使用率', value: isLockStateComplete ? percent(totalCards ? lockedCards / totalCards * 100 : null) : '--', tone: 'locked', tip: '当前已通过 Lock Bot 锁定的 XPU 卡占 46 个计算节点总卡数的比例，反映计算资源已分配给任务的规模。' },
+    { label: '节点使用率', value: isLockStateComplete ? percent(totalCards ? lockedCards / totalCards * 100 : null) : '--', tone: 'locked', tip: '当前已通过 Lock Bot 锁定的 XPU 卡占全部计算节点总卡数的比例，反映计算资源已分配给任务的规模。' },
     { label: 'XPU卡平均利用率/峰值利用率', value: pair(xpu), tone: 'xpu-avg', tip: '平均利用率反映所选时段内集群整体计算负载；峰值利用率反映该时段最高负载水平。' },
     { label: '显存平均利用率/峰值利用率', value: pair(memory), tone: 'mem-avg', tip: '平均利用率反映所选时段内集群整体显存压力；峰值利用率反映该时段最高显存压力。' },
   ];
@@ -836,7 +836,7 @@ onBeforeUnmount(() => {
 
 
       <section class="charts-row">
-        <article class="chart-panel"><div class="chart-panel-head"><div class="chart-panel-title chart-title-with-tip">节点使用率趋势<button type="button" class="tip-icon" aria-label="查看绘图规则" @click.stop="openTip = openTip === 'lock-chart' ? '' : 'lock-chart'">?</button><div class="tip-popup" :class="{ show: openTip === 'lock-chart' }"><div>展示所选时段内已锁定 XPU 卡占 46 个计算节点总卡数的变化。</div><div>用于观察计算资源分配规模及任务排期趋势。</div></div></div><button type="button" class="avg-mean-toggle" :class="{ active: meanVisible }" :aria-pressed="meanVisible" @click="meanVisible = !meanVisible; drawAllCharts()">均值线</button></div><div class="chart-wrap"><canvas ref="lockCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="lockTooltip" class="chart-tooltip"></div></div></article>
+        <article class="chart-panel"><div class="chart-panel-head"><div class="chart-panel-title chart-title-with-tip">节点使用率趋势<button type="button" class="tip-icon" aria-label="查看绘图规则" @click.stop="openTip = openTip === 'lock-chart' ? '' : 'lock-chart'">?</button><div class="tip-popup" :class="{ show: openTip === 'lock-chart' }"><div>展示所选时段内已锁定 XPU 卡占全部计算节点总卡数的变化。</div><div>用于观察计算资源分配规模及任务排期趋势。</div></div></div><button type="button" class="avg-mean-toggle" :class="{ active: meanVisible }" :aria-pressed="meanVisible" @click="meanVisible = !meanVisible; drawAllCharts()">均值线</button></div><div class="chart-wrap"><canvas ref="lockCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="lockTooltip" class="chart-tooltip"></div></div></article>
         <article class="chart-panel"><div class="chart-panel-title">XPU卡利用率趋势</div><div class="chart-wrap"><canvas ref="xpuCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="xpuTooltip" class="chart-tooltip"></div></div></article>
         <article class="chart-panel"><div class="chart-panel-title">显存利用率趋势</div><div class="chart-wrap"><canvas ref="memoryCanvas"></canvas><div v-if="trendLoading" class="chart-loading">正在加载趋势数据</div><div ref="memoryTooltip" class="chart-tooltip"></div></div></article>
       </section>

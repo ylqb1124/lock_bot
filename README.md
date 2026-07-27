@@ -4,7 +4,7 @@
 
 ## 功能与数据口径
 
-- 监控范围由 `web/shared/cluster-scope.json` 固定：46 个计算节点、每节点 8 卡，共 368 卡；BDC 节点不进入集群趋势分母。
+- 监控范围由 `web/shared/cluster-scope.json` 固定：56 个计算节点、每节点 8 卡，共 448 卡；BDC 节点不进入集群趋势分母。
 - 当前节点状态取最近已完成的 5 分钟采样槽。XPU 或显存利用率达到 10% 时，该卡为 BUSY；卡级采样不完整时保留 `UNKNOWN`，不将缺失数据误判为空闲。
 - Lock Bot 的 NODE/QUEUE 锁覆盖全节点；DEVICE 锁仅覆盖 `device_id` 指定的卡。趋势按唯一的“节点:卡”集合计算，避免重叠记录重复计数。
 - `/api/cluster-trend` 同时返回 XPU、显存与锁定卡比例。历史 Lock Bot 请求不完整时，锁定趋势返回 `null`，不会伪装为 0%。

@@ -34,9 +34,9 @@ npm start        # 启动 Node 代理 + 生产构建（server/proxy.cjs，默认
 ### web/（生产应用）
 
 - `web/src/views/ClusterDashboard.vue`：页面入口，编排 UI。
-- `web/src/services/`：所有业务逻辑所在层——API 请求（`api.js`）、Lock Bot 状态合并（`cluster-state.js`）、Monquery 数据适配（`adapter.js`）、中国时区转换（`china-time.js`）、图表数据（`chart-data.js`）、自动刷新策略（`auto-refresh.js`）。**保持请求逻辑位于 service、数据转换位于 adapter、页面渲染位于 view**，不要在组件里内联这些逻辑。
+- `web/src/services/`：所有业务逻辑所在层——API 请求（`api.js`）、Lock Bot 状态合并（`cluster-state.js`）、Monquery 数据适配（`adapter.js`）、中国时区转换（`china-time.js`）、图表数据（`chart-data.js`）、自动刷新策略（`auto-refresh.js`）。**保持请求逻辑位于 service、数据转换位于 adapter、页面渲染位于 view**，不要在组件里内联这些逻辑。`api.js` 中 Monquery 请求按节点分批并行发起（`Promise.all`/`Promise.race`），实测节点级查询（首屏）与卡级明细查询（渐进渲染）均在亚秒级完成，新增 Monquery 查询时沿用并行批量请求模式，不要改成串行请求。
 - `web/server/`：Node 代理（`proxy.cjs`，默认监听 8900）、趋势服务（`trend-service.cjs`）、SQLite 趋势存储与 Lock Bot 历史缓存（`trend-store.cjs`）。
-- `web/shared/cluster-scope.json`：**监控范围的唯一权威来源**——46 个计算节点、每节点 8 卡，共 368 卡；BDC 节点不计入集群趋势分母。任何涉及节点/卡数量的逻辑都应引用这个文件，不要硬编码或重复定义常量。
+- `web/shared/cluster-scope.json`：**监控范围的唯一权威来源**——56 个计算节点、每节点 8 卡，共 448 卡；BDC 节点不计入集群趋势分母。任何涉及节点/卡数量的逻辑都应引用这个文件，不要硬编码或重复定义常量。
 - `web/test/cluster-data.test.mjs`：覆盖集群范围、状态适配、趋势计算、缓存与刷新策略。新增聚合、锁覆盖、区间或缓存相关改动时，在此文件补充对应用例。
 
 代理路由（`web/server/proxy.cjs`）：
@@ -68,7 +68,7 @@ JavaScript/Vue：两个空格缩进、分号、单引号。函数用 camelCase�
 
 - 代码目录：`/root/workspace/monitor`；分支：`lmonitor`。
 - 主应用目录：`/root/workspace/monitor/web`；服务监听 `8900`。
-- PM2 服务名：`monitor-cluster`（集群）、`lockbot`。**不要启动历史停止进程 `xpu-monitor`**。
+- PM2 服务名：`cluster`（集群）、`lockbot`。**不要启动历史停止进程 `xpu-monitor`**。
 - PM2 由已启用的 `pm2-root.service` 在开机时从 `/root/.pm2/dump.pm2` 恢复进程列表；该 systemd 单元显示 `inactive (dead)` 是正常现象。
 
 发布步骤（`npm ci` 必须在 `web/` 内运行）：
@@ -82,9 +82,9 @@ npm ci
 npm test
 npm run build
 
-pm2 restart monitor-cluster
+pm2 restart cluster
 pm2 status
-pm2 logs monitor-cluster --lines 50 --nostream
+pm2 logs cluster --lines 50 --nostream
 pm2 save
 ```
 

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-The current production dashboard is `web/`, a Vue 3/Vite app. `web/src/views/ClusterDashboard.vue` orchestrates the UI; `src/services/` owns API calls, data adaptation, time handling, charts, refresh policy, and Lock Bot state merging. `web/server/` provides the Node proxy plus persisted cluster trends and Lock Bot history cache. The fixed 46-node, 8-card scope is in `web/shared/cluster-scope.json`.
+The current production dashboard is `web/`, a Vue 3/Vite app. `web/src/views/ClusterDashboard.vue` orchestrates the UI; `src/services/` owns API calls, data adaptation, time handling, charts, refresh policy, and Lock Bot state merging. `web/server/` provides the Node proxy plus persisted cluster trends and Lock Bot history cache. `web/shared/cluster-scope.json` is the source of truth for the current 56-node, 8-card scope and its China-time `nodeGroups` rollout history.
 
 The repository root retains the legacy static dashboard (`index.html`, `api.js`, `adapter.js`, `timeline.js`, `proxy.js`). `person/` is a separate personal Vue dashboard. Deployment files include `web/pm2.config.cjs` and `web/xpu-monitor.service`.
 
@@ -21,8 +21,8 @@ Use two-space indentation, semicolons, and single quotes in Vue/JavaScript. Use 
 
 ## Testing Guidelines
 
-Add focused cases to `web/test/cluster-data.test.mjs` for changes to aggregation, lock coverage, ranges, or cache behavior. Use descriptive `node:test` names that state the business rule. No lint task is configured.
+Add focused cases to `web/test/cluster-data.test.mjs` for changes to aggregation, lock coverage, ranges, cache behavior, or historical node scope. Lock-trend tests must verify the denominator at both sides of a `nodeGroups.effectiveFrom` boundary. Use descriptive `node:test` names that state the business rule. No lint task is configured.
 
 ## Commit, Security & Configuration
 
-Use concise imperative Chinese commits, such as `修复趋势节点范围校验`. PRs should describe user-visible behavior, API/configuration effects, validation commands, related issues, and screenshots for UI work. Start from `config.example.json`; never commit endpoints, credentials, tokens, or authorization headers. Prefer `PROXY_PORT`, `LOCKBOT_HOST`, and `MONQUERY_HOST` overrides for deployment-specific configuration.
+Use concise imperative Chinese commits, such as `修复趋势节点范围校验`. PRs should describe user-visible behavior, API/configuration effects, validation commands, related issues, and screenshots for UI work. Start from `config.example.json`; never commit credentials, tokens, or authorization headers. Prefer `PROXY_PORT`, `LOCKBOT_HOST`, and `MONQUERY_HOST` overrides for deployment-specific configuration.

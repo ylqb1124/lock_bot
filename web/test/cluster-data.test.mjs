@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import clusterScope from '../shared/cluster-scope.json' with { type: 'json' };
 import { adaptNodeData } from '../src/services/adapter.js';
 import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } from '../src/services/auto-refresh.js';
@@ -12,17 +15,39 @@ import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/serv
 
 const require = createRequire(import.meta.url);
 const { createTrendService, _private } = require('../server/trend-service.cjs');
+const { pruneLockHistoryCache } = _private;
 
 function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
 }
 
-test('cluster scope uses the fixed 46-node, 368-card computation denominator', () => {
-  assert.equal(clusterScope.nodeIds.length, 46);
+test('cluster scope uses the current 56-node, 448-card computation denominator', () => {
+  assert.equal(clusterScope.nodeIds.length, 56);
   assert.equal(clusterScope.cardsPerNode, 8);
-  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 368);
+  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 448);
   assert.equal(clusterScope.nodeIds.includes(15), false);
   assert.equal(clusterScope.nodeIds.includes(16), false);
+  assert.equal(clusterScope.nodeIds.includes(60), true);
+  assert.equal(clusterScope.nodeIds.includes(69), true);
+  assert.equal(clusterScope.nodeIds.includes(70), false);
+  assert.equal(clusterScope.nodeIds.includes(79), false);
+});
+
+test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', () => {
+  const groupIds = clusterScope.nodeGroups.flatMap(group => group.nodeIds).slice().sort((a, b) => a - b);
+  const flatIds = [...clusterScope.nodeIds].sort((a, b) => a - b);
+  assert.deepEqual(groupIds, flatIds);
+});
+
+test('pending nodes retain their activation metadata without entering the current scope', () => {
+  const [pendingGroup] = clusterScope.pendingNodeGroups;
+  assert.equal(pendingGroup.status, 'pending');
+  assert.deepEqual(pendingGroup.nodes.map(node => node.nodeId), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
+  assert.ok(pendingGroup.nodes.every(node => node.nodeKey === `node${node.nodeId}`));
+  assert.ok(pendingGroup.nodes.every(node => node.hostname === `wxtky02-p800-8nic-vd-node${node.nodeId}.wxtky02`));
+  assert.equal(pendingGroup.nodes.find(node => node.nodeId === 70).ip, '10.206.192.168');
+  assert.equal(pendingGroup.nodes.find(node => node.nodeId === 79).ip, '10.206.192.103');
+  assert.ok(pendingGroup.nodes.every(node => !clusterScope.nodeIds.includes(node.nodeId)));
 });
 
 test('current Monquery timeout is shorter than the general request timeout', () => {
@@ -149,7 +174,7 @@ test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {
     },
   ]);
 
-  assert.equal(Object.keys(merged.deviceState).length, 46);
+  assert.equal(Object.keys(merged.deviceState).length, 56);
   assert.equal(merged.lockStateComplete, true);
   assert.equal(merged.deviceState.node1.length, CARD_COUNT);
   assert.equal(merged.deviceState.node1[0].current_users.length, 1);
@@ -245,6 +270,77 @@ test('a failed server time request leaves the previous offset untouched', async 
   assert.equal(currentOffsetMs(), offsetBefore);
 });
 
+test('a flaky bot list does not fragment the lock history cache key', async () => {
+  let botListVariant = 0;
+  let occupancyCalls = 0;
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      botListVariant += 1;
+      const bots = botListVariant === 1
+        ? [{ id: 1, bot_type: 'DEVICE' }]
+        : [{ id: 1, bot_type: 'DEVICE' }, { id: 2, bot_type: 'NODE' }];
+      response.end(JSON.stringify(bots));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/')) {
+      occupancyCalls += 1;
+      response.end(JSON.stringify([]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  const recordsByKey = new Map();
+  const cache = {
+    read(dayStart, scopeKey) { return recordsByKey.get(`${dayStart}:${scopeKey}`) || null; },
+    save(dayStart, scopeKey, records) { recordsByKey.set(`${dayStart}:${scopeKey}`, records); },
+  };
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: cache });
+
+    await service.query(0, 300, 'Bearer test', null, 300);
+    await service.query(0, 300, 'Bearer test', null, 300);
+
+    assert.equal(recordsByKey.size, 1, 'a differently-ordered/sized bot list should reuse the same cache entry');
+    assert.equal(occupancyCalls, 1, 'the second request should be served from cache, not refetched');
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('pruning the lock history cache removes only files older than the max age', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lock-history-'));
+  try {
+    const oldDate = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+    const oldKey = `${oldDate.getFullYear()}-${String(oldDate.getMonth() + 1).padStart(2, '0')}-${String(oldDate.getDate()).padStart(2, '0')}`;
+    const recentDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    const recentKey = `${recentDate.getFullYear()}-${String(recentDate.getMonth() + 1).padStart(2, '0')}-${String(recentDate.getDate()).padStart(2, '0')}`;
+    fs.writeFileSync(path.join(directory, `abc123-${oldKey}.json`), '{}');
+    fs.writeFileSync(path.join(directory, `abc123-${recentKey}.json`), '{}');
+    fs.writeFileSync(path.join(directory, 'not-a-cache-file.json'), '{}');
+    fs.writeFileSync(path.join(directory, 'abc123-58511-06-25.json'), '{}');
+
+    const result = pruneLockHistoryCache(180, directory);
+
+    assert.equal(result.removed, 1, 'only the genuinely old dated file should be removed');
+    const remaining = fs.readdirSync(directory).sort();
+    assert.deepEqual(remaining, [`abc123-${recentKey}.json`, 'abc123-58511-06-25.json', 'not-a-cache-file.json'].sort());
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('automatic refresh only applies to a current range no longer than 24 hours', () => {
   const now = Date.UTC(2026, 6, 16, 8, 0, 0);
   assert.equal(shouldAutoRefresh(now - 3 * 60 * 60 * 1000, now - 60_000, now), true);
@@ -291,11 +387,13 @@ test('Lock Bot BDC cards are excluded from the computation-node trend', async ()
     }, { lockHistoryCache: { read: () => null, save: () => {} } });
     const result = await service.query(0, 300, 'Bearer test', null, 300);
 
-    assert.equal(result.targetNodes.length, 46);
+    assert.equal(result.targetNodes.length, 56);
     assert.equal(result.targetNodes.includes('bdc9'), false);
     assert.equal(result.lock[0], 0);
     assert.equal(monqueryNamespaces.length, 3);
     assert.equal(monqueryNamespaces.some(namespaces => /bdc|NaN/i.test(namespaces)), false);
+    assert.equal(monqueryNamespaces.some(namespaces => namespaces.includes('wxtky02-p800-8nic-vd-node70.wxtky02')), false);
+    assert.equal(monqueryNamespaces.some(namespaces => namespaces.includes('wxtky02-p800-8nic-vd-node79.wxtky02')), false);
   } finally {
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
   }
@@ -385,6 +483,131 @@ test('complete historical Lock Bot days are cached and identical trend requests 
     assert.equal(botCalls, 2);
     assert.equal(occupancyCalls, 1);
     assert.equal(recordsByKey.size, 1);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('Monquery trends only query nodes active at each scope boundary', async (t) => {
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2026-07-28T00:00:00+08:00').getTime();
+  t.after(() => { Date.now = originalDateNow; });
+
+  const firstBefore = Math.floor(new Date('2026-07-23T23:55:00+08:00').getTime() / 1000);
+  const firstAfter = Math.floor(new Date('2026-07-24T00:00:00+08:00').getTime() / 1000);
+  const monqueryRequests = [];
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      const params = new URL(request.url, 'http://localhost').searchParams;
+      const nodes = params.get('namespaces').match(/node\d+/g).map(name => Number(name.slice(4)));
+      const start = params.get('start');
+      const end = params.get('end');
+      monqueryRequests.push({ start, nodes });
+      const timestamps = [start, end].map(value => Math.floor(new Date(
+        `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(8, 10)}:${value.slice(10, 12)}:${value.slice(12, 14)}+08:00`
+      ).getTime() / 1000));
+      response.end(JSON.stringify({ data: nodes.map(node => {
+        const xpu = node === 1 ? 10 : 90;
+        const memory = node === 1 ? 20 : 80;
+        return {
+          NameSpace: `node${node}`,
+          Items: {
+            XPU_AVERAGE_UTILIZATION: timestamps.map(Timestamp => ({ Timestamp, Value: xpu })),
+            XPU0_MEM_UTILIZATION: timestamps.map(Timestamp => ({ Timestamp, Value: memory })),
+          },
+        };
+      }) }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const firstExpansion = await service.query(firstBefore, firstAfter, 'Bearer test', ['node1', 'node60'], 300);
+
+    assert.deepEqual(firstExpansion.xpu, [10, 50]);
+    assert.deepEqual(firstExpansion.memory, [20, 50]);
+    const nodesByWindowStart = new Map(monqueryRequests.map(request => [request.start, request.nodes]));
+    assert.deepEqual(nodesByWindowStart.get('20260723235500'), [1]);
+    assert.deepEqual(nodesByWindowStart.get('20260724000000'), [1, 60]);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('lock rate adds node60 through node69 from their effective date', async (t) => {
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2026-07-28T00:00:00+08:00').getTime();
+  t.after(() => { Date.now = originalDateNow; });
+
+  const beforeDayStart = Math.floor(new Date('2026-07-23T00:00:00+08:00').getTime() / 1000);
+  const afterDayStart = Math.floor(new Date('2026-07-24T00:00:00+08:00').getTime() / 1000);
+  const oldGroupCount = clusterScope.nodeGroups
+    .filter(group => group.effectiveFrom < '2026-07-24')
+    .flatMap(group => group.nodeIds)
+    .length;
+  const newGroupCount = clusterScope.nodeGroups.find(group => group.effectiveFrom === '2026-07-24').nodeIds.length;
+  const oldTotalCards = oldGroupCount * clusterScope.cardsPerNode;
+  const newTotalCards = (oldGroupCount + newGroupCount) * clusterScope.cardsPerNode;
+
+  assert.equal(oldGroupCount, 46);
+  assert.equal(newGroupCount, 10);
+
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'NODE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      // node60 跨越生效日期的锁定不能出现在生效前的分子中。
+      response.end(JSON.stringify([{
+        node_key: 'node1',
+        dev_id: 0,
+        start_time: beforeDayStart,
+        end_time: afterDayStart + 24 * 60 * 60,
+      }, {
+        node_key: 'node60',
+        dev_id: 0,
+        start_time: beforeDayStart,
+        end_time: afterDayStart + 24 * 60 * 60,
+      }]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(beforeDayStart, afterDayStart, 'Bearer test', null, 300);
+
+    const beforeIndex = 0;
+    const afterIndex = result.times.indexOf(afterDayStart);
+    assert.ok(afterIndex > 0, 'afterDayStart sample should be present in the range');
+    assert.equal(result.lock[beforeIndex], 1 / oldTotalCards * 100);
+    assert.equal(result.lock[afterIndex], 2 / newTotalCards * 100);
   } finally {
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
   }

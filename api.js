@@ -11,15 +11,16 @@ const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
 
 // 非 backup namespace 的节点
-const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51];
+const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69];
 
-// 集群趋势的固定统计范围：46 个计算节点。该范围与 web/shared/cluster-scope.json 保持一致；
+// 集群趋势的固定统计范围：56 个计算节点。该范围与 web/shared/cluster-scope.json 保持一致；
 // node13、14、15、16、17 不参与集群趋势，也不会被请求 Monquery。
 const MONITORED_NODES = [
   1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
   18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
   32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
   46, 47, 48, 49, 50, 51,
+  60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
 ];
 const CARDS_PER_NODE = 8;
 
@@ -248,7 +249,7 @@ export async function* fetchMonqueryCardUtilizationBatches(start, end, options =
 }
 
 /**
- * 批量查询 48 个节点的完整监控数据（保留兼容 average.html 等旧调用）
+ * 批量查询固定监控节点集合（详见 MONITORED_NODES，与 web/shared/cluster-scope.json 保持一致）的完整监控数据（保留兼容 average.html 等旧调用）
  * @param {string} start - 起始时间 YYYYMMDDHHmmss
  * @param {string} end   - 结束时间 YYYYMMDDHHmmss
  * @returns {Promise<Array>} monquery data[] 数组

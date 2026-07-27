@@ -4,10 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const { performance } = require('node:perf_hooks');
 const clusterScope = require('../shared/cluster-scope.json');
+const { buildNodeScopeTimeline, buildNodeTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
 
 const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
-const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
+const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
 const MONITORED_NODES = clusterScope.nodeIds;
 const CARD_COUNT = clusterScope.cardsPerNode;
 const ITEMS = ['XPU_AVERAGE_UTILIZATION', ...Array.from({ length: CARD_COUNT }, (_, card) => `XPU${card}_MEM_UTILIZATION`)];
@@ -15,7 +16,10 @@ const MONQUERY_NODE_BATCH_SIZE = 16;
 const DAY_SECONDS = 24 * 60 * 60;
 const CST_OFFSET_SECONDS = 8 * 60 * 60;
 const LOCK_HISTORY_CACHE_DIR = path.join(__dirname, '..', '.devdata', 'lock-history');
-const LOCK_HISTORY_CACHE_VERSION = 2;
+const LOCK_HISTORY_CACHE_VERSION = 4;
+const LOCK_HISTORY_CACHE_MAX_AGE_DAYS = 180;
+const LOCK_HISTORY_CACHE_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const LOCK_HISTORY_CACHE_FILENAME_PATTERN = /-(\d{4,})-(\d{2})-(\d{2})\.json$/;
 
 function formatMonqueryDateTime(timestamp) {
   const date = new Date((timestamp + CST_OFFSET_SECONDS) * 1000);
@@ -81,6 +85,32 @@ function defaultLockHistoryCache() {
   };
 }
 
+function pruneLockHistoryCache(maxAgeDays = LOCK_HISTORY_CACHE_MAX_AGE_DAYS, directory = LOCK_HISTORY_CACHE_DIR) {
+  let entries;
+  try {
+    entries = fs.readdirSync(directory);
+  } catch {
+    return { removed: 0, scanned: 0 };
+  }
+  const cutoff = Date.now() - maxAgeDays * DAY_SECONDS * 1000;
+  let removed = 0;
+  for (const entry of entries) {
+    const match = entry.match(LOCK_HISTORY_CACHE_FILENAME_PATTERN);
+    if (!match) continue;
+    const [, year, month, day] = match;
+    const fileDate = new Date(Number(year), Number(month) - 1, Number(day));
+    if (Number.isNaN(fileDate.getTime()) || fileDate.getTime() >= cutoff) continue;
+    try {
+      fs.unlinkSync(path.join(directory, entry));
+      removed += 1;
+    } catch (error) {
+      console.warn(`Lock history cache prune failed for ${entry}: ${error.message}`);
+    }
+  }
+  if (removed) console.info(`[cluster] 已清理 ${removed} 个超过 ${maxAgeDays} 天的锁定历史缓存文件`);
+  return { removed, scanned: entries.length };
+}
+
 function namespace(node) {
   const cluster = NON_BACKUP_NODES.has(node) ? CLUSTER_NON_BACKUP : CLUSTER_BACKUP;
   return `${cluster}-node${node}.wxtky02`;
@@ -130,13 +160,37 @@ function parseSamples(response, startAt, endAt, intervalSeconds) {
   });
 }
 
-async function fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, requestedNodes = null) {
-  const nodes = requestedNodes
-    ? requestedNodes
-      .map(node => String(node).match(/^node(\d+)$/i))
-      .map(match => match ? Number(match[1]) : NaN)
-      .filter(node => MONITORED_NODES.includes(node))
-    : MONITORED_NODES;
+function monitoredNodeIds(requestedNodes = null) {
+  if (!requestedNodes) return MONITORED_NODES;
+  const requestedIds = new Set(requestedNodes
+    .map(node => String(node).match(/^node(\d+)$/i))
+    .map(match => match ? Number(match[1]) : NaN)
+    .filter(node => MONITORED_NODES.includes(node)));
+  return MONITORED_NODES.filter(node => requestedIds.has(node));
+}
+
+function sameNodeIds(left, right) {
+  return left.length === right.length && left.every((nodeId, index) => nodeId === right[index]);
+}
+
+function monqueryWindows(scopeTimeline, startAt, endAt, intervalSeconds) {
+  const windows = [];
+  let window = null;
+  for (let sampledAt = startAt; sampledAt <= endAt; sampledAt += intervalSeconds) {
+    const nodeIds = nodeIdsAt(scopeTimeline, sampledAt);
+    if (!window || !sameNodeIds(window.nodeIds, nodeIds)) {
+      if (window) windows.push(window);
+      window = { startAt: sampledAt, endAt: sampledAt, nodeIds };
+    } else {
+      window.endAt = sampledAt;
+    }
+  }
+  if (window) windows.push(window);
+  return windows;
+}
+
+async function fetchMonqueryNodes(config, startAt, endAt, intervalSeconds, nodes) {
+  if (!nodes.length) return parseSamples([], startAt, endAt, intervalSeconds);
   const batches = [];
   for (let index = 0; index < nodes.length; index += MONQUERY_NODE_BATCH_SIZE) {
     batches.push(nodes.slice(index, index + MONQUERY_NODE_BATCH_SIZE));
@@ -152,6 +206,20 @@ async function fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, requ
     return requestJson(config.backend.monquery.host, config.backend.monquery.port, `/monquery/getHistoryitemdata?${params}`);
   }));
   return parseSamples(responses.flatMap(normalizeEntries), startAt, endAt, intervalSeconds);
+}
+
+async function fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, requestedNodes = null) {
+  const targetNodeIds = monitoredNodeIds(requestedNodes);
+  const scopeTimeline = buildNodeScopeTimeline(clusterScope, targetNodeIds);
+  const windows = monqueryWindows(scopeTimeline, startAt, endAt, intervalSeconds);
+  const samples = await Promise.all(windows.map(window => fetchMonqueryNodes(
+    config,
+    window.startAt,
+    window.endAt,
+    intervalSeconds,
+    window.nodeIds,
+  )));
+  return { samples: samples.flat(), nodeCounts: windows.map(window => window.nodeIds.length) };
 }
 
 async function runWithConcurrency(values, limit, work) {
@@ -202,13 +270,14 @@ function botType(bot) {
   return String(bot?.bot_type || bot?.type || 'NODE').toUpperCase();
 }
 
-function lockedCardSamples(intervals, startAt, endAt, intervalSeconds) {
+function lockedCardSamples(intervals, startAt, endAt, intervalSeconds, activeNodesAt = null) {
   const locked = new Map();
   for (const interval of intervals) {
     const start = interval.start;
     const end = interval.end;
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
     for (let timestamp = Math.max(startAt, Math.floor(start / intervalSeconds) * intervalSeconds); timestamp <= Math.min(endAt, end - 1); timestamp += intervalSeconds) {
+      if (activeNodesAt && !activeNodesAt(timestamp).has(interval.node)) continue;
       const cards = locked.get(timestamp) || new Set();
       for (const card of interval.cards) cards.add(`${interval.node}:${card}`);
       locked.set(timestamp, cards);
@@ -270,7 +339,6 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
   const scopeKey = hashKey({
     version: LOCK_HISTORY_CACHE_VERSION,
     nodes: [...targetNodes].sort(),
-    bots: (bots || []).map(bot => [bot.id, botType(bot)]).sort((first, second) => String(first[0]).localeCompare(String(second[0]))),
   });
   const intervals = [];
   const unavailableDays = new Set();
@@ -334,9 +402,18 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
     intervals.push(...stateIntervals(states.filter(state => state.ok), todayStart, Math.floor(Date.now() / 1000)).filter(interval => targetNodes.has(interval.node)));
   }
 
-  const totalCards = targetNodes.size * CARD_COUNT;
-  const samples = lockedCardSamples(intervals, startAt, endAt, intervalSeconds);
-  const lock = samples.map(sample => unavailableDays.has(cstDayStart(sample.sampledAt)) ? null : sample.lockedCards / totalCards * 100);
+  const targetNodeIds = monitoredNodeIds([...targetNodes]);
+  const scopeTimeline = buildNodeScopeTimeline(clusterScope, targetNodeIds);
+  const timeline = buildNodeTimeline(clusterScope, targetNodeIds);
+  const activeNodeNames = new Map();
+  const activeNodesAt = sampledAt => {
+    if (!activeNodeNames.has(sampledAt)) {
+      activeNodeNames.set(sampledAt, new Set(nodeIdsAt(scopeTimeline, sampledAt).map(nodeId => `node${nodeId}`)));
+    }
+    return activeNodeNames.get(sampledAt);
+  };
+  const samples = lockedCardSamples(intervals, startAt, endAt, intervalSeconds, activeNodesAt);
+  const lock = samples.map(sample => unavailableDays.has(cstDayStart(sample.sampledAt)) ? null : sample.lockedCards / totalCardsAt(timeline, CARD_COUNT, sample.sampledAt) * 100);
   const last = lock.reduce((result, value, index) => Number.isFinite(value) ? startAt + index * intervalSeconds : result, null);
   return { lock, lockDataAsOf: last, lockStatus: { complete: failureCount === 0, failureCount } };
 }
@@ -344,6 +421,10 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
 function createTrendService(config, options = {}) {
   const inflight = new Map();
   const lockHistoryCache = options.lockHistoryCache || defaultLockHistoryCache();
+  if (!options.lockHistoryCache && options.pruneOnStart !== false) {
+    pruneLockHistoryCache();
+    setInterval(pruneLockHistoryCache, LOCK_HISTORY_CACHE_PRUNE_INTERVAL_MS).unref();
+  }
   const share = (key, work) => {
     if (!inflight.has(key)) {
       inflight.set(key, Promise.resolve().then(work).finally(() => inflight.delete(key)));
@@ -365,12 +446,15 @@ function createTrendService(config, options = {}) {
       return share(key, async () => {
         const startedAt = performance.now();
         let monqueryMs = 0;
+        let monqueryNodeCounts = [];
         let lockMs = 0;
         let completed = false;
         try {
           const monqueryStartedAt = performance.now();
-          const samples = await fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, targetNodes);
+          const monquery = await fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, targetNodes);
           monqueryMs = performance.now() - monqueryStartedAt;
+          monqueryNodeCounts = monquery.nodeCounts;
+          const { samples } = monquery;
           const times = samples.map(sample => sample.sampledAt);
           const xpu = samples.map(sample => sample.xpu);
           const memory = samples.map(sample => sample.memory);
@@ -382,7 +466,7 @@ function createTrendService(config, options = {}) {
           return { times, xpu, memory, ...lock, dataAsOf, targetNodes, cache: { mode: 'lock-history' } };
         } finally {
           console.info(
-            `[cluster] 趋势请求${completed ? '完成' : '失败'} · 总计 ${formatDuration(performance.now() - startedAt)} · Monquery ${formatDuration(monqueryMs)} · Lock Bot ${formatDuration(lockMs)} · Lock Bot 节点 ${targetNodes.length} · Monquery 节点 ${MONITORED_NODES.length} · 批次 ${Math.ceil(MONITORED_NODES.length / MONQUERY_NODE_BATCH_SIZE)} · ${formatMonqueryDateTime(startAt)}-${formatMonqueryDateTime(endAt)}`,
+            `[cluster] 趋势请求${completed ? '完成' : '失败'} · 总计 ${formatDuration(performance.now() - startedAt)} · Monquery ${formatDuration(monqueryMs)} · Lock Bot ${formatDuration(lockMs)} · Lock Bot 节点 ${targetNodes.length} · Monquery 节点 ${monqueryNodeCounts.join('→') || 0} · 批次 ${monqueryNodeCounts.map(count => Math.ceil(count / MONQUERY_NODE_BATCH_SIZE)).join('→') || 0} · ${formatMonqueryDateTime(startAt)}-${formatMonqueryDateTime(endAt)}`,
           );
         }
       });
@@ -392,5 +476,5 @@ function createTrendService(config, options = {}) {
 
 module.exports = {
   createTrendService,
-  _private: { botType, lockedCardSamples, occupancyIntervals, stateIntervals },
+  _private: { botType, lockedCardSamples, occupancyIntervals, stateIntervals, pruneLockHistoryCache },
 };
