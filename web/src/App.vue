@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { fetchLockBotList, loginLockBot } from './services/api.js';
 import ClusterDashboard from './views/ClusterDashboard.vue';
+import TeamDashboard from './views/TeamDashboard.vue';
 
 const SESSION_KEY = 'xpu-monitor-session';
 const SESSION_TTL = 4 * 60 * 60 * 1000;
@@ -13,6 +14,10 @@ const loginError = ref('');
 const loggingIn = ref(false);
 
 const loggedIn = computed(() => Boolean(token.value));
+const isTeamView = computed(() => {
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+  return pathname === '/team' || pathname === '/app/team';
+});
 
 function restoreSession() {
   try {
@@ -68,5 +73,12 @@ async function login() {
       <button class="primary-button login-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '登录中...' : '登录' }}</button>
     </form>
   </div>
-  <ClusterDashboard v-else :token="token" @expired="logout" />
+  <div v-else class="app-shell">
+    <nav class="app-navigation" aria-label="主导航">
+      <a href="/" :class="{ active: !isTeamView }" :aria-current="!isTeamView ? 'page' : undefined">集群视图</a>
+      <a href="/team" :class="{ active: isTeamView }" :aria-current="isTeamView ? 'page' : undefined">团队视图</a>
+    </nav>
+    <TeamDashboard v-if="isTeamView" :token="token" />
+    <ClusterDashboard v-else :token="token" @expired="logout" />
+  </div>
 </template>

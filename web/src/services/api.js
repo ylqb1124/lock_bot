@@ -259,6 +259,18 @@ export async function fetchClusterTrend(start, end, token, intervalSeconds, node
   return resp.json();
 }
 
+export async function fetchTeamDashboard(start, end, token) {
+  const params = new URLSearchParams({
+    start: String(Math.floor(start.getTime() / 1000)),
+    end: String(Math.floor(end.getTime() / 1000)),
+  });
+  const resp = await fetchWithTimeout(`/api/team-dashboard?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }, 180_000);
+  if (!resp.ok) throw new Error(`Fetch team dashboard failed: ${resp.status}`);
+  return resp.json();
+}
+
 export async function fetchMonqueryUtilization(start, end, options = {}) {
   const tasks = [];
   for (const [sliceStart, sliceEnd] of makeTimeSlices(start, end)) {

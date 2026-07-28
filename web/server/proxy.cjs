@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createTrendService } = require('./trend-service.cjs');
+const { createTeamService, _private: teamPrivate } = require('./team-service.cjs');
 const clusterScope = require('../shared/cluster-scope.json');
 
 const WEB_ROOT = path.resolve(__dirname, '..');
@@ -65,6 +66,8 @@ if (process.env.MONQUERY_HOST) config.backend.monquery.host = process.env.MONQUE
 if (process.env.MONQUERY_PORT) config.backend.monquery.port = Number.parseInt(process.env.MONQUERY_PORT, 10);
 
 const trendService = createTrendService(config);
+const teamService = createTeamService(config);
+teamService.schedule();
 const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -191,6 +194,19 @@ function serveStatic(req, res) {
   });
 }
 
+function sendJson(res, statusCode, value) {
+  res.writeHead(statusCode, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(value));
+}
+
+function sendApiError(res, error) {
+  const statusCode = Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 600
+    ? error.statusCode
+    : 502;
+  if (statusCode >= 500) console.error(`Team API failed: ${error?.message || 'Unknown error'}`);
+  sendJson(res, statusCode, { error: error?.message || 'Team API failed' });
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -233,6 +249,28 @@ const server = http.createServer((req, res) => {
         res.writeHead(502, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Trend query failed', detail: error.message }));
       });
+  }
+  const requestUrl = new URL(req.url, 'http://localhost');
+  if (requestUrl.pathname === '/api/team-membership') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+    return teamService.getMembership(req.headers.authorization)
+      .then(data => sendJson(res, 200, data))
+      .catch(error => sendApiError(res, error));
+  }
+  if (requestUrl.pathname === '/api/team-dashboard') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+    const startAt = Number(requestUrl.searchParams.get('start'));
+    const endAt = Number(requestUrl.searchParams.get('end'));
+    const duration = endAt - startAt;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (!Number.isInteger(startAt) || !Number.isInteger(endAt) || startAt >= endAt
+      || duration < teamPrivate.MIN_RANGE_SECONDS || duration > teamPrivate.MAX_RANGE_SECONDS
+      || endAt > nowSeconds + 300) {
+      return sendJson(res, 400, { error: 'Team range must be between 3 hours and 7 days' });
+    }
+    return teamService.queryDashboard(req.headers.authorization, startAt, endAt)
+      .then(data => sendJson(res, 200, data))
+      .catch(error => sendApiError(res, error));
   }
   if (req.url.startsWith('/lockbot')) {
     req.url = req.url.replace('/lockbot', '');

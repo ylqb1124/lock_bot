@@ -1,0 +1,684 @@
+const crypto = require('crypto');
+const fs = require('fs');
+const http = require('http');
+const path = require('path');
+const clusterScope = require('../shared/cluster-scope.json');
+const { buildNodeTimeline, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+
+const CARD_COUNT = clusterScope.cardsPerNode;
+const MONITORED_NODE_IDS = new Set(clusterScope.nodeIds);
+const CST_OFFSET_SECONDS = 8 * 60 * 60;
+const DAY_SECONDS = 24 * 60 * 60;
+const SAMPLE_SECONDS = 300;
+const ANALYSIS_WINDOW_SECONDS = 7 * DAY_SECONDS;
+const MIN_RANGE_SECONDS = 3 * 60 * 60;
+const MAX_RANGE_SECONDS = ANALYSIS_WINDOW_SECONDS;
+const MONQUERY_BATCH_SIZE = 16;
+const MONQUERY_ITEMS = Array.from({ length: CARD_COUNT }, (_, card) => [
+  `XPU${card}_XPU_UTILIZATION`,
+  `XPU${card}_MEM_UTILIZATION`,
+]).flat();
+const MEMBERSHIP_PATH = path.join(__dirname, '..', '.devdata', 'team-membership.json');
+const TEAM_DEFINITIONS = [
+  { id: 'operator-testing', label: '算子测试团队' },
+  { id: 'inference', label: '推理团队' },
+  { id: 'training', label: '训练团队' },
+  { id: 'general-research', label: '通用研发' },
+];
+
+function createHttpError(message, statusCode = 502) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function requestJson(host, port, requestPath, options = {}) {
+  const { method = 'GET', headers = {}, body = null, timeoutMs = 90_000 } = options;
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      host,
+      port,
+      path: requestPath,
+      method,
+      headers,
+      timeout: timeoutMs,
+    }, response => {
+      let payload = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { payload += chunk; });
+      response.on('end', () => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          return reject(createHttpError(`Upstream returned ${response.statusCode}`, response.statusCode));
+        }
+        try {
+          resolve(JSON.parse(payload));
+        } catch {
+          reject(createHttpError('Upstream returned invalid JSON'));
+        }
+      });
+    });
+    request.on('timeout', () => request.destroy(createHttpError('Upstream request timed out after 90 seconds')));
+    request.on('error', reject);
+    if (body) request.write(body);
+    request.end();
+  });
+}
+
+function normalizeEntries(response) {
+  return Array.isArray(response) ? response : Array.isArray(response?.data) ? response.data : Array.isArray(response?.Data) ? response.Data : [];
+}
+
+function cstDayStart(timestamp) {
+  return Math.floor((timestamp + CST_OFFSET_SECONDS) / DAY_SECONDS) * DAY_SECONDS - CST_OFFSET_SECONDS;
+}
+
+function cstDateKey(timestamp) {
+  const date = new Date((timestamp + CST_OFFSET_SECONDS) * 1000);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatMonqueryDateTime(timestamp) {
+  const date = new Date((timestamp + CST_OFFSET_SECONDS) * 1000);
+  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(date.getUTCDate()).padStart(2, '0')}${String(date.getUTCHours()).padStart(2, '0')}${String(date.getUTCMinutes()).padStart(2, '0')}${String(date.getUTCSeconds()).padStart(2, '0')}`;
+}
+
+function nodeName(value) {
+  const match = String(value || '').match(/^(?:gpu-)?node-?(\d+)$/i);
+  return match ? `node${Number(match[1])}` : null;
+}
+
+function nodeIdFromName(name) {
+  const match = String(name || '').match(/^node(\d+)$/i);
+  return match ? Number(match[1]) : NaN;
+}
+
+function nodeNameFromNamespace(value) {
+  const match = String(value || '').match(/node(\d+)\.wxtky02$/i);
+  return match ? `node${Number(match[1])}` : null;
+}
+
+function isMonitoredNode(name) {
+  return MONITORED_NODE_IDS.has(nodeIdFromName(name));
+}
+
+function toSeconds(value) {
+  if (value == null || value === '') return NaN;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric > 1e12 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+  const text = String(value).trim();
+  if (/[Zz]|[+-]\d{2}:\d{2}$/.test(text)) return Math.floor(Date.parse(text) / 1000);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return NaN;
+  const [, year, month, day, hour, minute, second = '00'] = match;
+  return Math.floor(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)) / 1000) - CST_OFFSET_SECONDS;
+}
+
+function recordCards(record) {
+  const card = Number(record?.dev_id ?? record?.device_id ?? record?.card_id);
+  return Number.isInteger(card) && card >= 0 && card < CARD_COUNT ? [card] : Array.from({ length: CARD_COUNT }, (_, index) => index);
+}
+
+function botType(bot) {
+  return String(bot?.bot_type || bot?.type || 'NODE').toUpperCase();
+}
+
+function normalizeOccupancy(records, startAt, endAt) {
+  const unique = new Map();
+  for (const record of records || []) {
+    const userId = String(record?.user_id ?? record?.user?.id ?? '').trim();
+    const node = nodeName(record?.node_key ?? record?.node ?? record?.node_name);
+    const start = toSeconds(record?.start_time_cn ?? record?.start_time);
+    const explicitEnd = toSeconds(record?.end_time_cn ?? record?.end_time);
+    const end = Number.isFinite(explicitEnd) ? explicitEnd : start + Number(record?.duration_seconds ?? record?.duration ?? 0);
+    if (!userId || !node || !isMonitoredNode(node) || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const clippedStart = Math.max(startAt, start);
+    const clippedEnd = Math.min(endAt, end);
+    if (clippedEnd <= clippedStart) continue;
+    const cards = recordCards(record);
+    const key = `${userId}|${node}|${cards.join(',')}|${clippedStart}|${clippedEnd}`;
+    unique.set(key, { userId, node, cards, start: clippedStart, end: clippedEnd });
+  }
+  return [...unique.values()];
+}
+
+function namespace(nodeId) {
+  const nonBackup = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
+  const prefix = nonBackup.has(nodeId) ? 'wxtky02-p800-8nic-vd' : 'wxtky02-p800-backup-8nic-vd';
+  return `${prefix}-node${nodeId}.wxtky02`;
+}
+
+function runWithConcurrency(tasks, limit, work) {
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const task = tasks[next++];
+      await work(task);
+    }
+  };
+  return Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+}
+
+function pointTimestamp(point) {
+  const raw = Number(point?.Timestamp ?? point?.timestamp ?? point?.time);
+  if (!Number.isFinite(raw)) return NaN;
+  return raw > 1e12 ? Math.floor(raw / 1000) : Math.floor(raw);
+}
+
+function pointValue(point) {
+  const value = Number(point?.Value ?? point?.value);
+  return Number.isFinite(value) ? value : null;
+}
+
+function itemPoints(item) {
+  if (Array.isArray(item)) return item;
+  if (Array.isArray(item?.Data)) return item.Data;
+  if (Array.isArray(item?.data)) return item.data;
+  return [];
+}
+
+function parseCardMetrics(responses, startAt, endAt) {
+  const result = new Map();
+  for (const response of responses) {
+    for (const entry of normalizeEntries(response)) {
+      const node = nodeNameFromNamespace(entry?.NameSpace);
+      if (!node || !isMonitoredNode(node)) continue;
+      const timestamps = result.get(node) || new Map();
+      result.set(node, timestamps);
+      for (let card = 0; card < CARD_COUNT; card += 1) {
+        for (const [metric, property] of [[`XPU${card}_XPU_UTILIZATION`, 'xpu'], [`XPU${card}_MEM_UTILIZATION`, 'memory']]) {
+          for (const point of itemPoints(entry?.Items?.[metric])) {
+            const timestamp = pointTimestamp(point);
+            const value = pointValue(point);
+            if (!Number.isFinite(timestamp) || value === null || timestamp < startAt || timestamp > endAt) continue;
+            const cards = timestamps.get(timestamp) || Array.from({ length: CARD_COUNT }, () => ({}));
+            cards[card][property] = value;
+            timestamps.set(timestamp, cards);
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+
+async function fetchBots(config, authorization) {
+  return requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', {
+    headers: { authorization },
+  });
+}
+
+async function fetchOccupancy(config, bots, authorization, startAt, endAt) {
+  const dayStarts = [];
+  for (let day = cstDayStart(startAt); day <= endAt; day += DAY_SECONDS) dayStarts.push(day);
+  const tasks = [];
+  for (const bot of bots || []) for (const dayStart of dayStarts) tasks.push({ bot, dayStart });
+  const records = [];
+  const failures = [];
+  await runWithConcurrency(tasks, 3, async ({ bot, dayStart }) => {
+    try {
+      const response = await requestJson(
+        config.backend.lockbot.host,
+        config.backend.lockbot.port,
+        `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`,
+        { headers: { authorization } },
+      );
+      if (Array.isArray(response)) records.push(...response);
+      else if (Array.isArray(response?.data)) records.push(...response.data);
+    } catch (error) {
+      failures.push({ botId: bot.id, day: cstDateKey(dayStart), statusCode: error.statusCode || 502 });
+    }
+  });
+  return { records, failures };
+}
+
+async function fetchRunningStates(config, authorization) {
+  const response = await requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots/running-states', {
+    headers: { authorization },
+  });
+  return response?.data ?? response;
+}
+
+function stateIntervals(bots, states, startAt, endAt) {
+  const intervals = [];
+  for (const bot of bots || []) {
+    const state = states?.[String(bot.id)] ?? states?.[bot.id] ?? {};
+    const type = botType(bot);
+    for (const [rawNode, nodeState] of Object.entries(state || {})) {
+      const node = nodeName(rawNode);
+      if (!node || !isMonitoredNode(node)) continue;
+      const devices = type === 'DEVICE' && Array.isArray(nodeState)
+        ? nodeState
+        : [{ ...nodeState, dev_id: null }];
+      for (const device of devices) {
+        if (device?.status === 'idle' || !Array.isArray(device?.current_users)) continue;
+        const cards = recordCards(device);
+        for (const user of device.current_users) {
+          const userId = String(user?.user_id ?? '').trim();
+          const start = toSeconds(user?.start_time);
+          const end = Math.min(endAt, start + Number(user?.duration ?? 0));
+          if (!userId || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+          const clippedStart = Math.max(startAt, start);
+          if (end > clippedStart) intervals.push({ userId, node, cards, start: clippedStart, end });
+        }
+      }
+    }
+  }
+  return intervals;
+}
+
+async function fetchCardMetrics(config, startAt, endAt, nodeNames) {
+  const nodeIds = [...new Set(nodeNames.map(nodeIdFromName).filter(id => MONITORED_NODE_IDS.has(id)))];
+  if (!nodeIds.length) return new Map();
+  const tasks = [];
+  for (let cursor = startAt; cursor < endAt;) {
+    const sliceEnd = Math.min(cstDayStart(cursor) + DAY_SECONDS, endAt);
+    for (let index = 0; index < nodeIds.length; index += MONQUERY_BATCH_SIZE) {
+      tasks.push({ startAt: cursor, endAt: sliceEnd, nodeIds: nodeIds.slice(index, index + MONQUERY_BATCH_SIZE) });
+    }
+    cursor = sliceEnd;
+  }
+  const responses = [];
+  await runWithConcurrency(tasks, 4, async task => {
+    const params = new URLSearchParams({
+      namespaces: task.nodeIds.map(namespace).join(','),
+      items: MONQUERY_ITEMS.join(','),
+      start: formatMonqueryDateTime(task.startAt),
+      end: formatMonqueryDateTime(task.endAt),
+      interval: String(SAMPLE_SECONDS),
+    });
+    const response = await requestJson(
+      config.backend.monquery.host,
+      config.backend.monquery.port,
+      `/monquery/getHistoryitemdata?${params}`,
+    );
+    responses.push(response);
+  });
+  return parseCardMetrics(responses, startAt, endAt);
+}
+
+function createUserAggregate(userId) {
+  return {
+    userId,
+    sampleCount: 0,
+    xpuSum: 0,
+    memorySum: 0,
+    perTime: new Map(),
+  };
+}
+
+function addUserSample(target, timestamp, xpu, memory) {
+  target.sampleCount += 1;
+  target.xpuSum += xpu;
+  target.memorySum += memory;
+  const point = target.perTime.get(timestamp) || { xpuSum: 0, count: 0 };
+  point.xpuSum += xpu;
+  point.count += 1;
+  target.perTime.set(timestamp, point);
+}
+
+function userEvidence(user) {
+  const samples = user.sampleCount;
+  const meanXpu = samples ? user.xpuSum / samples : null;
+  const meanMemory = samples ? user.memorySum / samples : null;
+  const timeline = [...user.perTime.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([timestamp, point]) => ({ timestamp, xpu: point.xpuSum / point.count }));
+  let xpuHighSamples = 0;
+  let memoryHighSamples = 0;
+  let bothHighSamples = 0;
+  let transitions = 0;
+  let previousBand = null;
+  for (const point of timeline) {
+    if (point.xpu >= 70) xpuHighSamples += 1;
+    const band = point.xpu < 30 ? 'low' : point.xpu >= 70 ? 'high' : null;
+    if (band && previousBand && band !== previousBand) transitions += 1;
+    if (band) previousBand = band;
+  }
+  for (const point of user.samples || []) {
+    if (point.memory >= 60) memoryHighSamples += 1;
+    if (point.xpu >= 50 && point.memory >= 60) bothHighSamples += 1;
+  }
+  const hours = timeline.length > 1 ? Math.max((timeline.at(-1).timestamp - timeline[0].timestamp) / 3600, SAMPLE_SECONDS / 3600) : SAMPLE_SECONDS / 3600;
+  return {
+    sampleCount: samples,
+    cardHours: samples * SAMPLE_SECONDS / 3600,
+    meanXpu,
+    meanMemory,
+    xpuHighRatio: timeline.length ? xpuHighSamples / timeline.length : 0,
+    memoryHighRatio: samples ? memoryHighSamples / samples : 0,
+    bothHighRatio: samples ? bothHighSamples / samples : 0,
+    transitionsPerHour: transitions / hours,
+  };
+}
+
+function simulatedTeamForUser(userId) {
+  const index = crypto.createHash('sha256').update(String(userId || 'unassigned')).digest()[0] % TEAM_DEFINITIONS.length;
+  return TEAM_DEFINITIONS[index].id;
+}
+
+function classifyUser(evidence, userId) {
+  const simulatedTeam = simulatedTeamForUser(userId);
+  if (evidence.sampleCount < 36) return { team: simulatedTeam, pending: true, confidence: 0, reason: '有效卡级样本不足 36 个，按用户稳定模拟分组' };
+  if (evidence.meanXpu >= 50 && evidence.meanMemory >= 60 && evidence.bothHighRatio >= 0.6) {
+    return { team: 'training', pending: false, confidence: Math.min(0.98, 0.7 + evidence.bothHighRatio * 0.25), reason: 'XPU 与显存持续双高' };
+  }
+  if (evidence.meanMemory >= 60 && evidence.memoryHighRatio >= 0.7 && evidence.xpuHighRatio >= 0.05 && evidence.xpuHighRatio <= 0.5) {
+    return { team: 'inference', pending: false, confidence: Math.min(0.94, 0.62 + evidence.memoryHighRatio * 0.25), reason: '显存持续高位，XPU 间歇高值' };
+  }
+  if (evidence.meanXpu >= evidence.meanMemory + 10 && evidence.transitionsPerHour >= 2) {
+    return { team: 'operator-testing', pending: false, confidence: Math.min(0.92, 0.6 + evidence.transitionsPerHour * 0.08), reason: 'XPU 高于显存且高低跳动频繁' };
+  }
+  return { team: simulatedTeam, pending: true, confidence: 0.35, reason: '未命中稳定负载特征，按用户稳定模拟分组' };
+}
+
+function aggregateOwnership(intervals, metrics, assignments, startAt, endAt) {
+  const intervalsByNode = new Map();
+  for (const interval of intervals) {
+    const values = intervalsByNode.get(interval.node) || [];
+    values.push(interval);
+    intervalsByNode.set(interval.node, values);
+  }
+  const userSamples = new Map();
+  const teamPoints = new Map();
+  const allTimes = new Set();
+  let conflictCardSamples = 0;
+  for (const [node, timestamps] of metrics) {
+    const nodeIntervals = intervalsByNode.get(node) || [];
+    if (!nodeIntervals.length) continue;
+    for (const [timestamp, cards] of timestamps) {
+      if (timestamp < startAt || timestamp > endAt) continue;
+      allTimes.add(timestamp);
+      const active = nodeIntervals.filter(interval => interval.start <= timestamp && timestamp < interval.end);
+      if (!active.length) continue;
+      for (let card = 0; card < CARD_COUNT; card += 1) {
+        const metric = cards[card];
+        if (!Number.isFinite(metric?.xpu) || !Number.isFinite(metric?.memory)) continue;
+        const owners = new Set(active.filter(interval => interval.cards.includes(card)).map(interval => interval.userId));
+        if (owners.size !== 1) {
+          if (owners.size > 1) conflictCardSamples += 1;
+          continue;
+        }
+        const userId = [...owners][0];
+        const assignment = assignments?.[userId];
+        const team = assignment?.team || 'general-research';
+        const user = userSamples.get(userId) || createUserAggregate(userId);
+        if (!user.samples) user.samples = [];
+        user.samples.push({ timestamp, xpu: metric.xpu, memory: metric.memory });
+        addUserSample(user, timestamp, metric.xpu, metric.memory);
+        userSamples.set(userId, user);
+        const timestampTeams = teamPoints.get(timestamp) || new Map();
+        const point = timestampTeams.get(team) || { xpuSum: 0, memorySum: 0, cardCount: 0, nodes: new Set(), users: new Set() };
+        point.xpuSum += metric.xpu;
+        point.memorySum += metric.memory;
+        point.cardCount += 1;
+        point.nodes.add(node);
+        point.users.add(userId);
+        timestampTeams.set(team, point);
+        teamPoints.set(timestamp, timestampTeams);
+      }
+    }
+  }
+  return { userSamples, teamPoints, allTimes: [...allTimes].sort((left, right) => left - right), conflictCardSamples };
+}
+
+function buildDashboardPayload(ownership, membership, startAt, endAt) {
+  const timeline = buildNodeTimeline(clusterScope, clusterScope.nodeIds);
+  const perTeam = Object.fromEntries(TEAM_DEFINITIONS.map(team => [team.id, {
+    id: team.id,
+    label: team.label,
+    cardSamples: 0,
+    xpuSum: 0,
+    memorySum: 0,
+    users: new Set(),
+    pendingUsers: new Set(),
+    trend: [],
+  }]));
+  const latest = {};
+  for (const timestamp of ownership.allTimes) {
+    const points = ownership.teamPoints.get(timestamp) || new Map();
+    for (const team of TEAM_DEFINITIONS) {
+      const point = points.get(team.id);
+      const output = point ? {
+        timestamp,
+        lockedCards: point.cardCount,
+        lockedNodes: point.nodes.size,
+        lockedUsers: point.users.size,
+        xpu: point.xpuSum / point.cardCount,
+        memory: point.memorySum / point.cardCount,
+        lockRate: totalCardsAt(timeline, CARD_COUNT, timestamp) ? point.cardCount / totalCardsAt(timeline, CARD_COUNT, timestamp) * 100 : null,
+      } : { timestamp, lockedCards: 0, lockedNodes: 0, lockedUsers: 0, xpu: null, memory: null, lockRate: 0 };
+      perTeam[team.id].trend.push(output);
+      if (point) {
+        perTeam[team.id].cardSamples += point.cardCount;
+        perTeam[team.id].xpuSum += point.xpuSum;
+        perTeam[team.id].memorySum += point.memorySum;
+        point.users.forEach(userId => {
+          perTeam[team.id].users.add(userId);
+          if (membership.assignments?.[userId]?.pending || !membership.assignments?.[userId]) perTeam[team.id].pendingUsers.add(userId);
+        });
+      }
+      latest[team.id] = output;
+    }
+  }
+  const teams = TEAM_DEFINITIONS.map(team => {
+    const value = perTeam[team.id];
+    return {
+      id: team.id,
+      label: team.label,
+      cardHours: value.cardSamples * SAMPLE_SECONDS / 3600,
+      xpu: value.cardSamples ? value.xpuSum / value.cardSamples : null,
+      memory: value.cardSamples ? value.memorySum / value.cardSamples : null,
+      userCount: value.users.size,
+      pendingUserCount: value.pendingUsers.size,
+      trend: value.trend,
+      current: latest[team.id] || null,
+    };
+  });
+  const rankings = [...ownership.userSamples.values()].map(user => {
+    const evidence = userEvidence(user);
+    const assignment = membership.assignments?.[user.userId];
+    return {
+      userId: user.userId,
+      team: assignment?.team || 'general-research',
+      source: assignment?.source || 'fallback',
+      pending: assignment?.pending ?? true,
+      confidence: assignment?.confidence ?? 0,
+      cardHours: evidence.cardHours,
+      xpu: evidence.meanXpu,
+      memory: evidence.meanMemory,
+    };
+  }).sort((left, right) => left.xpu - right.xpu || right.cardHours - left.cardHours);
+  return {
+    range: { startAt, endAt, sampleSeconds: SAMPLE_SECONDS },
+    membership: {
+      generatedAt: membership.generatedAt,
+      window: membership.window,
+      lastError: membership.lastError || null,
+    },
+    teams,
+    rankings,
+    dataQuality: { conflictCardSamples: ownership.conflictCardSamples },
+  };
+}
+
+function defaultMembership() {
+  return { version: 1, classifierVersion: 'workload-v1', generatedAt: null, window: null, lastError: null, assignments: {} };
+}
+
+function readMembership(filePath = MEMBERSHIP_PATH) {
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (value && typeof value === 'object' && value.assignments && typeof value.assignments === 'object') return value;
+  } catch {
+    // The initial empty mapping is a valid state.
+  }
+  return defaultMembership();
+}
+
+function writeMembership(value, filePath = MEMBERSHIP_PATH) {
+  const content = `${JSON.stringify(value, null, 2)}\n`;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(temporary, content, { mode: 0o600 });
+  fs.renameSync(temporary, filePath);
+}
+
+function mergeAutoAssignments(existing, userSamples, startAt, endAt, generatedAt) {
+  const assignments = { ...(existing.assignments || {}) };
+  for (const user of userSamples.values()) {
+    const evidence = userEvidence(user);
+    const classification = classifyUser(evidence, user.userId);
+    const candidate = {
+      team: classification.team,
+      pending: classification.pending,
+      confidence: Number(classification.confidence.toFixed(3)),
+      reason: classification.reason,
+      evidence: Object.fromEntries(Object.entries(evidence).map(([key, value]) => [key, Number.isFinite(value) ? Number(value.toFixed(3)) : value])),
+      generatedAt,
+    };
+    if (assignments[user.userId]?.source === 'manual') {
+      assignments[user.userId] = { ...assignments[user.userId], candidate };
+    } else {
+      assignments[user.userId] = { ...candidate, source: 'auto' };
+    }
+  }
+  return {
+    version: 1,
+    classifierVersion: 'workload-v1',
+    generatedAt,
+    window: { startAt, endAt },
+    lastError: null,
+    assignments,
+  };
+}
+
+function millisecondsUntilNextHour(now = Date.now()) {
+  const next = Math.floor(now / (60 * 60 * 1000) + 1) * 60 * 60 * 1000;
+  return next - now + 1_000;
+}
+
+function currentSampleSeconds(nowMs = Date.now()) {
+  return Math.floor(Math.floor(nowMs / 1000) / SAMPLE_SECONDS) * SAMPLE_SECONDS;
+}
+
+function createTeamService(config, options = {}) {
+  const membershipPath = options.membershipPath || MEMBERSHIP_PATH;
+  const serviceUsername = options.serviceUsername ?? process.env.LOCKBOT_SERVICE_USERNAME;
+  const servicePassword = options.servicePassword ?? process.env.LOCKBOT_SERVICE_PASSWORD;
+  const request = options.requestJson || requestJson;
+  let refreshInFlight = null;
+  let schedulerTimer = null;
+
+  async function collect(authorization, startAt, endAt, assignments = {}) {
+    const bots = await fetchBots(config, authorization);
+    const [occupancy, stateOutcome] = await Promise.all([
+      fetchOccupancy(config, bots, authorization, startAt, endAt),
+      fetchRunningStates(config, authorization)
+        .then(states => ({ ok: true, states }))
+        .catch(error => ({ ok: false, error })),
+    ]);
+    const intervals = normalizeOccupancy(occupancy.records, startAt, endAt);
+    if (stateOutcome.ok) intervals.push(...stateIntervals(bots, stateOutcome.states, startAt, endAt));
+    const metrics = await fetchCardMetrics(config, startAt, endAt, [...new Set(intervals.map(interval => interval.node))]);
+    const ownership = aggregateOwnership(intervals, metrics, assignments, startAt, endAt);
+    return { ownership, occupancy, stateFailureCount: stateOutcome.ok ? 0 : 1 };
+  }
+
+  async function serviceAuthorization() {
+    if (!serviceUsername || !servicePassword) throw createHttpError('LOCKBOT_SERVICE_USERNAME and LOCKBOT_SERVICE_PASSWORD are required for scheduled team refresh', 503);
+    const payload = JSON.stringify({ username: serviceUsername, password: servicePassword });
+    const response = await request(config.backend.lockbot.host, config.backend.lockbot.port, '/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+      body: payload,
+    });
+    if (!response?.access_token) throw createHttpError('Service account login returned no access token', 502);
+    return `Bearer ${response.access_token}`;
+  }
+
+  async function refresh() {
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = (async () => {
+      const generatedAt = new Date().toISOString();
+      const endAt = currentSampleSeconds();
+      const startAt = endAt - ANALYSIS_WINDOW_SECONDS;
+      const existing = readMembership(membershipPath);
+      try {
+        const authorization = await serviceAuthorization();
+        const { ownership, occupancy } = await collect(authorization, startAt, endAt);
+        if (occupancy.failures.length) throw createHttpError(`Lock Bot occupancy incomplete for ${occupancy.failures.length} bot-day requests`);
+        const membership = mergeAutoAssignments(existing, ownership.userSamples, startAt, endAt, generatedAt);
+        writeMembership(membership, membershipPath);
+        console.info(`[team] 映射刷新完成 · 用户 ${ownership.userSamples.size} · 冲突卡样本 ${ownership.conflictCardSamples}`);
+        return membership;
+      } catch (error) {
+        const preserved = { ...existing, lastError: { at: generatedAt, message: error.message } };
+        writeMembership(preserved, membershipPath);
+        console.warn(`[team] 映射刷新失败，保留上次有效映射: ${error.message}`);
+        throw error;
+      }
+    })().finally(() => { refreshInFlight = null; });
+    return refreshInFlight;
+  }
+
+  async function queryDashboard(authorization, startAt, endAt) {
+    if (!authorization) throw createHttpError('Authorization is required', 401);
+    const membership = readMembership(membershipPath);
+    const { ownership, occupancy, stateFailureCount } = await collect(authorization, startAt, endAt, membership.assignments);
+    return {
+      ...buildDashboardPayload(ownership, membership, startAt, endAt),
+      dataQuality: {
+        conflictCardSamples: ownership.conflictCardSamples,
+        occupancyFailureCount: occupancy.failures.length,
+        stateFailureCount,
+      },
+    };
+  }
+
+  async function getMembership(authorization) {
+    if (!authorization) throw createHttpError('Authorization is required', 401);
+    await fetchBots(config, authorization);
+    return readMembership(membershipPath);
+  }
+
+  function schedule() {
+    if (!serviceUsername || !servicePassword) {
+      console.warn('[team] 未配置服务账号，跳过每小时团队映射刷新');
+      return;
+    }
+    const run = async () => {
+      try { await refresh(); } catch { /* refresh records its own non-sensitive diagnostic */ }
+      schedulerTimer = setTimeout(run, millisecondsUntilNextHour());
+      schedulerTimer.unref();
+    };
+    void run();
+  }
+
+  function stop() {
+    if (schedulerTimer) clearTimeout(schedulerTimer);
+    schedulerTimer = null;
+  }
+
+  return { getMembership, queryDashboard, refresh, schedule, stop };
+}
+
+module.exports = {
+  createTeamService,
+  _private: {
+    TEAM_DEFINITIONS,
+    MIN_RANGE_SECONDS,
+    MAX_RANGE_SECONDS,
+    SAMPLE_SECONDS,
+    normalizeOccupancy,
+    stateIntervals,
+    aggregateOwnership,
+    classifyUser,
+    simulatedTeamForUser,
+    userEvidence,
+    mergeAutoAssignments,
+    readMembership,
+    writeMembership,
+    millisecondsUntilNextHour,
+    currentSampleSeconds,
+  },
+};

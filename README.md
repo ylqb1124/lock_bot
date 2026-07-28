@@ -48,6 +48,8 @@ npm start                   # 启动代理与生产构建
 
 代理从项目根目录读取 `config.json`，并支持 `PROXY_PORT`、`LOCKBOT_HOST`、`LOCKBOT_PORT`、`MONQUERY_HOST`、`MONQUERY_PORT` 覆盖。浏览器 Token 仅透传给 Lock Bot；不得提交 Token、账号密码、真实后端地址或日志中的 Authorization 请求头。
 
+团队视图每小时滚动生成最近七天的模拟团队映射。部署时为 PM2 注入专用、只读的 Lock Bot 服务账号：`LOCKBOT_SERVICE_USERNAME` 与 `LOCKBOT_SERVICE_PASSWORD`。服务每轮在内存中登录获取短期 token，绝不将凭据或 token 写入 `config.json`、映射 JSON、缓存或日志。未配置服务账号时集群视图不受影响，团队页仍可按登录用户可见的占用数据查询，但会提示自动映射尚未生成。
+
 ## 生产部署（klx）
 
 已验证的生产环境信息：

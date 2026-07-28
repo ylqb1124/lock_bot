@@ -16,6 +16,7 @@ import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/serv
 const require = createRequire(import.meta.url);
 const { createTrendService, _private } = require('../server/trend-service.cjs');
 const { pruneLockHistoryCache } = _private;
+const { _private: teamPrivate } = require('../server/team-service.cjs');
 
 function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
@@ -235,6 +236,108 @@ test('chart helpers skip empty points, expand the scale, and cap percentage axes
     yMax: 100,
     ticks: Array.from({ length: 21 }, (_, index) => index * 5),
   });
+});
+
+test('team classifier prioritizes training, then inference, then operator testing', () => {
+  assert.deepEqual(teamPrivate.classifyUser({
+    sampleCount: 100,
+    meanXpu: 72,
+    meanMemory: 81,
+    bothHighRatio: 0.72,
+    memoryHighRatio: 0.8,
+    xpuHighRatio: 0.3,
+    transitionsPerHour: 3,
+  }).team, 'training');
+  assert.deepEqual(teamPrivate.classifyUser({
+    sampleCount: 100,
+    meanXpu: 24,
+    meanMemory: 76,
+    bothHighRatio: 0.1,
+    memoryHighRatio: 0.8,
+    xpuHighRatio: 0.2,
+    transitionsPerHour: 0.3,
+  }).team, 'inference');
+  assert.deepEqual(teamPrivate.classifyUser({
+    sampleCount: 100,
+    meanXpu: 58,
+    meanMemory: 33,
+    bothHighRatio: 0.1,
+    memoryHighRatio: 0.2,
+    xpuHighRatio: 0.6,
+    transitionsPerHour: 2.2,
+  }).team, 'operator-testing');
+  assert.equal(teamPrivate.classifyUser({ sampleCount: 35 }).pending, true);
+});
+
+test('unclassified users receive a stable simulated team instead of collapsing into general research', () => {
+  const evidence = { sampleCount: 35 };
+  const first = teamPrivate.classifyUser(evidence, 'unclassified-user');
+  const second = teamPrivate.classifyUser(evidence, 'unclassified-user');
+
+  assert.equal(first.team, second.team);
+  assert.notEqual(first.team, undefined);
+  assert.match(first.reason, /稳定模拟分组/);
+});
+
+test('team scheduler uses Unix seconds rather than JavaScript milliseconds for its analysis window', () => {
+  assert.equal(teamPrivate.currentSampleSeconds(Date.UTC(2026, 6, 27, 11, 43, 17)), 1785152400);
+});
+
+test('team ownership expands node locks, deduplicates one user, and excludes competing users on one card', () => {
+  const cards = Array.from({ length: CARD_COUNT }, () => ({}));
+  cards[0] = { xpu: 80, memory: 70 };
+  cards[1] = { xpu: 60, memory: 65 };
+  cards[2] = { xpu: 50, memory: 50 };
+  const metrics = new Map([['node1', new Map([[300, cards]])]]);
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'training-user', node: 'node1', cards: [0, 1], start: 0, end: 600 },
+    { userId: 'training-user', node: 'node1', cards: [0], start: 0, end: 600 },
+    { userId: 'first-owner', node: 'node1', cards: [2], start: 0, end: 600 },
+    { userId: 'second-owner', node: 'node1', cards: [2], start: 0, end: 600 },
+  ], metrics, { 'training-user': { team: 'training' } }, 0, 600);
+
+  assert.equal(ownership.userSamples.get('training-user').sampleCount, 2);
+  assert.equal(ownership.userSamples.has('first-owner'), false);
+  assert.equal(ownership.conflictCardSamples, 1);
+  assert.equal(ownership.teamPoints.get(300).get('training').cardCount, 2);
+});
+
+test('team live state expands a node lock to all cards within the requested range', () => {
+  const intervals = teamPrivate.stateIntervals([{
+    id: 9,
+    bot_type: 'NODE',
+  }], {
+    9: {
+      node1: {
+        status: 'exclusive',
+        current_users: [{ user_id: 'live-user', start_time: 100, duration: 900 }],
+      },
+    },
+  }, 300, 600);
+
+  assert.equal(intervals.length, 1);
+  assert.deepEqual(intervals[0].cards, Array.from({ length: CARD_COUNT }, (_, index) => index));
+  assert.equal(intervals[0].start, 300);
+  assert.equal(intervals[0].end, 600);
+});
+
+test('manual team entries retain their assignment while auto evidence is refreshed', () => {
+  const samples = Array.from({ length: 40 }, (_, index) => ({ timestamp: index * 300, xpu: 75, memory: 80 }));
+  const user = {
+    userId: 'manual-user',
+    sampleCount: samples.length,
+    xpuSum: samples.reduce((total, sample) => total + sample.xpu, 0),
+    memorySum: samples.reduce((total, sample) => total + sample.memory, 0),
+    samples,
+    perTime: new Map(samples.map(sample => [sample.timestamp, { xpuSum: sample.xpu, count: 1 }])),
+  };
+  const result = teamPrivate.mergeAutoAssignments({
+    assignments: { 'manual-user': { team: 'inference', source: 'manual', pending: false } },
+  }, new Map([['manual-user', user]]), 0, 12_000, '2026-07-27T00:00:00.000Z');
+
+  assert.equal(result.assignments['manual-user'].team, 'inference');
+  assert.equal(result.assignments['manual-user'].source, 'manual');
+  assert.equal(result.assignments['manual-user'].candidate.team, 'training');
 });
 
 test('server time offset defaults to zero and now() falls back to the local clock', () => {
