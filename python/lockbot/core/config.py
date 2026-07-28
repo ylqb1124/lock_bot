@@ -63,6 +63,11 @@ _CONFIG_SCHEMA = {
         "description": "True: warn before expiry; False: release and notify on expiry",
         "env": True,
     },
+    "ALLOW_MULTI_LOCK": {
+        "default": True,
+        "description": "Allow a single user to lock multiple machines in the same bot",
+        "env": True,
+    },
     "FORBID_RELOCK": {
         "default": True,
         "description": "QUEUE only: forbid the current holder from re-locking (续锁) or booking the same node",

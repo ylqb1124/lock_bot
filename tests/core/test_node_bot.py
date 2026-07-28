@@ -121,6 +121,41 @@ def test_lock_unlock(bot):
     assert "test" in content2 and "空闲" in content2, "unlock reply should include released node"
 
 
+def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
+    """ALLOW_MULTI_LOCK defaults to True, so a single command may target multiple nodes."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
+
+    reply = bot.lock("user1", "lock test,test2 1h")
+    content = reply["message"]["body"][0]["content"]
+    assert "✅【资源申请成功】" in content, "Multi-node lock should stay allowed by default"
+
+
+def test_disallow_multi_lock_rejects_multiple_targets(bot):
+    """ALLOW_MULTI_LOCK=False rejects locking multiple nodes in one command."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
+
+    reply = bot.lock("user1", "lock test,test2 1h")
+    content = reply["message"]["body"][0]["content"]
+    assert "不能一次性lock多台机器" in content
+
+
+def test_disallow_multi_lock_rejects_second_machine(bot):
+    """ALLOW_MULTI_LOCK=False rejects locking another machine after one is already held."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
+
+    first = bot.lock("user1", "lock test 1h")
+    assert "✅【资源申请成功】" in first["message"]["body"][0]["content"]
+
+    reply = bot.lock("user1", "lock test2 1h")
+    content = reply["message"]["body"][0]["content"]
+    assert "不能一次性lock多台机器" in content
+
+
 def test_slock(bot):
     """Test slock."""
     reply = bot.slock("user1", "slock test 30m")

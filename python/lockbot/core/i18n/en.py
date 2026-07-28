@@ -29,6 +29,7 @@ MESSAGES = {
     "error.node_exclusive_mode": "Node is in exclusive mode\n\n",
     "error.lock_max_duration_exceeded": "Note: consecutive lock cannot exceed {max_duration}\n\n",
     "error.slock_max_duration_exceeded": "Note: consecutive slock cannot exceed {max_duration}\n\n",
+    "error.multi_lock_forbidden_once": "Cannot lock multiple machines at once",
     "error.node_not_requested": "You have not requested this node\n",
     "error.unrecognized_command": "❌ Unrecognized command: {command}",
     "error.unknown_error": "❌ Unknown error: {command}",

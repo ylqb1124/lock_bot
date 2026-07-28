@@ -106,6 +106,29 @@ class TestUpdateBot:
         assert config_dict["MAX_LOCK_DURATION"] == 1800
         assert config_dict["EARLY_NOTIFY"] is True
 
+    def test_update_config_overrides_accepts_allow_multi_lock(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"ALLOW_MULTI_LOCK": False}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["config_overrides"]["ALLOW_MULTI_LOCK"] is False
+
+    def test_update_config_overrides_rejects_non_boolean_allow_multi_lock(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"ALLOW_MULTI_LOCK": "false"}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 422
+
     def test_update_config_overrides_then_bot_initializes(self, client, admin_header, db_session, tmp_path):
         """Verify a bot can be initialized with config from _build_config_dict."""
         import os

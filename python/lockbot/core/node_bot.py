@@ -150,8 +150,13 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        allow_multi_lock = self.config.get_val("ALLOW_MULTI_LOCK")
+        if not allow_multi_lock and len(node_keys) > 1:
+            return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            if not allow_multi_lock and self._user_holds_other_node(user_id, node_keys):
+                return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
             state_changed = False
             for node_key, node in zip(node_keys, nodes, strict=True):
                 state_changed |= self._cleanup_expired_current_users(node_key, node)
@@ -487,6 +492,13 @@ class NodeBot(BaseLockBot):
 
     def _success_usage(self, node_keys):
         return self._current_usage(node_keys)
+
+    def _user_holds_other_node(self, user_id, node_keys):
+        requested = set(node_keys)
+        return any(
+            node_key not in requested and find_user_info(node["current_users"], user_id)
+            for node_key, node in self.state.bot_state.items()
+        )
 
     def _current_usage(self, node_filter=None, user_id=None):
         """Render NODE usage honoring USAGE_* layout config."""
