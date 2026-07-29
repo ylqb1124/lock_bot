@@ -168,6 +168,9 @@ export default {
       'On: warn before expiry without releasing; Off (default): release and notify on expiry',
     earlyNotifyOn: 'Early Warning',
     earlyNotifyOff: 'Release on Expiry',
+    allowMultiLock: 'Allow Multi-lock',
+    allowMultiLockHelp:
+      'On (default): one user can lock multiple machines in the same bot; Off: one user can lock only one machine at a time',
     forbidRelock: 'Forbid Re-lock',
     forbidRelockHelp:
       'QUEUE bots only. On (default): the current holder cannot re-lock or re-book the same node, preventing indefinite occupation; Off: re-lock and re-book allowed',

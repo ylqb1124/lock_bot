@@ -252,6 +252,21 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
+            <el-col :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.allowMultiLock') }}
+                  <el-tooltip
+                    :content="$t('botCreate.allowMultiLockHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch v-model="advancedConfig.ALLOW_MULTI_LOCK" />
+              </el-form-item>
+            </el-col>
             <el-col v-if="form.bot_type === 'QUEUE'" :xs="24">
               <el-form-item>
                 <template #label>
@@ -331,6 +346,7 @@ const advancedConfig = reactive({
   MAX_LOCK_DURATION: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
+  ALLOW_MULTI_LOCK: true,
   FORBID_RELOCK: true,
   LANGUAGE: 'zh',
 })
