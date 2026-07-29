@@ -3,16 +3,28 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const clusterScope = require('../shared/cluster-scope.json');
-const { buildNodeTimeline, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+const { buildNodeTimeline, buildNodeScopeTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+const { createLockHistoryCache, lockHistoryScopeKey } = require('./trend-service.cjs');
 
 const CARD_COUNT = clusterScope.cardsPerNode;
 const MONITORED_NODE_IDS = new Set(clusterScope.nodeIds);
+const MONITORED_NODE_NAMES = clusterScope.nodeIds.map(nodeId => `node${nodeId}`);
 const CST_OFFSET_SECONDS = 8 * 60 * 60;
 const DAY_SECONDS = 24 * 60 * 60;
 const SAMPLE_SECONDS = 300;
 const ANALYSIS_WINDOW_SECONDS = 7 * DAY_SECONDS;
+const DASHBOARD_SAMPLE_INTERVALS = [
+  { maxDurationSeconds: 3 * 60 * 60, seconds: 60 },
+  { maxDurationSeconds: 6 * 60 * 60, seconds: 120 },
+  { maxDurationSeconds: DAY_SECONDS, seconds: 240 },
+  { maxDurationSeconds: 2 * DAY_SECONDS, seconds: 480 },
+  { maxDurationSeconds: 7 * DAY_SECONDS, seconds: 1200 },
+  { maxDurationSeconds: 30 * DAY_SECONDS, seconds: 7200 },
+  { maxDurationSeconds: 90 * DAY_SECONDS, seconds: 21600 },
+];
 const MIN_RANGE_SECONDS = 3 * 60 * 60;
-const MAX_RANGE_SECONDS = ANALYSIS_WINDOW_SECONDS;
+const MAX_RANGE_SECONDS = 90 * DAY_SECONDS;
+const DASHBOARD_CACHE_TTL_MS = 60 * 60 * 1000;
 const MONQUERY_BATCH_SIZE = 16;
 const MONQUERY_ITEMS = Array.from({ length: CARD_COUNT }, (_, card) => [
   `XPU${card}_XPU_UTILIZATION`,
@@ -77,9 +89,24 @@ function cstDateKey(timestamp) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
+function todayStartCst(nowSeconds = Math.floor(Date.now() / 1000)) {
+  return cstDayStart(nowSeconds);
+}
+
 function formatMonqueryDateTime(timestamp) {
   const date = new Date((timestamp + CST_OFFSET_SECONDS) * 1000);
   return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(date.getUTCDate()).padStart(2, '0')}${String(date.getUTCHours()).padStart(2, '0')}${String(date.getUTCMinutes()).padStart(2, '0')}${String(date.getUTCSeconds()).padStart(2, '0')}`;
+}
+
+function sampleSecondsForRange(durationSeconds) {
+  return DASHBOARD_SAMPLE_INTERVALS.find(interval => durationSeconds <= interval.maxDurationSeconds)?.seconds
+    || DASHBOARD_SAMPLE_INTERVALS.at(-1).seconds;
+}
+
+function membershipCacheVersion(membership) {
+  const assignments = membership?.assignments || {};
+  const assignmentHash = crypto.createHash('sha256').update(JSON.stringify(assignments)).digest('hex').slice(0, 12);
+  return [membership?.version || 1, membership?.classifierVersion || 'unknown', membership?.generatedAt || 'none', assignmentHash].join(':');
 }
 
 function nodeName(value) {
@@ -142,7 +169,7 @@ function normalizeOccupancy(records, startAt, endAt) {
 }
 
 function namespace(nodeId) {
-  const nonBackup = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
+  const nonBackup = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
   const prefix = nonBackup.has(nodeId) ? 'wxtky02-p800-8nic-vd' : 'wxtky02-p800-backup-8nic-vd';
   return `${prefix}-node${nodeId}.wxtky02`;
 }
@@ -207,26 +234,50 @@ async function fetchBots(config, authorization) {
   });
 }
 
-async function fetchOccupancy(config, bots, authorization, startAt, endAt) {
+function occupancyRecords(response) {
+  return Array.isArray(response) ? response : Array.isArray(response?.data) ? response.data : [];
+}
+
+async function fetchOccupancy(config, bots, authorization, startAt, endAt, lockHistoryCache, nowSeconds) {
   const dayStarts = [];
   for (let day = cstDayStart(startAt); day <= endAt; day += DAY_SECONDS) dayStarts.push(day);
-  const tasks = [];
-  for (const bot of bots || []) for (const dayStart of dayStarts) tasks.push({ bot, dayStart });
   const records = [];
   const failures = [];
-  await runWithConcurrency(tasks, 3, async ({ bot, dayStart }) => {
-    try {
-      const response = await requestJson(
-        config.backend.lockbot.host,
-        config.backend.lockbot.port,
-        `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`,
-        { headers: { authorization } },
-      );
-      if (Array.isArray(response)) records.push(...response);
-      else if (Array.isArray(response?.data)) records.push(...response.data);
-    } catch (error) {
-      failures.push({ botId: bot.id, day: cstDateKey(dayStart), statusCode: error.statusCode || 502 });
+  const todayStart = todayStartCst(nowSeconds);
+  const scopeKey = lockHistoryScopeKey(MONITORED_NODE_NAMES);
+  await runWithConcurrency(dayStarts, 2, async dayStart => {
+    const isToday = dayStart === todayStart;
+    const cachedRecords = isToday ? null : lockHistoryCache?.read(dayStart, scopeKey);
+    if (cachedRecords) {
+      records.push(...cachedRecords);
+      return;
     }
+    const responses = await Promise.all((bots || []).map(async bot => {
+      try {
+        const response = await requestJson(
+          config.backend.lockbot.host,
+          config.backend.lockbot.port,
+          `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`,
+          { headers: { authorization } },
+        );
+        return { bot, ok: true, records: occupancyRecords(response) };
+      } catch (error) {
+        return { bot, ok: false, records: [], error };
+      }
+    }));
+    const failed = responses.filter(response => !response.ok);
+    for (const response of failed) {
+      failures.push({ botId: response.bot.id, day: cstDateKey(dayStart), statusCode: response.error.statusCode || 502 });
+    }
+    const dayRecords = responses.flatMap(response => response.records);
+    if (!failed.length && !isToday) {
+      try {
+        lockHistoryCache?.save(dayStart, scopeKey, dayRecords);
+      } catch (error) {
+        console.warn(`[team] Lock Bot 历史缓存写入失败: ${error.message}`);
+      }
+    }
+    records.push(...dayRecords);
   });
   return { records, failures };
 }
@@ -266,7 +317,7 @@ function stateIntervals(bots, states, startAt, endAt) {
   return intervals;
 }
 
-async function fetchCardMetrics(config, startAt, endAt, nodeNames) {
+async function fetchCardMetrics(config, startAt, endAt, nodeNames, sampleSeconds = SAMPLE_SECONDS) {
   const nodeIds = [...new Set(nodeNames.map(nodeIdFromName).filter(id => MONITORED_NODE_IDS.has(id)))];
   if (!nodeIds.length) return new Map();
   const tasks = [];
@@ -284,7 +335,7 @@ async function fetchCardMetrics(config, startAt, endAt, nodeNames) {
       items: MONQUERY_ITEMS.join(','),
       start: formatMonqueryDateTime(task.startAt),
       end: formatMonqueryDateTime(task.endAt),
-      interval: String(SAMPLE_SECONDS),
+      interval: String(sampleSeconds),
     });
     const response = await requestJson(
       config.backend.monquery.host,
@@ -316,7 +367,7 @@ function addUserSample(target, timestamp, xpu, memory) {
   target.perTime.set(timestamp, point);
 }
 
-function userEvidence(user) {
+function userEvidence(user, sampleSeconds = user.sampleSeconds || SAMPLE_SECONDS) {
   const samples = user.sampleCount;
   const meanXpu = samples ? user.xpuSum / samples : null;
   const meanMemory = samples ? user.memorySum / samples : null;
@@ -338,10 +389,10 @@ function userEvidence(user) {
     if (point.memory >= 60) memoryHighSamples += 1;
     if (point.xpu >= 50 && point.memory >= 60) bothHighSamples += 1;
   }
-  const hours = timeline.length > 1 ? Math.max((timeline.at(-1).timestamp - timeline[0].timestamp) / 3600, SAMPLE_SECONDS / 3600) : SAMPLE_SECONDS / 3600;
+  const hours = timeline.length > 1 ? Math.max((timeline.at(-1).timestamp - timeline[0].timestamp) / 3600, sampleSeconds / 3600) : sampleSeconds / 3600;
   return {
     sampleCount: samples,
-    cardHours: samples * SAMPLE_SECONDS / 3600,
+    cardHours: samples * sampleSeconds / 3600,
     meanXpu,
     meanMemory,
     xpuHighRatio: timeline.length ? xpuHighSamples / timeline.length : 0,
@@ -371,7 +422,8 @@ function classifyUser(evidence, userId) {
   return { team: simulatedTeam, pending: true, confidence: 0.35, reason: '未命中稳定负载特征，按用户稳定模拟分组' };
 }
 
-function aggregateOwnership(intervals, metrics, assignments, startAt, endAt) {
+function aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sampleSeconds = SAMPLE_SECONDS) {
+  const nodeScopeTimeline = buildNodeScopeTimeline(clusterScope, clusterScope.nodeIds);
   const intervalsByNode = new Map();
   for (const interval of intervals) {
     const values = intervalsByNode.get(interval.node) || [];
@@ -387,6 +439,7 @@ function aggregateOwnership(intervals, metrics, assignments, startAt, endAt) {
     if (!nodeIntervals.length) continue;
     for (const [timestamp, cards] of timestamps) {
       if (timestamp < startAt || timestamp > endAt) continue;
+      if (!nodeIdsAt(nodeScopeTimeline, timestamp).includes(nodeIdFromName(node))) continue;
       allTimes.add(timestamp);
       const active = nodeIntervals.filter(interval => interval.start <= timestamp && timestamp < interval.end);
       if (!active.length) continue;
@@ -401,7 +454,7 @@ function aggregateOwnership(intervals, metrics, assignments, startAt, endAt) {
         const userId = [...owners][0];
         const assignment = assignments?.[userId];
         const team = assignment?.team || 'general-research';
-        const user = userSamples.get(userId) || createUserAggregate(userId);
+        const user = userSamples.get(userId) || { ...createUserAggregate(userId), sampleSeconds };
         if (!user.samples) user.samples = [];
         user.samples.push({ timestamp, xpu: metric.xpu, memory: metric.memory });
         addUserSample(user, timestamp, metric.xpu, metric.memory);
@@ -421,7 +474,7 @@ function aggregateOwnership(intervals, metrics, assignments, startAt, endAt) {
   return { userSamples, teamPoints, allTimes: [...allTimes].sort((left, right) => left - right), conflictCardSamples };
 }
 
-function buildDashboardPayload(ownership, membership, startAt, endAt) {
+function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeconds) {
   const timeline = buildNodeTimeline(clusterScope, clusterScope.nodeIds);
   const perTeam = Object.fromEntries(TEAM_DEFINITIONS.map(team => [team.id, {
     id: team.id,
@@ -465,7 +518,7 @@ function buildDashboardPayload(ownership, membership, startAt, endAt) {
     return {
       id: team.id,
       label: team.label,
-      cardHours: value.cardSamples * SAMPLE_SECONDS / 3600,
+      cardHours: value.cardSamples * sampleSeconds / 3600,
       xpu: value.cardSamples ? value.xpuSum / value.cardSamples : null,
       memory: value.cardSamples ? value.memorySum / value.cardSamples : null,
       userCount: value.users.size,
@@ -475,7 +528,7 @@ function buildDashboardPayload(ownership, membership, startAt, endAt) {
     };
   });
   const rankings = [...ownership.userSamples.values()].map(user => {
-    const evidence = userEvidence(user);
+    const evidence = userEvidence(user, sampleSeconds);
     const assignment = membership.assignments?.[user.userId];
     return {
       userId: user.userId,
@@ -489,7 +542,8 @@ function buildDashboardPayload(ownership, membership, startAt, endAt) {
     };
   }).sort((left, right) => left.xpu - right.xpu || right.cardHours - left.cardHours);
   return {
-    range: { startAt, endAt, sampleSeconds: SAMPLE_SECONDS },
+    range: { startAt, endAt, sampleSeconds },
+    dataAsOf: ownership.allTimes.at(-1) || null,
     membership: {
       generatedAt: membership.generatedAt,
       window: membership.window,
@@ -566,21 +620,30 @@ function createTeamService(config, options = {}) {
   const serviceUsername = options.serviceUsername ?? process.env.LOCKBOT_SERVICE_USERNAME;
   const servicePassword = options.servicePassword ?? process.env.LOCKBOT_SERVICE_PASSWORD;
   const request = options.requestJson || requestJson;
+  const lockHistoryCache = options.lockHistoryCache || createLockHistoryCache();
+  const currentSeconds = options.currentSeconds || (() => Math.floor(Date.now() / 1000));
   let refreshInFlight = null;
   let schedulerTimer = null;
+  const dashboardCache = new Map();
 
-  async function collect(authorization, startAt, endAt, assignments = {}) {
+  async function collect(authorization, startAt, endAt, assignments = {}, sampleSeconds = SAMPLE_SECONDS) {
     const bots = await fetchBots(config, authorization);
+    const nowSeconds = currentSeconds();
+    const todayStart = todayStartCst(nowSeconds);
     const [occupancy, stateOutcome] = await Promise.all([
-      fetchOccupancy(config, bots, authorization, startAt, endAt),
-      fetchRunningStates(config, authorization)
+      fetchOccupancy(config, bots, authorization, startAt, endAt, lockHistoryCache, nowSeconds),
+      (endAt >= todayStart
+        ? fetchRunningStates(config, authorization)
         .then(states => ({ ok: true, states }))
-        .catch(error => ({ ok: false, error })),
+        .catch(error => ({ ok: false, error }))
+        : Promise.resolve({ ok: true, states: null })),
     ]);
     const intervals = normalizeOccupancy(occupancy.records, startAt, endAt);
-    if (stateOutcome.ok) intervals.push(...stateIntervals(bots, stateOutcome.states, startAt, endAt));
-    const metrics = await fetchCardMetrics(config, startAt, endAt, [...new Set(intervals.map(interval => interval.node))]);
-    const ownership = aggregateOwnership(intervals, metrics, assignments, startAt, endAt);
+    if (stateOutcome.ok && stateOutcome.states) {
+      intervals.push(...stateIntervals(bots, stateOutcome.states, Math.max(startAt, todayStart), Math.min(endAt, nowSeconds)));
+    }
+    const metrics = await fetchCardMetrics(config, startAt, endAt, [...new Set(intervals.map(interval => interval.node))], sampleSeconds);
+    const ownership = aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sampleSeconds);
     return { ownership, occupancy, stateFailureCount: stateOutcome.ok ? 0 : 1 };
   }
 
@@ -624,14 +687,36 @@ function createTeamService(config, options = {}) {
   async function queryDashboard(authorization, startAt, endAt) {
     if (!authorization) throw createHttpError('Authorization is required', 401);
     const membership = readMembership(membershipPath);
-    const { ownership, occupancy, stateFailureCount } = await collect(authorization, startAt, endAt, membership.assignments);
-    return {
-      ...buildDashboardPayload(ownership, membership, startAt, endAt),
+    const sampleSeconds = sampleSecondsForRange(endAt - startAt);
+    const mappingVersion = membershipCacheVersion(membership);
+    const authorizationHash = crypto.createHash('sha256').update(authorization).digest('hex').slice(0, 16);
+    const cacheKey = `${authorizationHash}:${mappingVersion}:${startAt}:${endAt}:${sampleSeconds}`;
+    const now = Date.now();
+    for (const [key, entry] of dashboardCache) {
+      if (entry.expiresAt <= now) dashboardCache.delete(key);
+    }
+    const cached = dashboardCache.get(cacheKey);
+    if (cached) {
+      return {
+        ...cached.payload,
+        cache: { hit: true, expiresAt: Math.floor(cached.expiresAt / 1000) },
+      };
+    }
+
+    const { ownership, occupancy, stateFailureCount } = await collect(authorization, startAt, endAt, membership.assignments, sampleSeconds);
+    const payload = {
+      ...buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeconds),
       dataQuality: {
         conflictCardSamples: ownership.conflictCardSamples,
         occupancyFailureCount: occupancy.failures.length,
         stateFailureCount,
       },
+    };
+    const expiresAt = Date.now() + DASHBOARD_CACHE_TTL_MS;
+    dashboardCache.set(cacheKey, { payload, expiresAt });
+    return {
+      ...payload,
+      cache: { hit: false, expiresAt: Math.floor(expiresAt / 1000) },
     };
   }
 
@@ -642,16 +727,8 @@ function createTeamService(config, options = {}) {
   }
 
   function schedule() {
-    if (!serviceUsername || !servicePassword) {
-      console.warn('[team] 未配置服务账号，跳过每小时团队映射刷新');
-      return;
-    }
-    const run = async () => {
-      try { await refresh(); } catch { /* refresh records its own non-sensitive diagnostic */ }
-      schedulerTimer = setTimeout(run, millisecondsUntilNextHour());
-      schedulerTimer.unref();
-    };
-    void run();
+    console.info('[team] 自动团队映射刷新已禁用，沿用已保存的固定映射');
+    return false;
   }
 
   function stop() {
@@ -669,9 +746,15 @@ module.exports = {
     MIN_RANGE_SECONDS,
     MAX_RANGE_SECONDS,
     SAMPLE_SECONDS,
+    DASHBOARD_SAMPLE_INTERVALS,
+    sampleSecondsForRange,
+    membershipCacheVersion,
+    fetchOccupancy,
+    todayStartCst,
     normalizeOccupancy,
     stateIntervals,
     aggregateOwnership,
+    buildDashboardPayload,
     classifyUser,
     simulatedTeamForUser,
     userEvidence,

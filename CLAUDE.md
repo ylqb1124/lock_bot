@@ -33,17 +33,24 @@ npm start        # 启动 Node 代理 + 生产构建（server/proxy.cjs，默认
 
 ### web/（生产应用）
 
-- `web/src/views/ClusterDashboard.vue`：页面入口，编排 UI。
+- `web/src/views/ClusterDashboard.vue`：集群视图入口，编排 UI。
+- `web/src/views/TeamDashboard.vue`：团队视图入口，调用 `fetchTeamDashboard`（`services/api.js`）展示按团队聚合的占用与排行。
 - `web/src/services/`：所有业务逻辑所在层——API 请求（`api.js`）、Lock Bot 状态合并（`cluster-state.js`）、Monquery 数据适配（`adapter.js`）、中国时区转换（`china-time.js`）、图表数据（`chart-data.js`）、自动刷新策略（`auto-refresh.js`）。**保持请求逻辑位于 service、数据转换位于 adapter、页面渲染位于 view**，不要在组件里内联这些逻辑。`api.js` 中 Monquery 请求按节点分批并行发起（`Promise.all`/`Promise.race`），实测节点级查询（首屏）与卡级明细查询（渐进渲染）均在亚秒级完成，新增 Monquery 查询时沿用并行批量请求模式，不要改成串行请求。
-- `web/server/`：Node 代理（`proxy.cjs`，默认监听 8900）、趋势服务（`trend-service.cjs`）、SQLite 趋势存储与 Lock Bot 历史缓存（`trend-store.cjs`）。
-- `web/shared/cluster-scope.json`：**监控范围的唯一权威来源**——56 个计算节点、每节点 8 卡，共 448 卡；BDC 节点不计入集群趋势分母。任何涉及节点/卡数量的逻辑都应引用这个文件，不要硬编码或重复定义常量。
-- `web/test/cluster-data.test.mjs`：覆盖集群范围、状态适配、趋势计算、缓存与刷新策略。新增聚合、锁覆盖、区间或缓存相关改动时，在此文件补充对应用例。
+- `web/server/`：Node 代理（`proxy.cjs`，默认监听 8900）、趋势服务（`trend-service.cjs`）、SQLite 趋势存储与 Lock Bot 历史缓存（`trend-store.cjs`）、团队视图服务（`team-service.cjs`）。
+- `web/shared/cluster-scope.json`：**监控范围的唯一权威来源**——当前 56 个计算节点（`nodeIds`，历史上分批上线，记录于 `nodeGroups`，趋势查询按各节点的 `effectiveFrom` 生效日期决定分母）、每节点 8 卡，共 448 卡；BDC 节点不计入集群趋势分母。`pendingNodeGroups` 记录尚未上线（`status: "pending"`）的候选节点，未进入 `nodeIds` 前不参与任何统计。任何涉及节点/卡数量的逻辑都应引用这个文件（及 `cluster-scope-timeline.cjs` 的时间线辅助函数），不要硬编码或重复定义常量。
+- `web/test/cluster-data.test.mjs`：覆盖集群范围、状态适配、趋势计算、缓存、刷新策略与团队分类/聚合逻辑。新增聚合、锁覆盖、区间、缓存或团队相关改动时，在此文件补充对应用例。
 
 代理路由（`web/server/proxy.cjs`）：
-- `/` 或 `/app/` → `web/dist`（主应用）
+- `/` 或 `/app/` → `web/dist`（集群视图主应用）
 - `/personal/` → `person/dist`
 - `/lockbot/*`、`/monquery/*` → 内部后端代理
 - `/api/cluster-trend` → 聚合集群历史趋势（同时返回 XPU、显存、锁定卡比例）
+- `/api/team-membership`、`/api/team-dashboard` → 团队视图的成员映射与聚合看板数据（`team-service.cjs`）
+
+### 团队视图（`team-service.cjs`）
+
+- 团队视图按用户名将节点/卡占用归属到 `TEAM_DEFINITIONS`（算子测试团队、推理团队、训练团队、通用研发）。当前映射固定保存在 `.devdata/team-membership.json`，所有筛选区间都使用同一份映射；代理不会自动刷新或重分类。未映射使用者暂归通用研发并标记待确认。
+- 团队场景下的调度/分析窗口使用 Unix 秒（不是毫秒），窗口长度、最小/最大区间常量定义在 `team-service.cjs` 顶部。
 
 ### 数据口径（核心业务规则）
 

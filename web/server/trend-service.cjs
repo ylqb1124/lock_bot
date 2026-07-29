@@ -8,7 +8,7 @@ const { buildNodeScopeTimeline, buildNodeTimeline, nodeIdsAt, totalCardsAt } = r
 
 const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
-const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
+const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
 const MONITORED_NODES = clusterScope.nodeIds;
 const CARD_COUNT = clusterScope.cardsPerNode;
 const ITEMS = ['XPU_AVERAGE_UTILIZATION', ...Array.from({ length: CARD_COUNT }, (_, card) => `XPU${card}_MEM_UTILIZATION`)];
@@ -83,6 +83,13 @@ function defaultLockHistoryCache() {
     read: readLockHistoryCache,
     save: saveLockHistoryCache,
   };
+}
+
+function lockHistoryScopeKey(nodeNames) {
+  return hashKey({
+    version: LOCK_HISTORY_CACHE_VERSION,
+    nodes: [...new Set(nodeNames)].sort(),
+  });
 }
 
 function pruneLockHistoryCache(maxAgeDays = LOCK_HISTORY_CACHE_MAX_AGE_DAYS, directory = LOCK_HISTORY_CACHE_DIR) {
@@ -336,10 +343,7 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
   const headers = { authorization };
   const bots = await requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', headers);
   const targetNodes = new Set(requestedNodes || MONITORED_NODES.map(node => `node${node}`));
-  const scopeKey = hashKey({
-    version: LOCK_HISTORY_CACHE_VERSION,
-    nodes: [...targetNodes].sort(),
-  });
+  const scopeKey = lockHistoryScopeKey([...targetNodes]);
   const intervals = [];
   const unavailableDays = new Set();
   let failureCount = 0;
@@ -476,5 +480,7 @@ function createTrendService(config, options = {}) {
 
 module.exports = {
   createTrendService,
+  createLockHistoryCache: defaultLockHistoryCache,
+  lockHistoryScopeKey,
   _private: { botType, lockedCardSamples, occupancyIntervals, stateIntervals, pruneLockHistoryCache },
 };

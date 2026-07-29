@@ -16,7 +16,7 @@ const loggingIn = ref(false);
 const loggedIn = computed(() => Boolean(token.value));
 const isTeamView = computed(() => {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-  return pathname === '/team' || pathname === '/app/team';
+  return pathname === '/team';
 });
 
 function restoreSession() {
@@ -73,12 +73,6 @@ async function login() {
       <button class="primary-button login-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '登录中...' : '登录' }}</button>
     </form>
   </div>
-  <div v-else class="app-shell">
-    <nav class="app-navigation" aria-label="主导航">
-      <a href="/" :class="{ active: !isTeamView }" :aria-current="!isTeamView ? 'page' : undefined">集群视图</a>
-      <a href="/team" :class="{ active: isTeamView }" :aria-current="isTeamView ? 'page' : undefined">团队视图</a>
-    </nav>
-    <TeamDashboard v-if="isTeamView" :token="token" />
-    <ClusterDashboard v-else :token="token" @expired="logout" />
-  </div>
+  <TeamDashboard v-else-if="isTeamView" :token="token" @expired="logout" />
+  <ClusterDashboard v-else :token="token" @expired="logout" />
 </template>

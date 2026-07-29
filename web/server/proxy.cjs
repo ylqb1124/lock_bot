@@ -163,7 +163,7 @@ function serveLegacyStatic(req, res) {
 
 function serveStatic(req, res) {
   const pathname = new URL(req.url, 'http://localhost').pathname;
-  const relativePath = pathname === '/' || pathname === '/app/'
+  const relativePath = pathname === '/app/'
     ? 'index.html'
     : pathname.startsWith('/app/') ? pathname.slice('/app/'.length) : pathname.slice(1);
   let filePath = path.resolve(DIST_ROOT, decodeURIComponent(relativePath));
@@ -266,7 +266,7 @@ const server = http.createServer((req, res) => {
     if (!Number.isInteger(startAt) || !Number.isInteger(endAt) || startAt >= endAt
       || duration < teamPrivate.MIN_RANGE_SECONDS || duration > teamPrivate.MAX_RANGE_SECONDS
       || endAt > nowSeconds + 300) {
-      return sendJson(res, 400, { error: 'Team range must be between 3 hours and 7 days' });
+      return sendJson(res, 400, { error: 'Team range must be between 3 hours and 90 days' });
     }
     return teamService.queryDashboard(req.headers.authorization, startAt, endAt)
       .then(data => sendJson(res, 200, data))
@@ -280,7 +280,16 @@ const server = http.createServer((req, res) => {
     req.url = req.url.replace('/monquery', '');
     return proxyTo(config.backend.monquery.host, config.backend.monquery.port, req, res);
   }
-  if (new URL(req.url, 'http://localhost').pathname === '/personal') {
+  const staticUrl = new URL(req.url, 'http://localhost');
+  if (staticUrl.pathname === '/' || staticUrl.pathname === '/app') {
+    res.writeHead(302, { location: `/app/${staticUrl.search}` });
+    return res.end();
+  }
+  if (staticUrl.pathname === '/app/team' || staticUrl.pathname === '/app/team/') {
+    res.writeHead(302, { location: `/team${staticUrl.search}` });
+    return res.end();
+  }
+  if (staticUrl.pathname === '/personal') {
     res.writeHead(302, { location: '/personal/' });
     return res.end();
   }

@@ -4,7 +4,8 @@
     18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
     32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
     46, 47, 48, 49, 50, 51,
-    60, 61, 62, 63, 64, 65, 66, 67, 68, 69
+    60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+    70, 71, 72, 73, 74, 75, 76, 77, 78, 79
   ],
   "cardsPerNode": 8,
   "nodeGroups": [
@@ -20,23 +21,11 @@
     {
       "effectiveFrom": "2026-07-24",
       "nodeIds": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69]
+    },
+    {
+      "effectiveFrom": "2026-07-29T10:00:00+08:00",
+      "nodeIds": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]
     }
   ],
-  "pendingNodeGroups": [
-    {
-      "status": "pending",
-      "nodes": [
-        { "nodeId": 70, "nodeKey": "node70", "hostname": "wxtky02-p800-8nic-vd-node70.wxtky02", "ip": "10.206.192.168" },
-        { "nodeId": 71, "nodeKey": "node71", "hostname": "wxtky02-p800-8nic-vd-node71.wxtky02", "ip": "10.206.192.169" },
-        { "nodeId": 72, "nodeKey": "node72", "hostname": "wxtky02-p800-8nic-vd-node72.wxtky02", "ip": "10.206.192.208" },
-        { "nodeId": 73, "nodeKey": "node73", "hostname": "wxtky02-p800-8nic-vd-node73.wxtky02", "ip": "10.206.192.209" },
-        { "nodeId": 74, "nodeKey": "node74", "hostname": "wxtky02-p800-8nic-vd-node74.wxtky02", "ip": "10.206.192.97" },
-        { "nodeId": 75, "nodeKey": "node75", "hostname": "wxtky02-p800-8nic-vd-node75.wxtky02", "ip": "10.206.192.98" },
-        { "nodeId": 76, "nodeKey": "node76", "hostname": "wxtky02-p800-8nic-vd-node76.wxtky02", "ip": "10.206.192.100" },
-        { "nodeId": 77, "nodeKey": "node77", "hostname": "wxtky02-p800-8nic-vd-node77.wxtky02", "ip": "10.206.192.101" },
-        { "nodeId": 78, "nodeKey": "node78", "hostname": "wxtky02-p800-8nic-vd-node78.wxtky02", "ip": "10.206.192.102" },
-        { "nodeId": 79, "nodeKey": "node79", "hostname": "wxtky02-p800-8nic-vd-node79.wxtky02", "ip": "10.206.192.103" }
-      ]
-    }
-  ]
+  "pendingNodeGroups": []
 }

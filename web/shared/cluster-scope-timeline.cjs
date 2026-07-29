@@ -10,12 +10,22 @@
 
 const CST_OFFSET_SECONDS = 8 * 60 * 60;
 
-function effectiveFromToSeconds(dateKey) {
-  const match = String(dateKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) throw new Error(`Invalid nodeGroups.effectiveFrom: ${dateKey}`);
-  const [, year, month, day] = match;
-  // 该日期 00:00:00 CST 对应的 Unix 秒
-  return Date.UTC(Number(year), Number(month) - 1, Number(day), 0, 0, 0) / 1000 - CST_OFFSET_SECONDS;
+function effectiveFromToSeconds(effectiveFrom) {
+  const value = String(effectiveFrom);
+  const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateMatch) {
+    const [, year, month, day] = dateMatch;
+    // 仅日期表示该日期 00:00:00 CST。
+    return Date.UTC(Number(year), Number(month) - 1, Number(day), 0, 0, 0) / 1000 - CST_OFFSET_SECONDS;
+  }
+
+  // 精确生效时间必须显式带 +08:00，避免部署主机的本地时区影响历史趋势。
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?\+08:00$/.test(value)) {
+    throw new Error(`Invalid nodeGroups.effectiveFrom: ${effectiveFrom}`);
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) throw new Error(`Invalid nodeGroups.effectiveFrom: ${effectiveFrom}`);
+  return Math.floor(timestamp / 1000);
 }
 
 /**

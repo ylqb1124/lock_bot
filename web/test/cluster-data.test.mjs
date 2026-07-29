@@ -16,22 +16,22 @@ import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/serv
 const require = createRequire(import.meta.url);
 const { createTrendService, _private } = require('../server/trend-service.cjs');
 const { pruneLockHistoryCache } = _private;
-const { _private: teamPrivate } = require('../server/team-service.cjs');
+const { createTeamService, _private: teamPrivate } = require('../server/team-service.cjs');
 
 function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
 }
 
-test('cluster scope uses the current 56-node, 448-card computation denominator', () => {
-  assert.equal(clusterScope.nodeIds.length, 56);
+test('cluster scope uses the current 66-node, 528-card computation denominator', () => {
+  assert.equal(clusterScope.nodeIds.length, 66);
   assert.equal(clusterScope.cardsPerNode, 8);
-  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 448);
+  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 528);
   assert.equal(clusterScope.nodeIds.includes(15), false);
   assert.equal(clusterScope.nodeIds.includes(16), false);
   assert.equal(clusterScope.nodeIds.includes(60), true);
   assert.equal(clusterScope.nodeIds.includes(69), true);
-  assert.equal(clusterScope.nodeIds.includes(70), false);
-  assert.equal(clusterScope.nodeIds.includes(79), false);
+  assert.equal(clusterScope.nodeIds.includes(70), true);
+  assert.equal(clusterScope.nodeIds.includes(79), true);
 });
 
 test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', () => {
@@ -40,15 +40,10 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   assert.deepEqual(groupIds, flatIds);
 });
 
-test('pending nodes retain their activation metadata without entering the current scope', () => {
-  const [pendingGroup] = clusterScope.pendingNodeGroups;
-  assert.equal(pendingGroup.status, 'pending');
-  assert.deepEqual(pendingGroup.nodes.map(node => node.nodeId), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
-  assert.ok(pendingGroup.nodes.every(node => node.nodeKey === `node${node.nodeId}`));
-  assert.ok(pendingGroup.nodes.every(node => node.hostname === `wxtky02-p800-8nic-vd-node${node.nodeId}.wxtky02`));
-  assert.equal(pendingGroup.nodes.find(node => node.nodeId === 70).ip, '10.206.192.168');
-  assert.equal(pendingGroup.nodes.find(node => node.nodeId === 79).ip, '10.206.192.103');
-  assert.ok(pendingGroup.nodes.every(node => !clusterScope.nodeIds.includes(node.nodeId)));
+test('node70 through node79 are active from 10:00 China time with no pending duplicates', () => {
+  const activation = clusterScope.nodeGroups.find(group => group.effectiveFrom === '2026-07-29T10:00:00+08:00');
+  assert.deepEqual(activation.nodeIds, [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
+  assert.deepEqual(clusterScope.pendingNodeGroups, []);
 });
 
 test('current Monquery timeout is shorter than the general request timeout', () => {
@@ -175,7 +170,7 @@ test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {
     },
   ]);
 
-  assert.equal(Object.keys(merged.deviceState).length, 56);
+  assert.equal(Object.keys(merged.deviceState).length, 66);
   assert.equal(merged.lockStateComplete, true);
   assert.equal(merged.deviceState.node1.length, CARD_COUNT);
   assert.equal(merged.deviceState.node1[0].current_users.length, 1);
@@ -283,6 +278,86 @@ test('team scheduler uses Unix seconds rather than JavaScript milliseconds for i
   assert.equal(teamPrivate.currentSampleSeconds(Date.UTC(2026, 6, 27, 11, 43, 17)), 1785152400);
 });
 
+test('team scheduler keeps the persisted membership fixed instead of refreshing it hourly', () => {
+  const service = createTeamService({ backend: { lockbot: {}, monquery: {} } }, {
+    serviceUsername: 'service-user',
+    servicePassword: 'service-password',
+  });
+
+  assert.equal(service.schedule(), false);
+  service.stop();
+});
+
+test('team ranges use the same sampling intervals as the cluster trend through 90 days', () => {
+  assert.equal(teamPrivate.MAX_RANGE_SECONDS, 90 * 24 * 60 * 60);
+  assert.equal(teamPrivate.sampleSecondsForRange(3 * 60 * 60), 60);
+  assert.equal(teamPrivate.sampleSecondsForRange(6 * 60 * 60), 120);
+  assert.equal(teamPrivate.sampleSecondsForRange(24 * 60 * 60), 240);
+  assert.equal(teamPrivate.sampleSecondsForRange(2 * 24 * 60 * 60), 480);
+  assert.equal(teamPrivate.sampleSecondsForRange(7 * 24 * 60 * 60), 1200);
+  assert.equal(teamPrivate.sampleSecondsForRange(30 * 24 * 60 * 60), 2 * 60 * 60);
+  assert.equal(teamPrivate.sampleSecondsForRange(90 * 24 * 60 * 60), 6 * 60 * 60);
+});
+
+test('team payload converts multi-hour samples to card-hours and retains the current mapping for 90-day history', () => {
+  const timestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
+  const cards = Array.from({ length: CARD_COUNT }, () => ({}));
+  cards[0] = { xpu: 52, memory: 72 };
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'mapped-user', node: 'node1', cards: [0], start: timestamp - 1, end: timestamp + 1 },
+  ], new Map([['node1', new Map([[timestamp, cards]])]]), {
+    'mapped-user': { team: 'training', source: 'auto', pending: false, confidence: 0.8 },
+  }, timestamp - 1, timestamp + 1, 6 * 60 * 60);
+  const payload = teamPrivate.buildDashboardPayload(ownership, {
+    generatedAt: '2026-07-28T00:00:00.000Z',
+    assignments: { 'mapped-user': { team: 'training', source: 'auto', pending: false, confidence: 0.8 } },
+  }, timestamp - 1, timestamp + 1, 6 * 60 * 60);
+  const training = payload.teams.find(team => team.id === 'training');
+
+  assert.equal(payload.range.sampleSeconds, 6 * 60 * 60);
+  assert.equal(payload.dataAsOf, timestamp);
+  assert.equal(training.cardHours, 6);
+  assert.equal(payload.rankings[0].team, 'training');
+  assert.equal(payload.rankings[0].cardHours, 6);
+});
+
+test('team aggregation excludes missing and conflicting card samples from every team', () => {
+  const timestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
+  const cards = Array.from({ length: CARD_COUNT }, () => ({}));
+  cards[0] = { xpu: 52, memory: 72 };
+  cards[1] = { xpu: 88 };
+  cards[2] = { xpu: 61, memory: 71 };
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'mapped-user', node: 'node1', cards: [0, 1], start: timestamp - 1, end: timestamp + 1 },
+    { userId: 'first-user', node: 'node1', cards: [2], start: timestamp - 1, end: timestamp + 1 },
+    { userId: 'second-user', node: 'node1', cards: [2], start: timestamp - 1, end: timestamp + 1 },
+  ], new Map([['node1', new Map([[timestamp, cards]])]]), {
+    'mapped-user': { team: 'training' },
+    'first-user': { team: 'inference' },
+    'second-user': { team: 'operator-testing' },
+  }, timestamp - 1, timestamp + 1, 3 * 60 * 60);
+
+  assert.equal(ownership.teamPoints.get(timestamp).get('training').cardCount, 1);
+  assert.equal(ownership.teamPoints.get(timestamp).has('inference'), false);
+  assert.equal(ownership.teamPoints.get(timestamp).has('operator-testing'), false);
+  assert.equal(ownership.conflictCardSamples, 1);
+});
+
+test('team aggregation excludes a node before its scope effective date', () => {
+  const timestamp = Math.floor(new Date('2026-07-23T23:55:00+08:00').getTime() / 1000);
+  const cards = Array.from({ length: CARD_COUNT }, () => ({}));
+  cards[0] = { xpu: 60, memory: 70 };
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'future-node-user', node: 'node60', cards: [0], start: timestamp - 1, end: timestamp + 1 },
+  ], new Map([['node60', new Map([[timestamp, cards]])]]), {
+    'future-node-user': { team: 'training' },
+  }, timestamp - 1, timestamp + 1);
+
+  assert.equal(ownership.allTimes.length, 0);
+  assert.equal(ownership.userSamples.size, 0);
+  assert.equal(ownership.teamPoints.size, 0);
+});
+
 test('team ownership expands node locks, deduplicates one user, and excludes competing users on one card', () => {
   const cards = Array.from({ length: CARD_COUNT }, () => ({}));
   cards[0] = { xpu: 80, memory: 70 };
@@ -338,6 +413,183 @@ test('manual team entries retain their assignment while auto evidence is refresh
   assert.equal(result.assignments['manual-user'].team, 'inference');
   assert.equal(result.assignments['manual-user'].source, 'manual');
   assert.equal(result.assignments['manual-user'].candidate.team, 'training');
+});
+
+test('team dashboard caches an identical aggregation for one hour and reports its cache status', async () => {
+  const startAt = Math.floor(new Date('2026-07-27T00:00:00+08:00').getTime() / 1000);
+  const endAt = startAt + 3 * 60 * 60;
+  let occupancyCalls = 0;
+  let monqueryCalls = 0;
+  const membershipPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'team-membership-')), 'membership.json');
+  const upstream = createServer((request, response) => {
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'DEVICE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      occupancyCalls += 1;
+      response.end(JSON.stringify([{
+        user_id: 'cached-user',
+        node_key: 'node1',
+        dev_id: 0,
+        start_time: startAt,
+        end_time: endAt,
+      }]));
+      return;
+    }
+    if (request.url === '/api/bots/running-states') {
+      response.end(JSON.stringify({ data: {} }));
+      return;
+    }
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      monqueryCalls += 1;
+      response.end(JSON.stringify({ data: [{
+        NameSpace: 'wxtky02-p800-backup-8nic-vd-node1.wxtky02',
+        Items: {
+          XPU0_XPU_UTILIZATION: [{ Timestamp: startAt, Value: 50 }],
+          XPU0_MEM_UTILIZATION: [{ Timestamp: startAt, Value: 70 }],
+        },
+      }] }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTeamService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, {
+      membershipPath,
+      lockHistoryCache: { read: () => null, save: () => {} },
+      currentSeconds: () => endAt + 24 * 60 * 60,
+    });
+    const first = await service.queryDashboard('Bearer test', startAt, endAt);
+    const second = await service.queryDashboard('Bearer test', startAt, endAt);
+
+    assert.equal(first.cache.hit, false);
+    assert.equal(second.cache.hit, true);
+    assert.equal(first.range.sampleSeconds, 60);
+    assert.equal(first.dataAsOf, startAt);
+    assert.ok(first.cache.expiresAt > startAt);
+    assert.equal(occupancyCalls, 1);
+    assert.equal(monqueryCalls, 1);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+    fs.rmSync(path.dirname(membershipPath), { recursive: true, force: true });
+  }
+});
+
+test('team occupancy caches complete historical CST days but always requests today', async () => {
+  const todayStart = Math.floor(new Date('2026-07-28T00:00:00+08:00').getTime() / 1000);
+  const historicDay = todayStart - 24 * 60 * 60;
+  const nowSeconds = todayStart + 30 * 60;
+  const callsByDate = new Map();
+  const recordsByKey = new Map();
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      const date = new URL(request.url, 'http://localhost').searchParams.get('date');
+      callsByDate.set(date, (callsByDate.get(date) || 0) + 1);
+      response.end(JSON.stringify([]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  const cache = {
+    read(dayStart, scopeKey) { return recordsByKey.get(`${dayStart}:${scopeKey}`) || null; },
+    save(dayStart, scopeKey, records) { recordsByKey.set(`${dayStart}:${scopeKey}`, records); },
+  };
+  try {
+    const config = { backend: { lockbot: { host: '127.0.0.1', port } } };
+    const bots = [{ id: 1, bot_type: 'DEVICE' }];
+    await teamPrivate.fetchOccupancy(config, bots, 'Bearer test', historicDay, nowSeconds, cache, nowSeconds);
+    await teamPrivate.fetchOccupancy(config, bots, 'Bearer test', historicDay, nowSeconds, cache, nowSeconds);
+
+    assert.equal(recordsByKey.size, 1);
+    assert.equal(callsByDate.get('2026-07-27'), 1, 'completed historical day should come from cache on the second request');
+    assert.equal(callsByDate.get('2026-07-28'), 2, 'today must bypass the historical cache');
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('team dashboard merges historic cache, today occupancy, and running states across CST midnight', async () => {
+  const todayStart = Math.floor(new Date('2026-07-28T00:00:00+08:00').getTime() / 1000);
+  const historicAt = todayStart - 5 * 60;
+  const databaseAt = todayStart + 5 * 60;
+  const runningAt = todayStart + 10 * 60;
+  const nowSeconds = todayStart + 15 * 60;
+  const historicRecords = [{
+    user_id: 'historic-user', node_key: 'node1', dev_id: 0, start_time: historicAt, end_time: historicAt + 5 * 60,
+  }];
+  let occupancyCalls = 0;
+  let runningStateCalls = 0;
+  const membershipPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'team-midnight-membership-')), 'membership.json');
+  const upstream = createServer((request, response) => {
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'DEVICE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      occupancyCalls += 1;
+      response.end(JSON.stringify([{
+        user_id: 'database-user', node_key: 'node1', dev_id: 0, start_time: databaseAt, end_time: databaseAt + 5 * 60,
+      }]));
+      return;
+    }
+    if (request.url === '/api/bots/running-states') {
+      runningStateCalls += 1;
+      response.end(JSON.stringify({ data: {
+        1: {
+          node1: [{
+            dev_id: 0,
+            status: 'exclusive',
+            current_users: [{ user_id: 'running-user', start_time: runningAt, duration: 5 * 60 }],
+          }],
+        },
+      } }));
+      return;
+    }
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      const points = [historicAt, databaseAt, runningAt].map(Timestamp => ({ Timestamp, Value: 60 }));
+      response.end(JSON.stringify({ data: [{
+        NameSpace: 'wxtky02-p800-backup-8nic-vd-node1.wxtky02',
+        Items: { XPU0_XPU_UTILIZATION: points, XPU0_MEM_UTILIZATION: points },
+      }] }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  const cache = {
+    read(dayStart) { return dayStart === todayStart - 24 * 60 * 60 ? historicRecords : null; },
+    save: () => { throw new Error('historical cache should not be rewritten on a hit'); },
+  };
+  try {
+    const service = createTeamService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { membershipPath, lockHistoryCache: cache, currentSeconds: () => nowSeconds });
+    const result = await service.queryDashboard('Bearer test', historicAt, nowSeconds);
+
+    assert.equal(occupancyCalls, 1, 'only today occupancy should be requested');
+    assert.equal(runningStateCalls, 1);
+    assert.deepEqual(result.rankings.map(row => row.userId).sort(), ['database-user', 'historic-user', 'running-user']);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+    fs.rmSync(path.dirname(membershipPath), { recursive: true, force: true });
+  }
 });
 
 test('server time offset defaults to zero and now() falls back to the local clock', () => {
@@ -490,8 +742,9 @@ test('Lock Bot BDC cards are excluded from the computation-node trend', async ()
     }, { lockHistoryCache: { read: () => null, save: () => {} } });
     const result = await service.query(0, 300, 'Bearer test', null, 300);
 
-    assert.equal(result.targetNodes.length, 56);
+    assert.equal(result.targetNodes.length, 66);
     assert.equal(result.targetNodes.includes('bdc9'), false);
+    assert.equal(result.targetNodes.includes('node70'), true);
     assert.equal(result.lock[0], 0);
     assert.equal(monqueryNamespaces.length, 3);
     assert.equal(monqueryNamespaces.some(namespaces => /bdc|NaN/i.test(namespaces)), false);
@@ -711,6 +964,71 @@ test('lock rate adds node60 through node69 from their effective date', async (t)
     assert.ok(afterIndex > 0, 'afterDayStart sample should be present in the range');
     assert.equal(result.lock[beforeIndex], 1 / oldTotalCards * 100);
     assert.equal(result.lock[afterIndex], 2 / newTotalCards * 100);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('lock rate adds node70 through node79 at 10:00 China time', async (t) => {
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2026-07-30T00:00:00+08:00').getTime();
+  t.after(() => { Date.now = originalDateNow; });
+
+  const beforeActivation = Math.floor(new Date('2026-07-29T09:55:00+08:00').getTime() / 1000);
+  const atActivation = Math.floor(new Date('2026-07-29T10:00:00+08:00').getTime() / 1000);
+  const priorNodeCount = clusterScope.nodeGroups
+    .filter(group => group.effectiveFrom !== '2026-07-29T10:00:00+08:00')
+    .flatMap(group => group.nodeIds)
+    .length;
+  const activationNodeCount = clusterScope.nodeGroups
+    .find(group => group.effectiveFrom === '2026-07-29T10:00:00+08:00')
+    .nodeIds
+    .length;
+  const priorTotalCards = priorNodeCount * clusterScope.cardsPerNode;
+  const activeTotalCards = (priorNodeCount + activationNodeCount) * clusterScope.cardsPerNode;
+
+  assert.equal(priorNodeCount, 56);
+  assert.equal(activationNodeCount, 10);
+
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'NODE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      response.end(JSON.stringify([{
+        node_key: 'node1',
+        dev_id: 0,
+        start_time: beforeActivation,
+        end_time: atActivation + 24 * 60 * 60,
+      }, {
+        node_key: 'node70',
+        dev_id: 0,
+        start_time: beforeActivation,
+        end_time: atActivation + 24 * 60 * 60,
+      }]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(beforeActivation, atActivation, 'Bearer test', null, 300);
+
+    assert.equal(result.lock[0], 1 / priorTotalCards * 100);
+    assert.equal(result.lock[result.times.indexOf(atActivation)], 2 / activeTotalCards * 100);
   } finally {
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
   }
