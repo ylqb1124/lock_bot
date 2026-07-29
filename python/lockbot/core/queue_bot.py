@@ -75,7 +75,7 @@ class QueueBot(NodeBot):
             return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
-            if not allow_multi_lock and self._user_holds_other_node(user_id, node_keys):
+            if not allow_multi_lock and self._user_has_other_node_claim(user_id, node_keys):
                 return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
 
             # FORBID_RELOCK: the current holder may not re-lock (续锁) the same node.
@@ -176,8 +176,14 @@ class QueueBot(NodeBot):
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         forbid_relock = self.config.get_val("FORBID_RELOCK")
+        allow_multi_lock = self.config.get_val("ALLOW_MULTI_LOCK")
+        if not allow_multi_lock and len(node_keys) > 1:
+            return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+
+            if not allow_multi_lock and self._user_has_other_node_claim(user_id, node_keys):
+                return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
 
             # Already queued on any node → always reject (no duplicate booking).
             if any(find_user_info(node["booking_list"], user_id) for node in nodes):

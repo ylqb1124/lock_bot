@@ -191,6 +191,12 @@
                 }}
               </el-tag>
             </el-descriptions-item>
+            <el-descriptions-item
+              v-if="botConfig.ALLOW_MULTI_LOCK === false"
+              :label="$t('botCreate.allowMultiLock')"
+            >
+              <el-tag type="warning" size="small">{{ $t('botCreate.allowMultiLockOff') }}</el-tag>
+            </el-descriptions-item>
           </template>
         </el-descriptions>
       </el-card>
@@ -529,9 +535,16 @@ const botConfig = computed(() => {
       MAX_LOCK_DURATION: overrides.MAX_LOCK_DURATION ?? -1,
       TIME_ALERT: overrides.TIME_ALERT ?? 300,
       EARLY_NOTIFY: overrides.EARLY_NOTIFY ?? false,
+      ALLOW_MULTI_LOCK: overrides.ALLOW_MULTI_LOCK ?? true,
     }
   } catch {
-    return { DEFAULT_DURATION: 7200, MAX_LOCK_DURATION: -1, TIME_ALERT: 300, EARLY_NOTIFY: false }
+    return {
+      DEFAULT_DURATION: 7200,
+      MAX_LOCK_DURATION: -1,
+      TIME_ALERT: 300,
+      EARLY_NOTIFY: false,
+      ALLOW_MULTI_LOCK: true,
+    }
   }
 })
 
@@ -543,7 +556,8 @@ const hasAdvancedConfig = computed(() => {
     c.DEFAULT_DURATION !== 7200 ||
     c.MAX_LOCK_DURATION !== -1 ||
     c.TIME_ALERT !== 300 ||
-    c.EARLY_NOTIFY !== false
+    c.EARLY_NOTIFY !== false ||
+    c.ALLOW_MULTI_LOCK !== true
   )
 })
 

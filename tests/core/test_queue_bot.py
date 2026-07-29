@@ -324,11 +324,57 @@ def test_disallow_multi_lock_rejects_second_machine(bot):
     bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
 
     first = bot.lock("user1", "lock test 1h")
-    assert "✅【资源申请成功】" in first["message"]["body"][0]["content"] or "🗓️【排队成功】" in first["message"]["body"][0]["content"]
+    assert (
+        "✅【资源申请成功】" in first["message"]["body"][0]["content"]
+        or "🗓️【排队成功】" in first["message"]["body"][0]["content"]
+    )
 
     reply = bot.lock("user1", "lock test2 1h")
     content = reply["message"]["body"][0]["content"]
     assert "不能一次性lock多台机器" in content
+
+
+def test_disallow_multi_lock_rejects_booking_multiple_nodes(bot):
+    """ALLOW_MULTI_LOCK=False rejects booking multiple nodes in one command."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.state.bot_state = {
+        node_key: {
+            "status": "exclusive",
+            "current_users": [mock_user_info(f"holder-{node_key}", 3600)],
+            "booking_list": [],
+        }
+        for node_key in ("test", "test2")
+    }
+
+    reply = bot.book("user1", "book test,test2 1h")
+
+    assert "不能一次性lock多台机器" in reply["message"]["body"][0]["content"]
+    assert all(not node["booking_list"] for node in bot.state.bot_state.values())
+
+
+def test_disallow_multi_lock_rejects_booking_a_second_node(bot):
+    """ALLOW_MULTI_LOCK=False treats an existing booking as a node claim."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.state.bot_state["test"] = {
+        "status": "exclusive",
+        "current_users": [mock_user_info("holder-test", 3600)],
+        "booking_list": [],
+    }
+    bot.state.bot_state["test2"] = {
+        "status": "exclusive",
+        "current_users": [mock_user_info("holder-test2", 3600)],
+        "booking_list": [],
+    }
+
+    first = bot.book("user1", "book test 1h")
+    assert "🗓️【排队成功】" in first["message"]["body"][0]["content"]
+
+    reply = bot.book("user1", "book test2 1h")
+
+    assert "不能一次性lock多台机器" in reply["message"]["body"][0]["content"]
+    assert not bot.state.bot_state["test2"]["booking_list"]
 
 
 def test_forbid_relock_off_allows_relock(bot):

@@ -155,7 +155,7 @@ class NodeBot(BaseLockBot):
             return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
-            if not allow_multi_lock and self._user_holds_other_node(user_id, node_keys):
+            if not allow_multi_lock and self._user_has_other_node_claim(user_id, node_keys):
                 return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
             state_changed = False
             for node_key, node in zip(node_keys, nodes, strict=True):
@@ -497,6 +497,18 @@ class NodeBot(BaseLockBot):
         requested = set(node_keys)
         return any(
             node_key not in requested and find_user_info(node["current_users"], user_id)
+            for node_key, node in self.state.bot_state.items()
+        )
+
+    def _user_has_other_node_claim(self, user_id, node_keys):
+        """Return whether the user holds or has booked another node."""
+        requested = set(node_keys)
+        return any(
+            node_key not in requested
+            and (
+                find_user_info(node["current_users"], user_id)
+                or find_user_info(node.get("booking_list", []), user_id)
+            )
             for node_key, node in self.state.bot_state.items()
         )
 

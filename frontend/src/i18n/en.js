@@ -171,6 +171,7 @@ export default {
     allowMultiLock: 'Allow Multi-lock',
     allowMultiLockHelp:
       'On (default): one user can lock multiple machines in the same bot; Off: one user can lock only one machine at a time',
+    allowMultiLockOff: 'Multi-lock Disabled',
     forbidRelock: 'Forbid Re-lock',
     forbidRelockHelp:
       'QUEUE bots only. On (default): the current holder cannot re-lock or re-book the same node, preventing indefinite occupation; Off: re-lock and re-book allowed',

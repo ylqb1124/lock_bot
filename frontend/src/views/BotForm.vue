@@ -252,7 +252,7 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
-            <el-col :xs="24">
+            <el-col v-if="form.bot_type !== 'DEVICE'" :xs="24">
               <el-form-item>
                 <template #label>
                   {{ $t('botCreate.allowMultiLock') }}
@@ -398,6 +398,8 @@ onMounted(async () => {
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
+        if (overrides.ALLOW_MULTI_LOCK != null)
+          advancedConfig.ALLOW_MULTI_LOCK = overrides.ALLOW_MULTI_LOCK
         if (overrides.FORBID_RELOCK != null) advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
       } catch {
@@ -462,6 +464,7 @@ async function handleSubmit() {
     const data = { ...form }
     // Always include advanced config_overrides
     data.config_overrides = { ...advancedConfig }
+    if (form.bot_type === 'DEVICE') delete data.config_overrides.ALLOW_MULTI_LOCK
     if (isEdit.value) {
       if (!data.aes_key) delete data.aes_key
       if (!data.token) delete data.token
