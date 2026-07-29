@@ -121,6 +121,32 @@ def test_lock_unlock(bot):
     assert "test" in content2 and "空闲" in content2, "unlock reply should include released node"
 
 
+def test_unlock_reject_shows_only_requested_nodes(bot):
+    """Explicit unlock rejection should not dump unrelated cluster usage."""
+    now = int(time.time())
+    bot.config.set_val("CLUSTER_CONFIGS", ["node1", "node2"])
+    bot.state.bot_state = {
+        "node1": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "holder1", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [],
+        },
+        "node2": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "unrelated-user", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [],
+        },
+    }
+
+    reply = bot.unlock("user1", "unlock node1")
+    content = reply["message"]["body"][0]["content"]
+
+    assert "node1" in content
+    assert "holder1" in content
+    assert "node2" not in content
+    assert "unrelated-user" not in content
+
+
 def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
     """ALLOW_MULTI_LOCK defaults to True, so a single command may target multiple nodes."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})

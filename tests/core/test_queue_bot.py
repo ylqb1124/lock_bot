@@ -251,6 +251,32 @@ def test_forbid_duplicate_book(bot):
     )
 
 
+def test_duplicate_book_reject_shows_only_requested_nodes(bot):
+    """Duplicate-book rejection should not dump unrelated cluster usage."""
+    now = int(time.time())
+    bot.config.set_val("CLUSTER_CONFIGS", ["node1", "node2"])
+    bot.state.bot_state = {
+        "node1": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "holder1", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [{"user_id": "user1", "start_time": now, "duration": 3600, "is_notified": False}],
+        },
+        "node2": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "unrelated-user", "start_time": now, "duration": 3600, "is_notified": False}],
+            "booking_list": [],
+        },
+    }
+
+    reply = bot.book("user1", "book node1 1h")
+    content = reply["message"]["body"][0]["content"]
+
+    assert "node1" in content
+    assert "holder1" in content
+    assert "node2" not in content
+    assert "unrelated-user" not in content
+
+
 def test_locked_user_cannot_book_again(bot):
     """Test locked user cannot book again."""
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])

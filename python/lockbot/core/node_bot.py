@@ -325,7 +325,7 @@ class NodeBot(BaseLockBot):
                 find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
                 for node in nodes
             ):
-                return self.show_error(user_id, self._msg_with_usage("error.node_not_requested"))
+                return self.show_error(user_id, self._msg_with_usage("error.node_not_requested", node_key=node_keys))
             for node_key, node in zip(node_keys, nodes, strict=True):
                 for ui in node["current_users"]:
                     if ui["user_id"] == user_id:

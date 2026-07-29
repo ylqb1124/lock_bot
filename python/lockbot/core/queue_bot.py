@@ -187,7 +187,10 @@ class QueueBot(NodeBot):
 
             # Already queued on any node → always reject (no duplicate booking).
             if any(find_user_info(node["booking_list"], user_id) for node in nodes):
-                return self.show_error(user_id, self._msg_with_usage("error.already_locked", sep="\n"))
+                return self.show_error(
+                    user_id,
+                    self._msg_with_usage("error.already_locked", node_key=node_keys, sep="\n"),
+                )
 
             # Already the current holder of any node → this is a self-renewal (book-relock).
             # Reject only when FORBID_RELOCK is on; otherwise allow booking one's next slot.
