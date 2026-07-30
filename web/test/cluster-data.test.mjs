@@ -321,6 +321,40 @@ test('team payload converts multi-hour samples to card-hours and retains the cur
   assert.equal(payload.rankings[0].cardHours, 6);
 });
 
+test('team payload exposes historical averages instead of relying on the latest sample', () => {
+  const firstTimestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
+  const secondTimestamp = firstTimestamp + 20 * 60;
+  const firstCards = Array.from({ length: CARD_COUNT }, () => ({}));
+  const secondCards = Array.from({ length: CARD_COUNT }, () => ({}));
+  firstCards[0] = { xpu: 10, memory: 20 };
+  secondCards[0] = { xpu: 90, memory: 80 };
+  secondCards[1] = { xpu: 50, memory: 60 };
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'first-user', node: 'node1', cards: [0], start: firstTimestamp - 1, end: secondTimestamp + 1 },
+    { userId: 'second-user', node: 'node1', cards: [1], start: secondTimestamp - 1, end: secondTimestamp + 1 },
+  ], new Map([['node1', new Map([
+    [firstTimestamp, firstCards],
+    [secondTimestamp, secondCards],
+  ])]]), {
+    'first-user': { team: 'training' },
+    'second-user': { team: 'training' },
+  }, firstTimestamp - 1, secondTimestamp + 1, 20 * 60);
+  const payload = teamPrivate.buildDashboardPayload(ownership, {
+    assignments: {
+      'first-user': { team: 'training' },
+      'second-user': { team: 'training' },
+    },
+  }, firstTimestamp - 1, secondTimestamp + 1, 20 * 60);
+  const training = payload.teams.find(team => team.id === 'training');
+
+  assert.equal(training.current.xpu, 70, 'the current point stays available for trend consumers');
+  assert.equal(training.averages.xpu, 50, 'historical XPU averages every valid locked-card sample');
+  assert.equal(training.averages.memory, 160 / 3, 'historical memory average is card-sample weighted');
+  assert.equal(training.averages.activeUsers, 1.5, 'active users average across time points');
+  assert.equal(training.averages.lockedCardsPerUser, 1, 'card ownership is averaged across active users');
+  assert.ok(Math.abs(training.averages.lockRate - training.current.lockRate * .75) < 1e-12, 'node occupancy rate includes every time point');
+});
+
 test('team aggregation excludes missing and conflicting card samples from every team', () => {
   const timestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
   const cards = Array.from({ length: CARD_COUNT }, () => ({}));

@@ -515,6 +515,12 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
   }
   const teams = TEAM_DEFINITIONS.map(team => {
     const value = perTeam[team.id];
+    const trendSampleCount = value.trend.length;
+    const lockedCards = value.trend.reduce((total, point) => total + point.lockedCards, 0);
+    const lockedUsers = value.trend.reduce((total, point) => total + point.lockedUsers, 0);
+    const lockRate = trendSampleCount
+      ? value.trend.reduce((total, point) => total + point.lockRate, 0) / trendSampleCount
+      : null;
     return {
       id: team.id,
       label: team.label,
@@ -525,6 +531,13 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
       pendingUserCount: value.pendingUsers.size,
       trend: value.trend,
       current: latest[team.id] || null,
+      averages: {
+        lockRate,
+        xpu: value.cardSamples ? value.xpuSum / value.cardSamples : null,
+        memory: value.cardSamples ? value.memorySum / value.cardSamples : null,
+        activeUsers: trendSampleCount ? lockedUsers / trendSampleCount : null,
+        lockedCardsPerUser: lockedUsers ? lockedCards / lockedUsers : null,
+      },
     };
   });
   const rankings = [...ownership.userSamples.values()].map(user => {

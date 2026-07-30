@@ -16,7 +16,7 @@ const QUICK_RANGES = [
   { id: '30d', label: '最近 30 天', minutes: 30 * DAY_MINUTES },
   { id: '90d', label: '最近 90 天', minutes: 90 * DAY_MINUTES },
 ];
-const TREND_MARGIN = { top: 18, right: 18, bottom: 40, left: 48 };
+const TREND_MARGIN = { top: 28, right: 64, bottom: 40, left: 58 };
 const TREND_Y_TICKS = [0, 20, 40, 60, 80, 100];
 const X_AXIS_TICK_OPTIONS = [
   60, 120, 240, 300, 600, 900, 1200, 1800, 3600, 7200, 14400, 21600,
@@ -24,9 +24,9 @@ const X_AXIS_TICK_OPTIONS = [
 ];
 const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
 const TREND_SERIES = [
-  { field: 'lockRate', label: '节点使用率', color: '#d97706' },
-  { field: 'xpu', label: 'XPU 利用率', color: '#7c3aed' },
-  { field: 'memory', label: '显存利用率', color: '#0891b2' },
+  { field: 'xpu', label: 'XPU 利用率', color: '#7c3aed', axis: 'rate' },
+  { field: 'memory', label: '显存利用率', color: '#38bdf8', axis: 'rate' },
+  { field: 'lockedCards', label: '占用卡数', color: '#f97316', axis: 'cards' },
 ];
 const TEAM_COLORS = {
   'operator-testing': '#ea580c',
@@ -59,9 +59,9 @@ let resizeHandler;
 const teams = computed(() => dashboard.value?.teams || []);
 const selectedTeam = computed(() => teams.value.find(team => team.id === selectedTeamId.value) || teams.value.at(-1) || null);
 const selectedTrend = computed(() => selectedTeam.value?.trend || []);
-const selectedCurrent = computed(() => selectedTeam.value?.current || null);
 const selectedRankings = computed(() => (dashboard.value?.rankings || []).filter(row => row.team === selectedTeamId.value));
 const timeLabel = computed(() => QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label || '自定义时间范围');
+const averagePeriodLabel = computed(() => QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label.replace('最近 ', '近 ') || '所选范围');
 const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
   ? `${formatChinaDateTime(rangeStart.value)} 至 ${formatChinaDateTime(rangeEnd.value)}`
   : '尚未选择时间范围');
@@ -98,16 +98,14 @@ const pieSegments = computed(() => {
     return segment;
   });
 });
-const liveMetrics = computed(() => [
-  { label: '节点使用率', value: formatPercent(selectedCurrent.value?.lockRate), tone: 'node-util' },
-  { label: 'XPU 利用率', value: formatPercent(selectedCurrent.value?.xpu), tone: 'xpu' },
-  { label: '显存利用率', value: formatPercent(selectedCurrent.value?.memory), tone: 'memory' },
-  { label: '锁定节点数', value: formatCount(selectedCurrent.value?.lockedNodes), tone: 'locked-nodes' },
-  { label: '锁定卡数', value: formatCount(selectedCurrent.value?.lockedCards), tone: 'locked-cards' },
-  { label: '锁定人数', value: formatCount(selectedCurrent.value?.lockedUsers), tone: 'locked-users' },
-  { label: '人均锁定卡数', value: formatLockedCardsPerUser(selectedCurrent.value), tone: 'cards-per-user' },
+const historicalMetrics = computed(() => [
+  { label: `${averagePeriodLabel.value}平均节点占用率`, value: formatPercent(selectedTeam.value?.averages?.lockRate), tone: 'node-util' },
+  { label: `${averagePeriodLabel.value}平均 XPU 利用率`, value: formatPercent(selectedTeam.value?.averages?.xpu), tone: 'xpu' },
+  { label: `${averagePeriodLabel.value}平均显存利用率`, value: formatPercent(selectedTeam.value?.averages?.memory), tone: 'memory' },
+  { label: `${averagePeriodLabel.value}平均活跃人数`, value: formatAverageCount(selectedTeam.value?.averages?.activeUsers), tone: 'locked-users' },
+  { label: `${averagePeriodLabel.value}人均锁定卡数`, value: formatAverageCount(selectedTeam.value?.averages?.lockedCardsPerUser), tone: 'cards-per-user' },
 ]);
-const trendHasSamples = computed(() => selectedTrend.value.some(point => Number.isFinite(point.xpu) || Number.isFinite(point.memory) || Number.isFinite(point.lockRate)));
+const trendHasSamples = computed(() => selectedTrend.value.some(hasTrendValue));
 const hoveredTrendPoint = computed(() => {
   const index = hoveredTrendIndex.value;
   return Number.isInteger(index) ? selectedTrend.value[index] || null : null;
@@ -171,13 +169,16 @@ function formatCount(value) {
   return Number.isFinite(value) ? String(value) : '暂无有效样本';
 }
 
-function formatCardHours(value) {
-  return Number.isFinite(value) ? `${value.toFixed(1)} 卡时` : '暂无有效样本';
+function formatCards(value) {
+  return Number.isFinite(value) ? `${value} 张` : '暂无有效样本';
 }
 
-function formatLockedCardsPerUser(point) {
-  if (!point?.lockedUsers) return '暂无有效样本';
-  return (point.lockedCards / point.lockedUsers).toFixed(1);
+function formatAverageCount(value) {
+  return Number.isFinite(value) ? value.toFixed(1) : '暂无有效样本';
+}
+
+function formatCardHours(value) {
+  return Number.isFinite(value) ? `${value.toFixed(1)} 卡时` : '暂无有效样本';
 }
 
 function formatTrendTime(point) {
@@ -214,11 +215,51 @@ function buildXAxisTicks(times, maxLabels) {
   return { ticks, interval };
 }
 
+function resolveCardAxis(points) {
+  const peak = points.reduce((maximum, point) => Number.isFinite(point?.lockedCards)
+    ? Math.max(maximum, point.lockedCards)
+    : maximum, 0);
+  const rawStep = Math.max(1, peak / 5);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  const step = Math.max(1, (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude);
+  const max = Math.max(step, Math.ceil(peak / step) * step);
+  return {
+    max,
+    ticks: Array.from({ length: Math.floor(max / step) + 1 }, (_, index) => index * step),
+  };
+}
+
 function formatTrendTick(timestamp, interval, sameDay) {
   const date = chinaTimeParts(timestamp * 1000);
   const seconds = interval < 300 ? `:${date.second}` : '';
   const clock = `${date.hour}:${date.minute}${seconds}`;
   return sameDay ? clock : `${date.month}-${date.day} ${clock}`;
+}
+
+function drawSmoothedLine(context, segment, series, xFor, yForSeries) {
+  const coordinates = segment.map(point => ({
+    x: xFor(point.timestamp),
+    y: yForSeries(series, point.point[series.field]),
+  }));
+  if (!coordinates.length) return;
+  context.beginPath();
+  context.moveTo(coordinates[0].x, coordinates[0].y);
+  const tension = .14;
+  for (let index = 0; index < coordinates.length - 1; index += 1) {
+    const previous = coordinates[index - 1] || coordinates[index];
+    const current = coordinates[index];
+    const next = coordinates[index + 1];
+    const after = coordinates[index + 2] || next;
+    context.bezierCurveTo(
+      current.x + (next.x - previous.x) * tension,
+      current.y + (next.y - previous.y) * tension,
+      next.x - (after.x - current.x) * tension,
+      next.y - (after.y - current.y) * tension,
+      next.x,
+      next.y,
+    );
+  }
 }
 
 function drawTrendChart() {
@@ -242,43 +283,58 @@ function drawTrendChart() {
   const end = times.at(-1);
   const rangeSeconds = Math.max(1, end - start);
   const xFor = timestamp => TREND_MARGIN.left + (timestamp - start) / rangeSeconds * plotWidth;
-  const yFor = value => TREND_MARGIN.top + (1 - Math.max(0, Math.min(100, value)) / 100) * plotHeight;
+  const rateYFor = value => TREND_MARGIN.top + (1 - Math.max(0, Math.min(100, value)) / 100) * plotHeight;
+  const cardAxis = resolveCardAxis(points);
+  const cardsYFor = value => TREND_MARGIN.top + (1 - Math.max(0, Math.min(cardAxis.max, value)) / cardAxis.max) * plotHeight;
+  const yForSeries = (series, value) => series.axis === 'cards' ? cardsYFor(value) : rateYFor(value);
   const xAxis = buildXAxisTicks(times, Math.max(3, Math.floor(plotWidth / 95) + 1));
 
   context.save();
-  context.strokeStyle = '#cbd5e1';
+  context.strokeStyle = '#e5e7eb';
   context.lineWidth = .8;
-  context.setLineDash([4, 4]);
   TREND_Y_TICKS.forEach(value => {
-    const y = yFor(value);
+    const y = rateYFor(value);
     context.beginPath();
     context.moveTo(TREND_MARGIN.left, y);
     context.lineTo(width - TREND_MARGIN.right, y);
     context.stroke();
   });
-  xAxis.ticks.forEach(timestamp => {
-    const x = xFor(timestamp);
-    context.beginPath();
-    context.moveTo(x, TREND_MARGIN.top);
-    context.lineTo(x, TREND_MARGIN.top + plotHeight);
-    context.stroke();
-  });
   context.restore();
 
   context.save();
-  context.fillStyle = '#475569';
+  context.fillStyle = '#6d28d9';
   context.font = '11px "SF Mono", "JetBrains Mono", monospace';
   context.textAlign = 'right';
   context.textBaseline = 'middle';
-  TREND_Y_TICKS.forEach(value => context.fillText(`${value}%`, TREND_MARGIN.left - 8, yFor(value)));
+  TREND_Y_TICKS.forEach(value => context.fillText(`${value}%`, TREND_MARGIN.left - 8, rateYFor(value)));
+  context.fillStyle = '#ea580c';
+  context.textAlign = 'left';
+  cardAxis.ticks.forEach(value => context.fillText(`${value} 张`, width - TREND_MARGIN.right + 8, cardsYFor(value)));
+  context.font = '600 11px -apple-system, "PingFang SC", sans-serif';
+  context.textBaseline = 'top';
+  context.fillStyle = '#6d28d9';
+  context.textAlign = 'left';
+  context.fillText('利用率 (%)', 0, 5);
+  context.fillStyle = '#ea580c';
+  context.textAlign = 'right';
+  context.fillText('占用卡数', width, 5);
   context.restore();
 
   context.save();
-  context.strokeStyle = '#111827';
-  context.lineWidth = 1.5;
+  context.lineWidth = 1.25;
   context.beginPath();
+  context.strokeStyle = '#6d28d9';
   context.moveTo(TREND_MARGIN.left, TREND_MARGIN.top);
   context.lineTo(TREND_MARGIN.left, TREND_MARGIN.top + plotHeight);
+  context.stroke();
+  context.beginPath();
+  context.strokeStyle = '#ea580c';
+  context.moveTo(width - TREND_MARGIN.right, TREND_MARGIN.top);
+  context.lineTo(width - TREND_MARGIN.right, TREND_MARGIN.top + plotHeight);
+  context.stroke();
+  context.beginPath();
+  context.strokeStyle = '#94a3b8';
+  context.moveTo(TREND_MARGIN.left, TREND_MARGIN.top + plotHeight);
   context.lineTo(width - TREND_MARGIN.right, TREND_MARGIN.top + plotHeight);
   context.stroke();
   context.restore();
@@ -315,12 +371,7 @@ function drawTrendChart() {
     let segment = [];
     const stroke = () => {
       if (!segment.length) return;
-      context.beginPath();
-      segment.forEach((point, index) => {
-        const value = point.point[series.field];
-        if (index) context.lineTo(xFor(point.timestamp), yFor(value));
-        else context.moveTo(xFor(point.timestamp), yFor(value));
-      });
+      drawSmoothedLine(context, segment, series, xFor, yForSeries);
       context.strokeStyle = series.color;
       context.lineWidth = 2.25;
       context.lineJoin = 'round';
@@ -336,7 +387,7 @@ function drawTrendChart() {
   });
   context.restore();
 
-  canvas._teamTrendMeta = { points, times, width, height, plotWidth, plotHeight, start, rangeSeconds, xFor, yFor };
+  canvas._teamTrendMeta = { points, times, width, height, plotWidth, plotHeight, start, rangeSeconds, xFor, yForSeries };
   canvas._teamTrendSnapshot = context.getImageData(0, 0, canvas.width, canvas.height);
 }
 
@@ -420,7 +471,7 @@ function handleTrendPointer(event) {
     const value = meta.points[index]?.[series.field];
     if (!Number.isFinite(value)) return;
     context.beginPath();
-    context.arc(crosshairX, meta.yFor(value), 4.5, 0, Math.PI * 2);
+    context.arc(crosshairX, meta.yForSeries(series, value), 4.5, 0, Math.PI * 2);
     context.fillStyle = '#fff';
     context.fill();
     context.strokeStyle = series.color;
@@ -560,40 +611,39 @@ onBeforeUnmount(() => {
       <select id="team-select" v-model="selectedTeamId" :disabled="loading || !teams.length">
         <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.label }}</option>
       </select>
-      <span>实时指标截至 {{ dataAsOfLabel }}</span>
+      <span>历史平均指标截至 {{ dataAsOfLabel }}</span>
     </section>
 
-    <section class="team-snapshot-section" :aria-label="`${selectedTeam?.label || '团队'} 实时锁定快照`">
+    <section class="team-snapshot-section" :aria-label="`${selectedTeam?.label || '团队'} ${averagePeriodLabel}历史平均指标`">
       <div class="team-snapshot-grid team-snapshot-primary">
-        <article v-for="metric in liveMetrics.slice(0, 3)" :key="metric.label" class="team-metric-card" :class="metric.tone"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong></article>
+        <article v-for="metric in historicalMetrics.slice(0, 3)" :key="metric.label" class="team-metric-card" :class="metric.tone"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong></article>
       </div>
       <div class="team-snapshot-grid team-snapshot-secondary">
-        <article v-for="metric in liveMetrics.slice(3)" :key="metric.label" class="team-metric-card" :class="metric.tone"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong></article>
+        <article v-for="metric in historicalMetrics.slice(3)" :key="metric.label" class="team-metric-card" :class="metric.tone"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong></article>
       </div>
     </section>
 
     <section class="team-section" aria-labelledby="team-trend-title">
-      <div class="team-section-head"><div><h2 id="team-trend-title">{{ selectedTeam?.label || '团队' }} 节点使用率 / XPU 利用率 / 显存利用率趋势</h2><p>{{ timeLabel }}，截至 {{ dataAsOfLabel }}，{{ sampleLabel }}，三线统一使用 0 至 100% 坐标。</p></div></div>
+      <div class="team-section-head"><div><h2 id="team-trend-title">{{ selectedTeam?.label || '团队' }} 资源利用率 / 占用卡数趋势</h2><p>{{ timeLabel }}，截至 {{ dataAsOfLabel }}，{{ sampleLabel }}；XPU 与显存利用率使用左侧百分比轴，占用卡数使用右侧数量轴。</p></div></div>
       <div class="team-chart-wrap">
         <div v-if="trendHasSamples" class="team-chart-surface">
-          <canvas ref="trendCanvas" class="team-chart" role="img" :aria-label="`${selectedTeam?.label || '团队'} 三指标趋势`" @pointerdown="handleTrendPointer" @pointermove="handleTrendPointer" @pointerleave="clearTrendHover"></canvas>
+          <canvas ref="trendCanvas" class="team-chart" role="img" :aria-label="`${selectedTeam?.label || '团队'} XPU 利用率、显存利用率和占用卡数趋势`" @pointerdown="handleTrendPointer" @pointermove="handleTrendPointer" @pointerleave="clearTrendHover"></canvas>
           <div v-if="hoveredTrendPoint" ref="trendTooltip" class="team-chart-tooltip" :style="trendTooltipStyle">
             <strong class="team-tooltip-time">{{ formatTrendTime(hoveredTrendPoint) }}</strong>
-            <div class="team-tooltip-section" aria-label="利用率">
-              <div class="team-tooltip-row"><span><i class="lock"></i>节点使用率</span><b class="lock">{{ formatPercent(hoveredTrendPoint.lockRate) }}</b></div>
+            <div class="team-tooltip-section" aria-label="资源趋势">
               <div class="team-tooltip-row"><span><i class="xpu"></i>XPU 利用率</span><b class="xpu">{{ formatPercent(hoveredTrendPoint.xpu) }}</b></div>
               <div class="team-tooltip-row"><span><i class="memory"></i>显存利用率</span><b class="memory">{{ formatPercent(hoveredTrendPoint.memory) }}</b></div>
+              <div class="team-tooltip-row"><span><i class="cards"></i>占用卡数</span><b class="cards">{{ formatCards(hoveredTrendPoint.lockedCards) }}</b></div>
             </div>
             <div class="team-tooltip-section team-tooltip-locks" aria-label="锁定资源">
               <div class="team-tooltip-row"><span>锁定节点数</span><b>{{ formatCount(hoveredTrendPoint.lockedNodes) }}</b></div>
-              <div class="team-tooltip-row"><span>锁定卡数</span><b>{{ formatCount(hoveredTrendPoint.lockedCards) }}</b></div>
               <div class="team-tooltip-row"><span>锁定人数</span><b>{{ formatCount(hoveredTrendPoint.lockedUsers) }}</b></div>
             </div>
           </div>
         </div>
         <div v-else class="team-chart-empty">{{ loading ? '正在加载趋势数据' : '所选团队在此范围内暂无有效卡级样本' }}</div>
       </div>
-      <div class="team-legend"><span><i class="lock"></i>节点使用率</span><span><i class="xpu"></i>XPU 利用率</span><span><i class="memory"></i>显存利用率</span></div>
+      <div class="team-legend"><span><i class="xpu"></i>XPU 利用率</span><span><i class="memory"></i>显存利用率</span><span><i class="cards"></i>占用卡数</span></div>
     </section>
 
     <section class="team-section" aria-labelledby="team-ranking-title">

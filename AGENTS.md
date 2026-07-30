@@ -15,6 +15,10 @@ The repository root retains the legacy static dashboard (`index.html`, `api.js`,
 
 Run the relevant test suite and production build for every change. Manually verify login, loading/error handling, refresh behavior, and the modified dashboard path against the local proxy.
 
+## Deployment Verification
+
+Do not start a Vite development server or provide `localhost` preview links for routine changes: these ports are not accessible to the user and are not an acceptance path. After a successful production build, restart the deployed service with `pm2 restart xpu-monitor`, then verify its PM2 status and relevant logs. Use a local Vite server only when the user explicitly requests it.
+
 ## Coding Style & Naming Conventions
 
 Use two-space indentation, semicolons, and single quotes in Vue/JavaScript. Use camelCase for functions (`fetchLockBotList`), PascalCase for components (`ClusterDashboard.vue`), and kebab-case for multiword files (`trend-service.cjs`). Keep fetches in `services/api.js`, response transformations in adapters, and rendering in views. Preserve China-time conversion and the shared cluster scope instead of duplicating constants.
