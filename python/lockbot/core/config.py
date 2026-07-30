@@ -63,9 +63,9 @@ _CONFIG_SCHEMA = {
         "description": "True: warn before expiry; False: release and notify on expiry",
         "env": True,
     },
-    "ALLOW_MULTI_LOCK": {
-        "default": True,
-        "description": "Allow a single user to lock multiple machines in the same bot",
+    "MAX_LOCK_COUNT": {
+        "default": 16,
+        "description": "Max number of machines a single user can lock/book at once (1-16)",
         "env": True,
     },
     "FORBID_RELOCK": {

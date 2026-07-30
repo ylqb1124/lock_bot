@@ -12,19 +12,14 @@ _CFG_RULES: dict[str, tuple[int, int] | None] = {
     "DEFAULT_DURATION": (60, 604800),  # 1 min – 7 days
     "TIME_ALERT": (30, 3600),  # 30 s – 1 h
     "MAX_LOCK_DURATION": None,  # -1 (unlimited) or 300–604800
+    "MAX_LOCK_COUNT": (1, 16),
 }
-_BOOL_CFG_KEYS = {"ALLOW_MULTI_LOCK"}
 
 
 def _validate_config_overrides(v: dict | None) -> dict | None:
     if not v:
         return v
     errors: list[str] = []
-    for key in _BOOL_CFG_KEYS:
-        if key not in v:
-            continue
-        if not isinstance(v[key], bool):
-            errors.append(f"{key} must be a boolean")
     for key, bounds in _CFG_RULES.items():
         if key not in v:
             continue

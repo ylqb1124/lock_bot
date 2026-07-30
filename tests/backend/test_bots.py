@@ -2,6 +2,8 @@
 Bot CRUD tests.
 """
 
+import json
+
 
 def _sample_bot(name="mybot"):
     return {
@@ -106,25 +108,25 @@ class TestUpdateBot:
         assert config_dict["MAX_LOCK_DURATION"] == 1800
         assert config_dict["EARLY_NOTIFY"] is True
 
-    def test_update_config_overrides_accepts_allow_multi_lock(self, client, admin_header):
+    def test_update_config_overrides_accepts_max_lock_count(self, client, admin_header):
         create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
         bot_id = create_resp.json()["id"]
 
         resp = client.put(
             f"/api/bots/{bot_id}",
-            json={"config_overrides": {"ALLOW_MULTI_LOCK": False}},
+            json={"config_overrides": {"MAX_LOCK_COUNT": 1}},
             headers=admin_header,
         )
         assert resp.status_code == 200
-        assert resp.json()["config_overrides"]["ALLOW_MULTI_LOCK"] is False
+        assert json.loads(resp.json()["config_overrides"])["MAX_LOCK_COUNT"] == 1
 
-    def test_update_config_overrides_rejects_non_boolean_allow_multi_lock(self, client, admin_header):
+    def test_update_config_overrides_rejects_out_of_range_max_lock_count(self, client, admin_header):
         create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
         bot_id = create_resp.json()["id"]
 
         resp = client.put(
             f"/api/bots/{bot_id}",
-            json={"config_overrides": {"ALLOW_MULTI_LOCK": "false"}},
+            json={"config_overrides": {"MAX_LOCK_COUNT": 17}},
             headers=admin_header,
         )
         assert resp.status_code == 422

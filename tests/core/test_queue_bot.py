@@ -323,7 +323,7 @@ def test_forbid_relock_default_rejects_relock(bot):
 
 
 def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
-    """ALLOW_MULTI_LOCK defaults to True, so a single queue command may target multiple nodes."""
+    """MAX_LOCK_COUNT defaults to 16, so a single queue command may target multiple nodes."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
     bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
 
@@ -333,20 +333,20 @@ def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
 
 
 def test_disallow_multi_lock_rejects_multiple_targets(bot):
-    """ALLOW_MULTI_LOCK=False rejects locking multiple queue nodes in one command."""
+    """MAX_LOCK_COUNT=1 rejects locking multiple queue nodes in one command."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
-    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.config.set_val("MAX_LOCK_COUNT", 1)
     bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
 
     reply = bot.lock("user1", "lock test,test2 1h")
     content = reply["message"]["body"][0]["content"]
-    assert "不能一次性lock多台机器" in content
+    assert "最多同时lock/预约 1 台机器" in content
 
 
 def test_disallow_multi_lock_rejects_second_machine(bot):
-    """ALLOW_MULTI_LOCK=False rejects locking another queue node after one is already held."""
+    """MAX_LOCK_COUNT=1 rejects locking another queue node after one is already held."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
-    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.config.set_val("MAX_LOCK_COUNT", 1)
     bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
 
     first = bot.lock("user1", "lock test 1h")
@@ -357,13 +357,13 @@ def test_disallow_multi_lock_rejects_second_machine(bot):
 
     reply = bot.lock("user1", "lock test2 1h")
     content = reply["message"]["body"][0]["content"]
-    assert "不能一次性lock多台机器" in content
+    assert "最多同时lock/预约 1 台机器" in content
 
 
 def test_disallow_multi_lock_rejects_booking_multiple_nodes(bot):
-    """ALLOW_MULTI_LOCK=False rejects booking multiple nodes in one command."""
+    """MAX_LOCK_COUNT=1 rejects booking multiple nodes in one command."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
-    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.config.set_val("MAX_LOCK_COUNT", 1)
     bot.state.bot_state = {
         node_key: {
             "status": "exclusive",
@@ -375,14 +375,14 @@ def test_disallow_multi_lock_rejects_booking_multiple_nodes(bot):
 
     reply = bot.book("user1", "book test,test2 1h")
 
-    assert "不能一次性lock多台机器" in reply["message"]["body"][0]["content"]
+    assert "最多同时lock/预约 1 台机器" in reply["message"]["body"][0]["content"]
     assert all(not node["booking_list"] for node in bot.state.bot_state.values())
 
 
 def test_disallow_multi_lock_rejects_booking_a_second_node(bot):
-    """ALLOW_MULTI_LOCK=False treats an existing booking as a node claim."""
+    """MAX_LOCK_COUNT=1 treats an existing booking as a node claim."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
-    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.config.set_val("MAX_LOCK_COUNT", 1)
     bot.state.bot_state["test"] = {
         "status": "exclusive",
         "current_users": [mock_user_info("holder-test", 3600)],
@@ -399,7 +399,7 @@ def test_disallow_multi_lock_rejects_booking_a_second_node(bot):
 
     reply = bot.book("user1", "book test2 1h")
 
-    assert "不能一次性lock多台机器" in reply["message"]["body"][0]["content"]
+    assert "最多同时lock/预约 1 台机器" in reply["message"]["body"][0]["content"]
     assert not bot.state.bot_state["test2"]["booking_list"]
 
 

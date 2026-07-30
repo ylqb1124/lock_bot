@@ -148,7 +148,7 @@ def test_unlock_reject_shows_only_requested_nodes(bot):
 
 
 def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
-    """ALLOW_MULTI_LOCK defaults to True, so a single command may target multiple nodes."""
+    """MAX_LOCK_COUNT defaults to 16, so a single command may target multiple nodes."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
     bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
 
@@ -158,20 +158,20 @@ def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
 
 
 def test_disallow_multi_lock_rejects_multiple_targets(bot):
-    """ALLOW_MULTI_LOCK=False rejects locking multiple nodes in one command."""
+    """MAX_LOCK_COUNT=1 rejects locking multiple nodes in one command."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
-    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.config.set_val("MAX_LOCK_COUNT", 1)
     bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
 
     reply = bot.lock("user1", "lock test,test2 1h")
     content = reply["message"]["body"][0]["content"]
-    assert "不能一次性lock多台机器" in content
+    assert "最多同时lock/预约 1 台机器" in content
 
 
 def test_disallow_multi_lock_rejects_second_machine(bot):
-    """ALLOW_MULTI_LOCK=False rejects locking another machine after one is already held."""
+    """MAX_LOCK_COUNT=1 rejects locking another machine after one is already held."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
-    bot.config.set_val("ALLOW_MULTI_LOCK", False)
+    bot.config.set_val("MAX_LOCK_COUNT", 1)
     bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
 
     first = bot.lock("user1", "lock test 1h")
@@ -179,7 +179,7 @@ def test_disallow_multi_lock_rejects_second_machine(bot):
 
     reply = bot.lock("user1", "lock test2 1h")
     content = reply["message"]["body"][0]["content"]
-    assert "不能一次性lock多台机器" in content
+    assert "最多同时lock/预约 1 台机器" in content
 
 
 def test_slock(bot):

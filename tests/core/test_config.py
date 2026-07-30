@@ -163,7 +163,7 @@ def test_load_config_file_missing(tmp_path):
     Config.load_from_file()
 
     assert Config.get("BOT_NAME") == "demo_bot"
-    assert Config.get("ALLOW_MULTI_LOCK") is True
+    assert Config.get("MAX_LOCK_COUNT") == 16
 
 
 def set_env_vars(env_vars):

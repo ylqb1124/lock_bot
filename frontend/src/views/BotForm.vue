@@ -252,19 +252,26 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
-            <el-col v-if="form.bot_type !== 'DEVICE'" :xs="24">
+            <el-col v-if="form.bot_type !== 'DEVICE'" :xs="24" :sm="12">
               <el-form-item>
                 <template #label>
-                  {{ $t('botCreate.allowMultiLock') }}
+                  {{ $t('botCreate.maxLockCount') }}
                   <el-tooltip
-                    :content="$t('botCreate.allowMultiLockHelp')"
+                    :content="$t('botCreate.maxLockCountHelp')"
                     placement="top"
                     effect="light"
                   >
                     <el-icon class="help-icon"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </template>
-                <el-switch v-model="advancedConfig.ALLOW_MULTI_LOCK" />
+                <el-input-number
+                  v-model="advancedConfig.MAX_LOCK_COUNT"
+                  :min="1"
+                  :max="16"
+                  :step="1"
+                  :value-on-clear="16"
+                  style="width: 100%"
+                />
               </el-form-item>
             </el-col>
             <el-col v-if="form.bot_type === 'QUEUE'" :xs="24">
@@ -346,7 +353,7 @@ const advancedConfig = reactive({
   MAX_LOCK_DURATION: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
-  ALLOW_MULTI_LOCK: true,
+  MAX_LOCK_COUNT: 16,
   FORBID_RELOCK: true,
   LANGUAGE: 'zh',
 })
@@ -398,8 +405,8 @@ onMounted(async () => {
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
-        if (overrides.ALLOW_MULTI_LOCK != null)
-          advancedConfig.ALLOW_MULTI_LOCK = overrides.ALLOW_MULTI_LOCK
+        if (overrides.MAX_LOCK_COUNT != null)
+          advancedConfig.MAX_LOCK_COUNT = overrides.MAX_LOCK_COUNT
         if (overrides.FORBID_RELOCK != null) advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
       } catch {
@@ -464,7 +471,7 @@ async function handleSubmit() {
     const data = { ...form }
     // Always include advanced config_overrides
     data.config_overrides = { ...advancedConfig }
-    if (form.bot_type === 'DEVICE') delete data.config_overrides.ALLOW_MULTI_LOCK
+    if (form.bot_type === 'DEVICE') delete data.config_overrides.MAX_LOCK_COUNT
     if (isEdit.value) {
       if (!data.aes_key) delete data.aes_key
       if (!data.token) delete data.token

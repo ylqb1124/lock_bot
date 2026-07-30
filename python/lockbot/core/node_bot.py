@@ -150,13 +150,17 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        allow_multi_lock = self.config.get_val("ALLOW_MULTI_LOCK")
-        if not allow_multi_lock and len(node_keys) > 1:
-            return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
+        max_lock_count = self.config.get_val("MAX_LOCK_COUNT")
+        if len(node_keys) > max_lock_count:
+            return self.show_error(
+                user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
+            )
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
-            if not allow_multi_lock and self._user_has_other_node_claim(user_id, node_keys):
-                return self.show_error(user_id, t("error.multi_lock_forbidden_once", config=self.config))
+            if self._user_claimed_node_count(user_id, node_keys) + len(node_keys) > max_lock_count:
+                return self.show_error(
+                    user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
+                )
             state_changed = False
             for node_key, node in zip(node_keys, nodes, strict=True):
                 state_changed |= self._cleanup_expired_current_users(node_key, node)
@@ -493,23 +497,17 @@ class NodeBot(BaseLockBot):
     def _success_usage(self, node_keys):
         return self._current_usage(node_keys)
 
-    def _user_holds_other_node(self, user_id, node_keys):
+    def _user_claimed_node_count(self, user_id, node_keys):
+        """Count distinct nodes (outside node_keys) the user currently holds or has booked."""
         requested = set(node_keys)
-        return any(
-            node_key not in requested and find_user_info(node["current_users"], user_id)
+        return sum(
+            1
             for node_key, node in self.state.bot_state.items()
-        )
-
-    def _user_has_other_node_claim(self, user_id, node_keys):
-        """Return whether the user holds or has booked another node."""
-        requested = set(node_keys)
-        return any(
-            node_key not in requested
+            if node_key not in requested
             and (
                 find_user_info(node["current_users"], user_id)
                 or find_user_info(node.get("booking_list", []), user_id)
             )
-            for node_key, node in self.state.bot_state.items()
         )
 
     def _current_usage(self, node_filter=None, user_id=None):
