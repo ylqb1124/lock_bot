@@ -6,5 +6,42 @@
   "backend": {
     "lockbot": { "host": "10.206.192.17", "port": 8875 },
     "monquery": { "host": "api.mt.noah.baidu.com", "port": 8557 }
+  },
+  "appAuth": {
+    "sessionTtlSeconds": 14400,
+    "lockbotTokenTtlSeconds": 900,
+    "lockbot": {
+      "usernameEnv": "LOCKBOT_SERVICE_USERNAME",
+      "passwordEnv": "LOCKBOT_SERVICE_PASSWORD"
+    },
+    "accounts": [
+      {
+        "username": "admin",
+        "passwordEnv": "XPU_MONITOR_ADMIN_PASSWORD",
+        "role": "admin"
+      },
+      {
+        "username": "boss",
+        "passwordEnv": "XPU_MONITOR_BOSS_PASSWORD",
+        "role": "admin"
+      },
+      {
+        "username": "team-member",
+        "passwordEnv": "XPU_MONITOR_TEAM_MEMBER_PASSWORD",
+        "team": { "id": "team-a", "label": "A 团队" }
+      }
+    ]
+  },
+  "teamAccess": {
+    "enabled": false,
+    "globalAdmins": [],
+    "identity": {
+      "path": ""
+    },
+    "organization": {
+      "baseUrl": "",
+      "userTeamsPath": "",
+      "apiTokenEnv": "ORG_API_TOKEN"
+    }
   }
 }

@@ -5,6 +5,8 @@ const path = require('path');
 const clusterScope = require('../shared/cluster-scope.json');
 const { buildNodeTimeline, buildNodeScopeTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
 const { createLockHistoryCache, lockHistoryScopeKey } = require('./trend-service.cjs');
+const { createTeamAccessService } = require('./team-access.cjs');
+const { createLockBotLiveCache } = require('./lockbot-live-cache.cjs');
 
 const CARD_COUNT = clusterScope.cardsPerNode;
 const MONITORED_NODE_IDS = new Set(clusterScope.nodeIds);
@@ -25,6 +27,7 @@ const DASHBOARD_SAMPLE_INTERVALS = [
 const MIN_RANGE_SECONDS = 3 * 60 * 60;
 const MAX_RANGE_SECONDS = 90 * DAY_SECONDS;
 const DASHBOARD_CACHE_TTL_MS = 60 * 60 * 1000;
+const PHASE_CONTEXT_TTL_MS = 5 * 60 * 1000;
 const MONQUERY_BATCH_SIZE = 16;
 const MONQUERY_ITEMS = Array.from({ length: CARD_COUNT }, (_, card) => [
   `XPU${card}_XPU_UTILIZATION`,
@@ -228,17 +231,36 @@ function parseCardMetrics(responses, startAt, endAt) {
   return result;
 }
 
-async function fetchBots(config, authorization) {
-  return requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', {
+async function fetchBots(config, authorization, liveLockBotCache = null) {
+  const load = () => requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', {
     headers: { authorization },
   });
+  return liveLockBotCache ? liveLockBotCache.get('bots', load, Array.isArray) : load();
 }
 
 function occupancyRecords(response) {
   return Array.isArray(response) ? response : Array.isArray(response?.data) ? response.data : [];
 }
 
-async function fetchOccupancy(config, bots, authorization, startAt, endAt, lockHistoryCache, nowSeconds) {
+async function fetchOccupancyDay(config, bots, authorization, dayStart) {
+  const responses = await Promise.all((bots || []).map(async bot => {
+    try {
+      const response = await requestJson(
+        config.backend.lockbot.host,
+        config.backend.lockbot.port,
+        `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`,
+        { headers: { authorization } },
+      );
+      return { bot, ok: true, records: occupancyRecords(response) };
+    } catch (error) {
+      return { bot, ok: false, records: [], error };
+    }
+  }));
+  const failed = responses.filter(response => !response.ok);
+  return { records: responses.flatMap(response => response.records), failed };
+}
+
+async function fetchOccupancy(config, bots, authorization, startAt, endAt, lockHistoryCache, nowSeconds, liveLockBotCache = null) {
   const dayStarts = [];
   for (let day = cstDayStart(startAt); day <= endAt; day += DAY_SECONDS) dayStarts.push(day);
   const records = [];
@@ -252,32 +274,20 @@ async function fetchOccupancy(config, bots, authorization, startAt, endAt, lockH
       records.push(...cachedRecords);
       return;
     }
-    const responses = await Promise.all((bots || []).map(async bot => {
-      try {
-        const response = await requestJson(
-          config.backend.lockbot.host,
-          config.backend.lockbot.port,
-          `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`,
-          { headers: { authorization } },
-        );
-        return { bot, ok: true, records: occupancyRecords(response) };
-      } catch (error) {
-        return { bot, ok: false, records: [], error };
-      }
-    }));
-    const failed = responses.filter(response => !response.ok);
-    for (const response of failed) {
+    const outcome = isToday && liveLockBotCache
+      ? await liveLockBotCache.get(`occupancy:${cstDateKey(dayStart)}`, () => fetchOccupancyDay(config, bots, authorization, dayStart), value => !value.failed.length)
+      : await fetchOccupancyDay(config, bots, authorization, dayStart);
+    for (const response of outcome.failed) {
       failures.push({ botId: response.bot.id, day: cstDateKey(dayStart), statusCode: response.error.statusCode || 502 });
     }
-    const dayRecords = responses.flatMap(response => response.records);
-    if (!failed.length && !isToday) {
+    if (!outcome.failed.length && !isToday) {
       try {
-        lockHistoryCache?.save(dayStart, scopeKey, dayRecords);
+        lockHistoryCache?.save(dayStart, scopeKey, outcome.records);
       } catch (error) {
         console.warn(`[team] Lock Bot 历史缓存写入失败: ${error.message}`);
       }
     }
-    records.push(...dayRecords);
+    records.push(...outcome.records);
   });
   return { records, failures };
 }
@@ -345,6 +355,49 @@ async function fetchCardMetrics(config, startAt, endAt, nodeNames, sampleSeconds
     responses.push(response);
   });
   return parseCardMetrics(responses, startAt, endAt);
+}
+
+function intervalNodeNames(intervals) {
+  return [...new Set((intervals || []).map(interval => interval.node).filter(Boolean))];
+}
+
+function mergeCardMetrics(...sources) {
+  const result = new Map();
+  for (const source of sources) {
+    for (const [node, timestamps] of source || []) {
+      const target = result.get(node) || new Map();
+      for (const [timestamp, cards] of timestamps) target.set(timestamp, cards);
+      result.set(node, target);
+    }
+  }
+  return result;
+}
+
+function teamDefinitionFor(id, teamDefinitions) {
+  if (!id) return null;
+  return teamDefinitions.find(team => team.id === id)
+    || TEAM_DEFINITIONS.find(team => team.id === id)
+    || { id, label: id };
+}
+
+function mergeTeamDefinitions(...sources) {
+  const teams = new Map();
+  for (const source of sources) {
+    for (const team of source || []) {
+      if (!team?.id || teams.has(team.id)) continue;
+      teams.set(team.id, { id: team.id, label: team.label || team.id });
+    }
+  }
+  return [...teams.values()].sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
+}
+
+function mergeMembership(existing, resolved) {
+  return {
+    ...existing,
+    ...resolved,
+    assignments: { ...(existing?.assignments || {}), ...(resolved?.assignments || {}) },
+    teams: mergeTeamDefinitions(resolved?.teams, TEAM_DEFINITIONS),
+  };
 }
 
 function createUserAggregate(userId) {
@@ -474,9 +527,9 @@ function aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sam
   return { userSamples, teamPoints, allTimes: [...allTimes].sort((left, right) => left - right), conflictCardSamples };
 }
 
-function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeconds) {
+function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeconds, teamDefinitions = TEAM_DEFINITIONS) {
   const timeline = buildNodeTimeline(clusterScope, clusterScope.nodeIds);
-  const perTeam = Object.fromEntries(TEAM_DEFINITIONS.map(team => [team.id, {
+  const perTeam = Object.fromEntries(teamDefinitions.map(team => [team.id, {
     id: team.id,
     label: team.label,
     cardSamples: 0,
@@ -489,7 +542,7 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
   const latest = {};
   for (const timestamp of ownership.allTimes) {
     const points = ownership.teamPoints.get(timestamp) || new Map();
-    for (const team of TEAM_DEFINITIONS) {
+    for (const team of teamDefinitions) {
       const point = points.get(team.id);
       const output = point ? {
         timestamp,
@@ -513,7 +566,7 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
       latest[team.id] = output;
     }
   }
-  const teams = TEAM_DEFINITIONS.map(team => {
+  const teams = teamDefinitions.map(team => {
     const value = perTeam[team.id];
     const trendSampleCount = value.trend.length;
     const lockedCards = value.trend.reduce((total, point) => total + point.lockedCards, 0);
@@ -565,6 +618,22 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
     teams,
     rankings,
     dataQuality: { conflictCardSamples: ownership.conflictCardSamples },
+  };
+}
+
+function scopeDashboardPayload(payload, access, scopedTeamIds = access.mode === 'all' ? null : access.teamIds || []) {
+  const visibleTeamIds = scopedTeamIds === null ? null : new Set(scopedTeamIds);
+  const teams = visibleTeamIds ? payload.teams.filter(team => visibleTeamIds.has(team.id)) : payload.teams;
+  const rankings = visibleTeamIds ? payload.rankings.filter(row => visibleTeamIds.has(row.team)) : payload.rankings;
+  return {
+    ...payload,
+    teams,
+    rankings,
+    access: {
+      enabled: access.enabled,
+      mode: access.mode,
+      teamIds: visibleTeamIds ? [...visibleTeamIds] : teams.map(team => team.id),
+    },
   };
 }
 
@@ -634,17 +703,23 @@ function createTeamService(config, options = {}) {
   const servicePassword = options.servicePassword ?? process.env.LOCKBOT_SERVICE_PASSWORD;
   const request = options.requestJson || requestJson;
   const lockHistoryCache = options.lockHistoryCache || createLockHistoryCache();
+  const teamAccess = options.teamAccess || createTeamAccessService(config);
   const currentSeconds = options.currentSeconds || (() => Math.floor(Date.now() / 1000));
+  const nowMs = options.nowMs || (() => Date.now());
+  const liveLockBotCache = options.liveLockBotCache || createLockBotLiveCache({ nowMs });
+  const random = options.random || Math.random;
+  const phaseContextTtlMs = options.phaseContextTtlMs || PHASE_CONTEXT_TTL_MS;
   let refreshInFlight = null;
   let schedulerTimer = null;
   const dashboardCache = new Map();
+  const phaseContexts = new Map();
 
-  async function collect(authorization, startAt, endAt, assignments = {}, sampleSeconds = SAMPLE_SECONDS) {
-    const bots = await fetchBots(config, authorization);
+  async function collectOccupancy(authorization, startAt, endAt) {
+    const bots = await fetchBots(config, authorization, liveLockBotCache);
     const nowSeconds = currentSeconds();
     const todayStart = todayStartCst(nowSeconds);
     const [occupancy, stateOutcome] = await Promise.all([
-      fetchOccupancy(config, bots, authorization, startAt, endAt, lockHistoryCache, nowSeconds),
+      fetchOccupancy(config, bots, authorization, startAt, endAt, lockHistoryCache, nowSeconds, liveLockBotCache),
       (endAt >= todayStart
         ? fetchRunningStates(config, authorization)
         .then(states => ({ ok: true, states }))
@@ -655,9 +730,13 @@ function createTeamService(config, options = {}) {
     if (stateOutcome.ok && stateOutcome.states) {
       intervals.push(...stateIntervals(bots, stateOutcome.states, Math.max(startAt, todayStart), Math.min(endAt, nowSeconds)));
     }
-    const metrics = await fetchCardMetrics(config, startAt, endAt, [...new Set(intervals.map(interval => interval.node))], sampleSeconds);
-    const ownership = aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sampleSeconds);
-    return { ownership, occupancy, stateFailureCount: stateOutcome.ok ? 0 : 1 };
+    return { intervals, occupancy, stateFailureCount: stateOutcome.ok ? 0 : 1 };
+  }
+
+  async function collect(authorization, startAt, endAt, sampleSeconds = SAMPLE_SECONDS) {
+    const context = await collectOccupancy(authorization, startAt, endAt);
+    const metrics = await fetchCardMetrics(config, startAt, endAt, intervalNodeNames(context.intervals), sampleSeconds);
+    return { ...context, metrics };
   }
 
   async function serviceAuthorization() {
@@ -681,7 +760,8 @@ function createTeamService(config, options = {}) {
       const existing = readMembership(membershipPath);
       try {
         const authorization = await serviceAuthorization();
-        const { ownership, occupancy } = await collect(authorization, startAt, endAt);
+        const { intervals, metrics, occupancy } = await collect(authorization, startAt, endAt);
+        const ownership = aggregateOwnership(intervals, metrics, {}, startAt, endAt);
         if (occupancy.failures.length) throw createHttpError(`Lock Bot occupancy incomplete for ${occupancy.failures.length} bot-day requests`);
         const membership = mergeAutoAssignments(existing, ownership.userSamples, startAt, endAt, generatedAt);
         writeMembership(membership, membershipPath);
@@ -697,18 +777,27 @@ function createTeamService(config, options = {}) {
     return refreshInFlight;
   }
 
-  async function queryDashboard(authorization, startAt, endAt) {
-    if (!authorization) throw createHttpError('Authorization is required', 401);
-    const membership = readMembership(membershipPath);
+  function purgePhaseContexts(now = nowMs()) {
+    for (const [id, context] of phaseContexts) {
+      if (context.expiresAt <= now) phaseContexts.delete(id);
+    }
+  }
+
+  function authorizationHash(authorization) {
+    return crypto.createHash('sha256').update(String(authorization || '')).digest('hex').slice(0, 16);
+  }
+
+  async function queryCompleteDashboard(authorization, access, startAt, endAt) {
+    let membership = readMembership(membershipPath);
     const sampleSeconds = sampleSecondsForRange(endAt - startAt);
-    const mappingVersion = membershipCacheVersion(membership);
-    const authorizationHash = crypto.createHash('sha256').update(authorization).digest('hex').slice(0, 16);
-    const cacheKey = `${authorizationHash}:${mappingVersion}:${startAt}:${endAt}:${sampleSeconds}`;
-    const now = Date.now();
+    const mappingVersion = access.enabled ? access.cacheKey : membershipCacheVersion(membership);
+    const authHash = authorizationHash(authorization);
+    const cacheKey = `${authHash}:${mappingVersion}:${startAt}:${endAt}:${sampleSeconds}`;
+    const now = nowMs();
     for (const [key, entry] of dashboardCache) {
       if (entry.expiresAt <= now) dashboardCache.delete(key);
     }
-    const cached = dashboardCache.get(cacheKey);
+    const cached = access.enabled ? null : dashboardCache.get(cacheKey);
     if (cached) {
       return {
         ...cached.payload,
@@ -716,27 +805,162 @@ function createTeamService(config, options = {}) {
       };
     }
 
-    const { ownership, occupancy, stateFailureCount } = await collect(authorization, startAt, endAt, membership.assignments, sampleSeconds);
-    const payload = {
-      ...buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeconds),
+    const { intervals, metrics, occupancy, stateFailureCount } = await collect(authorization, startAt, endAt, sampleSeconds);
+    let ownership;
+    let teamDefinitions = TEAM_DEFINITIONS;
+    if (access.enabled) {
+      const rawOwnership = aggregateOwnership(intervals, metrics, {}, startAt, endAt, sampleSeconds);
+      const resolvedMembership = await teamAccess.resolveMembership([...rawOwnership.userSamples.keys()]);
+      membership = access.membershipSource === 'whitelist' && access.mode === 'all'
+        ? mergeMembership(membership, resolvedMembership)
+        : resolvedMembership;
+      teamDefinitions = access.membershipSource === 'whitelist'
+        ? mergeTeamDefinitions(access.teams, membership.teams, TEAM_DEFINITIONS)
+        : membership.teams;
+      ownership = aggregateOwnership(intervals, metrics, membership.assignments, startAt, endAt, sampleSeconds);
+    } else {
+      ownership = aggregateOwnership(intervals, metrics, membership.assignments, startAt, endAt, sampleSeconds);
+    }
+    const payload = scopeDashboardPayload({
+      ...buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeconds, teamDefinitions),
       dataQuality: {
         conflictCardSamples: ownership.conflictCardSamples,
         occupancyFailureCount: occupancy.failures.length,
         stateFailureCount,
       },
-    };
-    const expiresAt = Date.now() + DASHBOARD_CACHE_TTL_MS;
-    dashboardCache.set(cacheKey, { payload, expiresAt });
+    }, access);
+    const expiresAt = access.enabled ? null : nowMs() + DASHBOARD_CACHE_TTL_MS;
+    if (expiresAt) dashboardCache.set(cacheKey, { payload, expiresAt });
     return {
       ...payload,
-      cache: { hit: false, expiresAt: Math.floor(expiresAt / 1000) },
+      cache: { hit: false, expiresAt: expiresAt ? Math.floor(expiresAt / 1000) : null },
     };
   }
 
-  async function getMembership(authorization) {
-    if (!authorization) throw createHttpError('Authorization is required', 401);
-    await fetchBots(config, authorization);
-    return readMembership(membershipPath);
+  async function queryInitialDashboard(authorization, access, startAt, endAt, preferredTeamId = null) {
+    const sampleSeconds = sampleSecondsForRange(endAt - startAt);
+    const { intervals, occupancy, stateFailureCount } = await collectOccupancy(authorization, startAt, endAt);
+    const resolvedMembership = await teamAccess.resolveMembership([...new Set(intervals.map(interval => interval.userId))]);
+    const membership = access.membershipSource === 'whitelist' && access.mode === 'all'
+      ? mergeMembership(readMembership(membershipPath), resolvedMembership)
+      : resolvedMembership;
+    const teamDefinitions = access.membershipSource === 'whitelist'
+      ? mergeTeamDefinitions(access.teams, membership.teams, TEAM_DEFINITIONS)
+      : mergeTeamDefinitions(access.teams, membership.teams);
+    const activeTeamIds = new Set(intervals.map(interval => membership.assignments?.[interval.userId]?.team).filter(Boolean));
+    const candidates = teamDefinitions.filter(team => activeTeamIds.has(team.id));
+    const initialTeamId = access.mode === 'team'
+      ? access.teamIds?.[0]
+      : (typeof preferredTeamId === 'string' && preferredTeamId.trim()
+        ? preferredTeamId.trim()
+        : candidates[Math.min(candidates.length - 1, Math.floor(Math.max(0, random()) * candidates.length))]?.id
+          || null);
+    const initialTeam = teamDefinitionFor(initialTeamId, teamDefinitions);
+    const initialNodeNames = intervalNodeNames(intervals.filter(interval => membership.assignments?.[interval.userId]?.team === initialTeamId));
+    const initialMetrics = await fetchCardMetrics(config, startAt, endAt, initialNodeNames, sampleSeconds);
+    const ownership = aggregateOwnership(intervals, initialMetrics, membership.assignments, startAt, endAt, sampleSeconds);
+    const payload = scopeDashboardPayload({
+      ...buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeconds, initialTeam ? [initialTeam] : []),
+      dataQuality: {
+        conflictCardSamples: ownership.conflictCardSamples,
+        occupancyFailureCount: occupancy.failures.length,
+        stateFailureCount,
+      },
+    }, access, initialTeamId ? [initialTeamId] : []);
+    const complete = access.mode === 'team';
+    let bootstrapId = null;
+    if (!complete) {
+      purgePhaseContexts();
+      bootstrapId = crypto.randomBytes(18).toString('base64url');
+      phaseContexts.set(bootstrapId, {
+        authorizationHash: authorizationHash(authorization),
+        accessKey: access.cacheKey,
+        startAt,
+        endAt,
+        sampleSeconds,
+        expiresAt: nowMs() + phaseContextTtlMs,
+        intervals,
+        membership,
+        teamDefinitions,
+        initialMetrics,
+        initialNodeNames,
+        occupancyFailureCount: occupancy.failures.length,
+        stateFailureCount,
+        initialTeamId,
+        fullPromise: null,
+      });
+    }
+    return {
+      ...payload,
+      progressive: { phase: 'initial', complete, initialTeamId, bootstrapId },
+      cache: { hit: false, expiresAt: null },
+    };
+  }
+
+  async function queryFullPhase(authorization, access, startAt, endAt, bootstrapId) {
+    purgePhaseContexts();
+    const context = phaseContexts.get(bootstrapId);
+    if (!context) throw createHttpError('Team dashboard bootstrap expired', 400);
+    if (context.authorizationHash !== authorizationHash(authorization) || context.accessKey !== access.cacheKey) {
+      throw createHttpError('Team dashboard bootstrap is not valid for this account', 403);
+    }
+    if (context.startAt !== startAt || context.endAt !== endAt) {
+      throw createHttpError('Team dashboard bootstrap range does not match', 400);
+    }
+    if (context.fullPromise) return context.fullPromise;
+    context.fullPromise = (async () => {
+      const allNodeNames = intervalNodeNames(context.intervals);
+      const remainingNodeNames = allNodeNames.filter(node => !context.initialNodeNames.includes(node));
+      const remainingMetrics = await fetchCardMetrics(config, startAt, endAt, remainingNodeNames, context.sampleSeconds);
+      const metrics = mergeCardMetrics(context.initialMetrics, remainingMetrics);
+      const ownership = aggregateOwnership(context.intervals, metrics, context.membership.assignments, startAt, endAt, context.sampleSeconds);
+      const payload = scopeDashboardPayload({
+        ...buildDashboardPayload(ownership, context.membership, startAt, endAt, context.sampleSeconds, context.teamDefinitions),
+        dataQuality: {
+          conflictCardSamples: ownership.conflictCardSamples,
+          occupancyFailureCount: context.occupancyFailureCount,
+          stateFailureCount: context.stateFailureCount,
+        },
+      }, access);
+      return {
+        ...payload,
+        progressive: { phase: 'full', complete: true, initialTeamId: context.initialTeamId, bootstrapId: null },
+        cache: { hit: false, expiresAt: null },
+      };
+    })();
+    try {
+      const result = await context.fullPromise;
+      phaseContexts.delete(bootstrapId);
+      return result;
+    } catch (error) {
+      context.fullPromise = null;
+      throw error;
+    }
+  }
+
+  async function queryDashboard(authorization, startAt, endAt, options = {}) {
+    const access = options.access || await teamAccess.authorize(authorization);
+    const phase = options.phase || null;
+    if (!phase || !access.enabled) return queryCompleteDashboard(authorization, access, startAt, endAt);
+    if (phase === 'initial') return queryInitialDashboard(authorization, access, startAt, endAt, options.initialTeamId || null);
+    if (phase === 'full') {
+      if (!options.bootstrapId) throw createHttpError('Team dashboard bootstrap is required', 400);
+      return queryFullPhase(authorization, access, startAt, endAt, options.bootstrapId);
+    }
+    throw createHttpError('Unknown team dashboard phase', 400);
+  }
+
+  async function getMembership(authorization, accessOverride = null) {
+    const access = accessOverride || await teamAccess.authorize(authorization);
+    await fetchBots(config, authorization, liveLockBotCache);
+    const membership = readMembership(membershipPath);
+    if (access.mode === 'all') return membership;
+    const allowedTeams = new Set(access.teamIds || []);
+    return {
+      ...membership,
+      assignments: Object.fromEntries(Object.entries(membership.assignments || {}).filter(([, assignment]) => allowedTeams.has(assignment.team))),
+      access: { enabled: access.enabled, mode: access.mode, teamIds: [...allowedTeams] },
+    };
   }
 
   function schedule() {
@@ -744,12 +968,27 @@ function createTeamService(config, options = {}) {
     return false;
   }
 
+  async function warmLiveLockBotOccupancy(authorization) {
+    const nowSeconds = currentSeconds();
+    const bots = await fetchBots(config, authorization, liveLockBotCache);
+    return fetchOccupancy(
+      config,
+      bots,
+      authorization,
+      todayStartCst(nowSeconds),
+      nowSeconds,
+      lockHistoryCache,
+      nowSeconds,
+      liveLockBotCache,
+    );
+  }
+
   function stop() {
     if (schedulerTimer) clearTimeout(schedulerTimer);
     schedulerTimer = null;
   }
 
-  return { getMembership, queryDashboard, refresh, schedule, stop };
+  return { getMembership, queryDashboard, refresh, schedule, stop, warmLiveLockBotOccupancy };
 }
 
 module.exports = {
@@ -768,6 +1007,9 @@ module.exports = {
     stateIntervals,
     aggregateOwnership,
     buildDashboardPayload,
+    scopeDashboardPayload,
+    mergeTeamDefinitions,
+    mergeMembership,
     classifyUser,
     simulatedTeamForUser,
     userEvidence,
@@ -776,5 +1018,6 @@ module.exports = {
     writeMembership,
     millisecondsUntilNextHour,
     currentSampleSeconds,
+    fetchOccupancyDay,
   },
 };

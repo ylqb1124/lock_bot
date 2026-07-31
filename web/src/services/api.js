@@ -40,17 +40,27 @@ function fetchWithTimeout(url, options = {}, timeout = 30000) {
 }
 
 /**
- * Lock Bot 登录，返回 JWT access_token
+ * 登录监控平台，返回应用会话令牌；Lock Bot 服务令牌仅由后端持有。
  */
-export async function loginLockBot(username, password) {
-  const resp = await fetchWithTimeout(`${LOCKBOT_BASE}/api/auth/login`, {
+export async function loginDashboard(username, password) {
+  const resp = await fetchWithTimeout('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   });
-  if (!resp.ok) throw new Error(`Login failed: ${resp.status} ${resp.statusText}`);
-  const data = await resp.json();
-  return data.access_token;
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => null);
+    throw new Error(data?.error || `登录失败: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export function logoutDashboard(token) {
+  if (!token) return Promise.resolve();
+  return fetchWithTimeout('/api/auth/logout', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {});
 }
 
 /**
@@ -259,11 +269,14 @@ export async function fetchClusterTrend(start, end, token, intervalSeconds, node
   return resp.json();
 }
 
-export async function fetchTeamDashboard(start, end, token) {
+export async function fetchTeamDashboard(start, end, token, options = {}) {
   const params = new URLSearchParams({
     start: String(Math.floor(start.getTime() / 1000)),
     end: String(Math.floor(end.getTime() / 1000)),
   });
+  if (options.phase) params.set('phase', options.phase);
+  if (options.bootstrapId) params.set('bootstrapId', options.bootstrapId);
+  if (options.initialTeamId) params.set('initialTeamId', options.initialTeamId);
   const resp = await fetchWithTimeout(`/api/team-dashboard?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   }, 180_000);

@@ -5,6 +5,7 @@ const path = require('path');
 const { performance } = require('node:perf_hooks');
 const clusterScope = require('../shared/cluster-scope.json');
 const { buildNodeScopeTimeline, buildNodeTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+const { createLockBotLiveCache } = require('./lockbot-live-cache.cjs');
 
 const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
@@ -309,6 +310,27 @@ function occupancyIntervals(records) {
   }).filter(interval => interval.node);
 }
 
+function occupancyRecords(response) {
+  return Array.isArray(response) ? response : Array.isArray(response?.data) ? response.data : [];
+}
+
+async function fetchOccupancyDay(config, bots, headers, dayStart) {
+  const responses = await Promise.all((bots || []).map(async bot => {
+    try {
+      const response = await requestJson(
+        config.backend.lockbot.host,
+        config.backend.lockbot.port,
+        `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`,
+        headers,
+      );
+      return { bot, ok: true, records: occupancyRecords(response) };
+    } catch (error) {
+      return { bot, ok: false, records: [], error };
+    }
+  }));
+  return { records: responses.flatMap(response => response.records), failed: responses.filter(response => !response.ok) };
+}
+
 function stateIntervals(botStates, dayStart, nowSeconds) {
   const intervals = [];
   for (const { type, state } of botStates) {
@@ -330,7 +352,7 @@ function stateIntervals(botStates, dayStart, nowSeconds) {
   return intervals;
 }
 
-async function lockSeries(config, startAt, endAt, authorization, intervalSeconds, requestedNodes, lockHistoryCache) {
+async function lockSeries(config, startAt, endAt, authorization, intervalSeconds, requestedNodes, lockHistoryCache, liveLockBotCache = null) {
   const count = Math.floor((endAt - startAt) / intervalSeconds) + 1;
   if (!authorization) {
     return {
@@ -341,7 +363,8 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
   }
 
   const headers = { authorization };
-  const bots = await requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', headers);
+  const loadBots = () => requestJson(config.backend.lockbot.host, config.backend.lockbot.port, '/api/bots', headers);
+  const bots = await (liveLockBotCache ? liveLockBotCache.get('bots', loadBots, Array.isArray) : loadBots());
   const targetNodes = new Set(requestedNodes || MONITORED_NODES.map(node => `node${node}`));
   const scopeKey = lockHistoryScopeKey([...targetNodes]);
   const intervals = [];
@@ -354,33 +377,21 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
       intervals.push(...occupancyIntervals(cachedRecords).filter(interval => targetNodes.has(interval.node)));
       return;
     }
-    const responses = await Promise.all((bots || []).map(async bot => {
-      try {
-        const records = await requestJson(
-          config.backend.lockbot.host,
-          config.backend.lockbot.port,
-          `/api/bots/${bot.id}/occupancy?date=${encodeURIComponent(cstDateKey(dayStart))}`,
-          headers,
-        );
-        return { ok: true, records };
-      } catch {
-        return { ok: false, records: [] };
-      }
-    }));
-    const failures = responses.filter(response => !response.ok).length;
-    if (failures) {
+    const outcome = isToday && liveLockBotCache
+      ? await liveLockBotCache.get(`occupancy:${cstDateKey(dayStart)}`, () => fetchOccupancyDay(config, bots, headers, dayStart), value => !value.failed.length)
+      : await fetchOccupancyDay(config, bots, headers, dayStart);
+    if (outcome.failed.length) {
       unavailableDays.add(dayStart);
-      failureCount += failures;
+      failureCount += outcome.failed.length;
     }
-    const records = responses.flatMap(response => response.records);
-    if (!failures && !isToday) {
+    if (!outcome.failed.length && !isToday) {
       try {
-        lockHistoryCache.save(dayStart, scopeKey, records);
+        lockHistoryCache.save(dayStart, scopeKey, outcome.records);
       } catch (error) {
         console.warn(`Lock history cache write failed: ${error.message}`);
       }
     }
-    intervals.push(...occupancyIntervals(records).filter(interval => targetNodes.has(interval.node)));
+    intervals.push(...occupancyIntervals(outcome.records).filter(interval => targetNodes.has(interval.node)));
   });
 
   const todayStart = todayStartCst();
@@ -425,6 +436,7 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
 function createTrendService(config, options = {}) {
   const inflight = new Map();
   const lockHistoryCache = options.lockHistoryCache || defaultLockHistoryCache();
+  const liveLockBotCache = options.liveLockBotCache || createLockBotLiveCache({ nowMs: options.nowMs });
   if (!options.lockHistoryCache && options.pruneOnStart !== false) {
     pruneLockHistoryCache();
     setInterval(pruneLockHistoryCache, LOCK_HISTORY_CACHE_PRUNE_INTERVAL_MS).unref();
@@ -463,7 +475,7 @@ function createTrendService(config, options = {}) {
           const xpu = samples.map(sample => sample.xpu);
           const memory = samples.map(sample => sample.memory);
           const lockStartedAt = performance.now();
-          const lock = await lockSeries(config, startAt, endAt, authorization, intervalSeconds, targetNodes, lockHistoryCache);
+          const lock = await lockSeries(config, startAt, endAt, authorization, intervalSeconds, targetNodes, lockHistoryCache, liveLockBotCache);
           lockMs = performance.now() - lockStartedAt;
           const dataAsOf = times.reduce((result, timestamp, index) => Number.isFinite(xpu[index]) || Number.isFinite(memory[index]) ? timestamp : result, null);
           completed = true;
@@ -482,5 +494,5 @@ module.exports = {
   createTrendService,
   createLockHistoryCache: defaultLockHistoryCache,
   lockHistoryScopeKey,
-  _private: { botType, lockedCardSamples, occupancyIntervals, stateIntervals, pruneLockHistoryCache },
+  _private: { botType, lockedCardSamples, occupancyIntervals, stateIntervals, fetchOccupancyDay, pruneLockHistoryCache },
 };

@@ -44,24 +44,41 @@
       <div class="legend-item"><span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:rgba(220,38,38,.2);border:1px solid rgba(220,38,38,.35)"></span><span>Lock Bot 锁记录</span></div>
       <div class="legend-item"><span style="width:1px;height:14px;background:#dc2626;display:inline-block;"></span><span>当前时间</span></div>
     </div>
-    <div class="personal-search" id="personal-search" style="display:none">
-      <input class="search-input" id="search" placeholder="搜索节点...">
-    </div>
     <span id="status-mini" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px;"></span>
   </div>
 
   <div id="personal-view" style="display:none">
-    <div class="filters">
-      <label>状态：</label>
-      <span class="status-btn active" data-status="ALL">全部</span>
-      <span class="status-btn" data-status="FREE">FREE</span>
-      <span class="status-btn" data-status="PARTIAL">PARTIAL</span>
-      <span class="status-btn" data-status="BUSY">BUSY</span>
-      <label>排序：</label>
-      <span class="status-btn" data-sort="util-desc">XPU利用率 ↓</span>
-      <span class="status-btn" data-sort="mem-desc">显存 ↓</span>
+    <header class="personal-view-head">
+      <div><h2>个人节点明细</h2><p>按持锁用户、节点和单卡查看当日资源使用。</p></div>
+      <span id="personal-result-summary" class="personal-result-summary">等待节点数据</span>
+    </header>
+    <div class="personal-controls" aria-label="节点筛选与排序">
+      <div class="personal-control-row">
+        <span class="control-label">状态</span>
+        <button type="button" class="status-btn active" data-status="ALL">全部</button>
+        <button type="button" class="status-btn" data-status="FREE">FREE</button>
+        <button type="button" class="status-btn" data-status="PARTIAL">PARTIAL</button>
+        <button type="button" class="status-btn" data-status="BUSY">BUSY</button>
+        <input class="search-input" id="search" placeholder="搜索节点" aria-label="搜索节点">
+        <span class="control-label">排序</span>
+        <button type="button" class="status-btn" data-sort="util-desc">XPU 利用率</button>
+        <button type="button" class="status-btn" data-sort="mem-desc">显存利用率</button>
+      </div>
     </div>
-    <div id="node-list" style="position:relative;padding-top:18px;"></div>
+    <section class="usage-rank-row" aria-label="用户资源使用排行">
+      <article class="usage-rank-panel">
+        <header class="usage-rank-header"><h3>算力使用排行榜</h3><span class="usage-rank-help" title="按当日持锁卡时加权计算 XPU 利用率">?</span></header>
+        <div class="usage-rank-list"><table class="usage-rank-table"><thead><tr><th>#</th><th>用户</th><th>卡时</th><th>算力</th></tr></thead><tbody id="xpu-usage-ranking"><tr><td colspan="4">等待有效使用数据</td></tr></tbody></table></div>
+      </article>
+      <article class="usage-rank-panel">
+        <header class="usage-rank-header"><h3>显存使用排行榜</h3><span class="usage-rank-help" title="按当日持锁卡时加权计算显存利用率">?</span></header>
+        <div class="usage-rank-list"><table class="usage-rank-table"><thead><tr><th>#</th><th>用户</th><th>卡时</th><th>显存</th></tr></thead><tbody id="memory-usage-ranking"><tr><td colspan="4">等待有效使用数据</td></tr></tbody></table></div>
+      </article>
+    </section>
+    <section class="personal-node-section" aria-labelledby="personal-node-title">
+      <header class="personal-node-head"><h3 id="personal-node-title">节点曲线与占用明细</h3><span>当天 0:00 至当前时刻</span></header>
+      <div id="node-list" style="position:relative;padding-top:18px;"></div>
+    </section>
   </div>
 
   <!-- Average View -->
@@ -714,7 +731,6 @@ document.getElementById('type-toggles').addEventListener('click', (e) => {
   if (type === 'all') {
     document.getElementById('personal-view').style.display = 'none';
     document.getElementById('legend-items').style.display = 'none';
-    document.getElementById('personal-search').style.display = 'none';
     document.getElementById('average-view').style.display = 'block';
     // Always refresh average data on switch
     avgLoadAndRender().then(() => {
@@ -724,7 +740,6 @@ document.getElementById('type-toggles').addEventListener('click', (e) => {
   } else {
     document.getElementById('personal-view').style.display = 'block';
     document.getElementById('legend-items').style.display = 'flex';
-    document.getElementById('personal-search').style.display = 'block';
     document.getElementById('average-view').style.display = 'none';
     // Always refresh personal view data on switch
     loadAllData().then(status => renderStatusBar(status));
@@ -1340,8 +1355,9 @@ function getFiltered() {
     if (q && !n.name.includes(q)) return false;
     return true;
   });
-  if (activeSort === 'util-desc') f.sort((a, b) => b.currentUtil - a.currentUtil);
-  else if (activeSort === 'mem-desc') f.sort((a, b) => (b.avgMemUtil[nowIdx] || 0) - (a.avgMemUtil[nowIdx] || 0));
+  const sortMetric = value => Number.isFinite(value) ? value : -Infinity;
+  if (activeSort === 'util-desc') f.sort((a, b) => sortMetric(b.currentUtil) - sortMetric(a.currentUtil));
+  else if (activeSort === 'mem-desc') f.sort((a, b) => sortMetric(b.currentMemUtil) - sortMetric(a.currentMemUtil));
   return f;
 }
 
@@ -1365,14 +1381,79 @@ function makeOccupyBlocks(occs) {
     const left = (o.start / SLOT_COUNT * 100).toFixed(2);
     const width = ((o.end - o.start) / SLOT_COUNT * 100).toFixed(2);
     const user = o.user || '';
-    return `<div class="occupy-block" style="left:${left}%;width:${width}%" data-user="${user}" data-start="${o.start}" data-end="${o.end}"><span class="occupy-user">${user}</span></div>`;
+    const escapedUser = escapeHtml(user);
+    return `<div class="occupy-block" style="left:${left}%;width:${width}%" data-user="${escapedUser}" data-start="${o.start}" data-end="${o.end}"><span class="occupy-user">${escapedUser}</span></div>`;
   }).join('');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+}
+
+function occupationUsers(occupation) {
+  return [...new Set(String(occupation?.user || '').split(',').map(value => value.trim()).filter(Boolean))];
+}
+
+function collectUserUsage() {
+  const users = new Map();
+  const add = (userId, cardHours, xpu, memory) => {
+    const value = users.get(userId) || { userId, cardHours: 0, xpuSum: 0, xpuWeight: 0, memorySum: 0, memoryWeight: 0 };
+    value.cardHours += cardHours;
+    if (Number.isFinite(xpu)) { value.xpuSum += xpu * cardHours; value.xpuWeight += cardHours; }
+    if (Number.isFinite(memory)) { value.memorySum += memory * cardHours; value.memoryWeight += cardHours; }
+    users.set(userId, value);
+  };
+  for (const node of nodes) {
+    for (let card = 0; card < 8; card++) {
+      const occupations = node.cardOccupations?.[card] || [];
+      const xpu = node.cardUtils?.[card] || node.avgUtil || [];
+      const memory = node.cardMemUtils?.[card] || node.avgMemUtil || [];
+      for (const occupation of occupations) {
+        const userIds = occupationUsers(occupation);
+        if (!userIds.length) continue;
+        const start = Math.max(0, Math.min(SLOT_COUNT, Number(occupation.start) || 0));
+        const end = Math.max(start, Math.min(SLOT_COUNT, Number(occupation.end) || 0));
+        const userWeight = 1 / userIds.length;
+        for (let slot = start; slot < end; slot++) {
+          const cardHours = 5 / 60 * userWeight;
+          userIds.forEach(userId => add(userId, cardHours, xpu[slot], memory[slot]));
+        }
+      }
+    }
+  }
+  return [...users.values()].map(value => ({
+    ...value,
+    xpu: value.xpuWeight ? value.xpuSum / value.xpuWeight : null,
+    memory: value.memoryWeight ? value.memorySum / value.memoryWeight : null,
+  }));
+}
+
+function renderUsageRanking(targetId, entries, metric) {
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  const ranked = entries.filter(entry => Number.isFinite(entry[metric])).sort((left, right) => right[metric] - left[metric]).slice(0, 10);
+  target.innerHTML = ranked.length
+    ? ranked.map((entry, index) => `<tr><td class="rank-num">${index + 1}</td><td>${escapeHtml(entry.userId)}</td><td>${entry.cardHours.toFixed(1)}</td><td class="pct">${entry[metric].toFixed(1)}%</td></tr>`).join('')
+    : '<tr><td colspan="4">暂无持锁与指标均可对齐的使用数据</td></tr>';
+}
+
+function renderPersonalUsageRankings() {
+  const entries = collectUserUsage();
+  renderUsageRanking('xpu-usage-ranking', entries, 'xpu');
+  renderUsageRanking('memory-usage-ranking', entries, 'memory');
+}
+
+function renderPersonalSummary(filtered) {
+  const summary = document.getElementById('personal-result-summary');
+  if (summary) summary.textContent = `显示 ${filtered.length} / ${nodes.length} 个节点`;
 }
 
 function renderList() {
   const container = document.getElementById('node-list');
   container.innerHTML = '';
   const filtered = getFiltered();
+  renderPersonalSummary(filtered);
+  renderPersonalUsageRankings();
   filtered.forEach(node => {
     const row = document.createElement('div');
     const showBadge = node.status === 'UNKNOWN'
@@ -1426,6 +1507,7 @@ function renderList() {
         <canvas class="util-line" width="600" height="40"></canvas>
       </div>
       <div class="time-labels"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+      <div class="node-card-details"></div>
     `;
     container.appendChild(row);
     drawUtilLine(row.querySelector('.timeline-container canvas'), node.avgUtil, '#4f46e5');
@@ -1435,16 +1517,12 @@ function renderList() {
     captureLayerSnapshot(row.querySelector('.timeline-container canvas'));
 
     if (expandedNodes.has(node.name)) {
+      const details = row.querySelector('.node-card-details');
       if (node.hasMonqueryData && !node.hasCardMonqueryData) {
-        const loadingRow = document.createElement('div');
-        loadingRow.className = 'card-loading';
-        loadingRow.textContent = '卡级数据加载中…';
-        container.appendChild(loadingRow);
-        return;
-      }
-      for (let c = 0; c < 8; c++) {
+        details.innerHTML = '<p class="card-loading">卡级数据加载中…</p>';
+      } else for (let c = 0; c < 8; c++) {
         const cardRow = document.createElement('div');
-        cardRow.className = 'card-row';
+        cardRow.className = 'card-detail-row';
         const effectiveIdx = Math.max(0, nowIdx - 1);
         const cu = node.cardUtils?.[c]?.[effectiveIdx];
         const cm = node.cardMemUtils?.[c]?.[effectiveIdx];
@@ -1454,28 +1532,16 @@ function renderList() {
         const lockMark = (node.cardOccupations && node.cardOccupations[c] && node.cardOccupations[c].length)
           ? `<span class="card-lock" title="有 Lock Bot 锁记录">🔒</span>` : '';
         cardRow.innerHTML = `
-          <span class="card-name">XPU #${c}</span>
+          <span class="card-name">XPU #${c}${lockMark}</span>
           <span class="badge badge-${cardBusy == null ? 'NODATA' : (cardBusy ? 'BUSY' : 'FREE')}" style="font-size:10px;padding:1px 5px;">${cardBusy == null ? '暂缺' : (cardBusy ? '占用' : '空闲')}</span>
           <span class="card-val" style="color:#4f46e5">XPU ${Number.isFinite(cu) ? cu.toFixed(1) + '%' : '--'}</span>
           <span class="card-val" style="color:#ea580c">显存 ${Number.isFinite(cm) ? cm.toFixed(1) + '%' : '--'}</span>
-          ${lockMark}
+          <div class="card-detail-timeline"><div class="timeline-container">${makeOccupyBlocks((node.cardOccupations && node.cardOccupations[c]) || [])}<canvas class="util-line" width="400" height="24"></canvas></div></div>
         `;
-        container.appendChild(cardRow);
-
-        // 卡片级折线图
-        const cardTimeline = document.createElement('div');
-        cardTimeline.className = 'card-timeline';
-        const cardOccs = (node.cardOccupations && node.cardOccupations[c]) || [];
         const cardUtil = node.cardUtils?.[c] || new Array(SLOT_COUNT).fill(null);
         const cardMem = node.cardMemUtils?.[c] || new Array(SLOT_COUNT).fill(null);
-        cardTimeline.innerHTML = `
-          <div class="timeline-container">
-            ${makeOccupyBlocks(cardOccs)}
-            <canvas class="util-line" width="400" height="24"></canvas>
-          </div>
-        `;
-        container.appendChild(cardTimeline);
-        const cardCanvas = cardTimeline.querySelector('canvas');
+        details.appendChild(cardRow);
+        const cardCanvas = cardRow.querySelector('canvas');
         drawUtilLine(cardCanvas, cardUtil, '#4f46e5');
         if (node.hasMemMonqueryData) {
           drawUtilLine(cardCanvas, cardMem, '#ea580c', true);

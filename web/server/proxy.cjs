@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { createTrendService } = require('./trend-service.cjs');
 const { createTeamService, _private: teamPrivate } = require('./team-service.cjs');
+const { createAppAuthService } = require('./app-auth.cjs');
+const { createLockBotLiveCache } = require('./lockbot-live-cache.cjs');
 const clusterScope = require('../shared/cluster-scope.json');
 
 const WEB_ROOT = path.resolve(__dirname, '..');
@@ -64,10 +66,45 @@ if (process.env.LOCKBOT_HOST) config.backend.lockbot.host = process.env.LOCKBOT_
 if (process.env.LOCKBOT_PORT) config.backend.lockbot.port = Number.parseInt(process.env.LOCKBOT_PORT, 10);
 if (process.env.MONQUERY_HOST) config.backend.monquery.host = process.env.MONQUERY_HOST;
 if (process.env.MONQUERY_PORT) config.backend.monquery.port = Number.parseInt(process.env.MONQUERY_PORT, 10);
+if (process.env.TEAM_ACCESS_ENABLED) {
+  config.teamAccess = { ...(config.teamAccess || {}), enabled: process.env.TEAM_ACCESS_ENABLED === 'true' };
+}
+if (process.env.TEAM_ACCESS_GLOBAL_ADMINS) {
+  config.teamAccess = {
+    ...(config.teamAccess || {}),
+    globalAdmins: process.env.TEAM_ACCESS_GLOBAL_ADMINS.split(',').map(value => value.trim()).filter(Boolean),
+  };
+}
+if (process.env.TEAM_ORGANIZATION_BASE_URL || process.env.TEAM_ORGANIZATION_USER_TEAMS_PATH || process.env.TEAM_IDENTITY_PATH) {
+  config.teamAccess = {
+    ...(config.teamAccess || {}),
+    identity: {
+      ...(config.teamAccess?.identity || {}),
+      ...(process.env.TEAM_IDENTITY_PATH ? { path: process.env.TEAM_IDENTITY_PATH } : {}),
+    },
+    organization: {
+      ...(config.teamAccess?.organization || {}),
+      ...(process.env.TEAM_ORGANIZATION_BASE_URL ? { baseUrl: process.env.TEAM_ORGANIZATION_BASE_URL } : {}),
+      ...(process.env.TEAM_ORGANIZATION_USER_TEAMS_PATH ? { userTeamsPath: process.env.TEAM_ORGANIZATION_USER_TEAMS_PATH } : {}),
+      ...(process.env.TEAM_ORGANIZATION_TOKEN_ENV ? { apiTokenEnv: process.env.TEAM_ORGANIZATION_TOKEN_ENV } : {}),
+    },
+  };
+}
 
-const trendService = createTrendService(config);
-const teamService = createTeamService(config);
+const appAuth = createAppAuthService(config);
+const liveLockBotCache = createLockBotLiveCache({ ttlMs: 50 * 1000 });
+const trendService = createTrendService(config, { liveLockBotCache });
+const teamService = createTeamService(config, { teamAccess: appAuth, liveLockBotCache });
 teamService.schedule();
+async function warmLiveLockBotCache() {
+  const authorization = await appAuth.getLockBotAuthorization();
+  await teamService.warmLiveLockBotOccupancy(authorization);
+}
+void warmLiveLockBotCache().catch(error => console.warn(`[lockbot-cache] 预热失败: ${error.message}`));
+const lockBotCacheTimer = setInterval(() => {
+  void warmLiveLockBotCache().catch(error => console.warn(`[lockbot-cache] 预热失败: ${error.message}`));
+}, 60 * 1000);
+lockBotCacheTimer.unref();
 const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -77,8 +114,8 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
-function proxyTo(targetHost, targetPort, req, res) {
-  const headers = { ...req.headers, host: `${targetHost}:${targetPort}` };
+function proxyTo(targetHost, targetPort, req, res, headerOverrides = {}) {
+  const headers = { ...req.headers, ...headerOverrides, host: `${targetHost}:${targetPort}` };
   delete headers['sec-fetch-site'];
   delete headers['sec-fetch-mode'];
   delete headers['sec-fetch-dest'];
@@ -207,6 +244,39 @@ function sendApiError(res, error) {
   sendJson(res, statusCode, { error: error?.message || 'Team API failed' });
 }
 
+function readJsonBody(req, maxBytes = 8 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => {
+      size += Buffer.byteLength(chunk);
+      if (size > maxBytes) {
+        reject(Object.assign(new Error('请求体过大'), { statusCode: 413 }));
+        req.destroy();
+        return;
+      }
+      body += chunk;
+    });
+    req.on('error', reject);
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body || '{}'));
+      } catch {
+        reject(Object.assign(new Error('请求格式无效'), { statusCode: 400 }));
+      }
+    });
+  });
+}
+
+function isAllowedLockBotReadRequest(req) {
+  if (req.method !== 'GET') return false;
+  const pathname = new URL(req.url, 'http://localhost').pathname.replace(/^\/lockbot/, '');
+  return pathname === '/api/bots'
+    || pathname === '/api/bots/running-states'
+    || /^\/api\/bots\/[^/]+\/(?:state|occupancy)$/.test(pathname);
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -219,6 +289,18 @@ const server = http.createServer((req, res) => {
   if (req.url.startsWith('/api/server-time')) {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     return res.end(JSON.stringify({ now: Date.now() }));
+  }
+  if (req.url === '/api/auth/login') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    return readJsonBody(req)
+      .then(body => appAuth.login(body.username, body.password))
+      .then(session => sendJson(res, 200, session))
+      .catch(error => sendApiError(res, error));
+  }
+  if (req.url === '/api/auth/logout') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    appAuth.logout(req.headers.authorization);
+    return sendJson(res, 204, {});
   }
   if (req.url.startsWith('/api/cluster-trend')) {
     if (req.method !== 'GET') {
@@ -239,21 +321,20 @@ const server = http.createServer((req, res) => {
       res.writeHead(400, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Invalid trend nodes' }));
     }
-    return trendService.query(startAt, endAt, req.headers.authorization, nodes, intervalSeconds)
+    return appAuth.authorize(req.headers.authorization)
+      .then(() => appAuth.getLockBotAuthorization())
+      .then(authorization => trendService.query(startAt, endAt, authorization, nodes, intervalSeconds))
       .then(data => {
-        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-        res.end(JSON.stringify(data));
+        sendJson(res, 200, data);
       })
-      .catch(error => {
-        console.error(`Trend query failed: ${error.message}`);
-        res.writeHead(502, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Trend query failed', detail: error.message }));
-      });
+      .catch(error => sendApiError(res, error));
   }
   const requestUrl = new URL(req.url, 'http://localhost');
   if (requestUrl.pathname === '/api/team-membership') {
     if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
-    return teamService.getMembership(req.headers.authorization)
+    return appAuth.authorize(req.headers.authorization)
+      .then(access => appAuth.getLockBotAuthorization().then(authorization => ({ access, authorization })))
+      .then(({ access, authorization }) => teamService.getMembership(authorization, access))
       .then(data => sendJson(res, 200, data))
       .catch(error => sendApiError(res, error));
   }
@@ -268,13 +349,32 @@ const server = http.createServer((req, res) => {
       || endAt > nowSeconds + 300) {
       return sendJson(res, 400, { error: 'Team range must be between 3 hours and 90 days' });
     }
-    return teamService.queryDashboard(req.headers.authorization, startAt, endAt)
+    const phase = requestUrl.searchParams.get('phase') || null;
+    const bootstrapId = requestUrl.searchParams.get('bootstrapId') || null;
+    const initialTeamId = requestUrl.searchParams.get('initialTeamId') || null;
+    if (phase !== null && !['initial', 'full'].includes(phase)) {
+      return sendJson(res, 400, { error: 'Unknown team dashboard phase' });
+    }
+    return appAuth.authorize(req.headers.authorization)
+      .then(access => appAuth.getLockBotAuthorization().then(authorization => ({ access, authorization })))
+      .then(({ access, authorization }) => teamService.queryDashboard(authorization, startAt, endAt, {
+        phase,
+        bootstrapId,
+        initialTeamId,
+        access,
+      }))
       .then(data => sendJson(res, 200, data))
       .catch(error => sendApiError(res, error));
   }
   if (req.url.startsWith('/lockbot')) {
-    req.url = req.url.replace('/lockbot', '');
-    return proxyTo(config.backend.lockbot.host, config.backend.lockbot.port, req, res);
+    if (!isAllowedLockBotReadRequest(req)) return sendJson(res, 403, { error: 'Lock Bot request is not allowed' });
+    return appAuth.authorize(req.headers.authorization)
+      .then(() => appAuth.getLockBotAuthorization())
+      .then(authorization => {
+        req.url = req.url.replace('/lockbot', '');
+        proxyTo(config.backend.lockbot.host, config.backend.lockbot.port, req, res, { authorization });
+      })
+      .catch(error => sendApiError(res, error));
   }
   if (req.url.startsWith('/monquery')) {
     req.url = req.url.replace('/monquery', '');

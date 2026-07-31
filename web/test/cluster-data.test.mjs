@@ -5,6 +5,8 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import clusterScope from '../shared/cluster-scope.json' with { type: 'json' };
 import { adaptNodeData } from '../src/services/adapter.js';
 import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } from '../src/services/auto-refresh.js';
@@ -17,6 +19,10 @@ const require = createRequire(import.meta.url);
 const { createTrendService, _private } = require('../server/trend-service.cjs');
 const { pruneLockHistoryCache } = _private;
 const { createTeamService, _private: teamPrivate } = require('../server/team-service.cjs');
+const { createTeamAccessService } = require('../server/team-access.cjs');
+const { createAppAuthService } = require('../server/app-auth.cjs');
+const { createLockBotLiveCache } = require('../server/lockbot-live-cache.cjs');
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
@@ -38,6 +44,36 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   const groupIds = clusterScope.nodeGroups.flatMap(group => group.nodeIds).slice().sort((a, b) => a - b);
   const flatIds = [...clusterScope.nodeIds].sort((a, b) => a - b);
   assert.deepEqual(groupIds, flatIds);
+});
+
+test('legacy static dashboard requests the same 66-node scope and namespaces as the Vue dashboard', () => {
+  const legacyApi = fs.readFileSync(path.join(PROJECT_ROOT, 'api.js'), 'utf8');
+  const monitored = legacyApi.match(/const MONITORED_NODES = \[([\s\S]*?)\];/);
+  const nonBackup = legacyApi.match(/const NON_BACKUP_NODES = \[([\s\S]*?)\];/);
+  assert.ok(monitored, 'legacy MONITORED_NODES must exist');
+  assert.ok(nonBackup, 'legacy NON_BACKUP_NODES must exist');
+  const nodeIds = monitored[1].match(/\d+/g).map(Number);
+  const nonBackupNodeIds = nonBackup[1].match(/\d+/g).map(Number);
+
+  assert.deepEqual(nodeIds, clusterScope.nodeIds);
+  assert.deepEqual(nonBackupNodeIds.filter(nodeId => nodeId >= 70), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
+});
+
+test('legacy personal view keeps its filter, usage rankings, and expandable card-detail structure', () => {
+  const legacyHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'index.html'), 'utf8');
+  const styles = fs.readFileSync(path.join(PROJECT_ROOT, 'styles.css'), 'utf8');
+  const script = legacyHtml.match(/<script type="module">([\s\S]*?)<\/script>/)?.[1];
+
+  assert.match(legacyHtml, /id="personal-result-summary"/);
+  assert.match(legacyHtml, /id="xpu-usage-ranking"/);
+  assert.match(legacyHtml, /id="memory-usage-ranking"/);
+  assert.match(legacyHtml, /id="node-list"/);
+  assert.match(script, /function collectUserUsage\(\)/);
+  assert.match(script, /function renderPersonalUsageRankings\(\)/);
+  assert.match(script, /className = 'card-detail-row'/);
+  assert.match(styles, /\.usage-rank-row/);
+  assert.match(styles, /\.card-detail-row/);
+  assert.doesNotThrow(() => execFileSync(process.execPath, ['--input-type=module', '--check'], { input: script }));
 });
 
 test('node70 through node79 are active from 10:00 China time with no pending duplicates', () => {
@@ -826,7 +862,7 @@ test('a failed Lock Bot occupancy request produces an unavailable lock trend', a
   }
 });
 
-test('complete historical Lock Bot days are cached and identical trend requests share work', async () => {
+test('complete historical Lock Bot days persist while the Bot list is shared briefly in memory', async () => {
   let monqueryCalls = 0;
   let botCalls = 0;
   let occupancyCalls = 0;
@@ -870,12 +906,39 @@ test('complete historical Lock Bot days are cached and identical trend requests 
     await service.query(0, 300, 'Bearer test', null, 300);
 
     assert.equal(monqueryCalls, 6);
-    assert.equal(botCalls, 2);
+    assert.equal(botCalls, 1);
     assert.equal(occupancyCalls, 1);
     assert.equal(recordsByKey.size, 1);
   } finally {
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
   }
+});
+
+test('live Lock Bot cache shares concurrent loads, expires on schedule, and skips incomplete results', async () => {
+  let clock = 0;
+  let loads = 0;
+  const cache = createLockBotLiveCache({ nowMs: () => clock, ttlMs: 60_000 });
+  const load = async () => ({ sequence: ++loads, complete: true });
+
+  const [first, concurrent] = await Promise.all([
+    cache.get('occupancy:today', load, value => value.complete),
+    cache.get('occupancy:today', load, value => value.complete),
+  ]);
+  assert.deepEqual(first, concurrent);
+  assert.equal(loads, 1);
+
+  clock = 59_999;
+  assert.equal((await cache.get('occupancy:today', load, value => value.complete)).sequence, 1);
+  assert.equal(loads, 1);
+
+  clock = 60_000;
+  assert.equal((await cache.get('occupancy:today', load, value => value.complete)).sequence, 2);
+  assert.equal(loads, 2);
+
+  const incomplete = async () => ({ sequence: ++loads, complete: false });
+  await cache.get('occupancy:partial', incomplete, value => value.complete);
+  await cache.get('occupancy:partial', incomplete, value => value.complete);
+  assert.equal(loads, 4);
 });
 
 test('Monquery trends only query nodes active at each scope boundary', async (t) => {
@@ -1065,5 +1128,307 @@ test('lock rate adds node70 through node79 at 10:00 China time', async (t) => {
     assert.equal(result.lock[result.times.indexOf(atActivation)], 2 / activeTotalCards * 100);
   } finally {
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('team access keeps the current full dashboard behavior until organization access is enabled', async () => {
+  let identityCalls = 0;
+  const access = createTeamAccessService({}, {
+    resolveIdentity: async () => { identityCalls += 1; return 'leader-a'; },
+  });
+
+  const result = await access.authorize('Bearer test');
+
+  assert.deepEqual(result, { enabled: false, mode: 'all', teamIds: null, username: null, cacheKey: 'disabled' });
+  assert.equal(identityCalls, 0);
+});
+
+test('application login keeps the Lock Bot service credential on the server and scopes sessions by whitelist role', async () => {
+  let clock = 0;
+  const requests = [];
+  const environment = {
+    LOCKBOT_SERVICE_USERNAME: 'service-account',
+    LOCKBOT_SERVICE_PASSWORD: 'service-password',
+    XPU_MONITOR_BOSS_PASSWORD: 'boss-password',
+    XPU_MONITOR_ALICE_PASSWORD: 'alice-password',
+  };
+  const auth = createAppAuthService({
+    backend: { lockbot: { host: 'lockbot.internal', port: 8875 } },
+    appAuth: {
+      sessionTtlSeconds: 60,
+      lockbotTokenTtlSeconds: 60,
+      accounts: [
+        { username: 'boss', passwordEnv: 'XPU_MONITOR_BOSS_PASSWORD', role: 'admin' },
+        { username: 'alice', passwordEnv: 'XPU_MONITOR_ALICE_PASSWORD', team: { id: 'team-a', label: 'A 团队' } },
+      ],
+    },
+  }, {
+    nowMs: () => clock,
+    getEnvironment: name => environment[name],
+    requestJson: async (...args) => {
+      requests.push(args);
+      return { access_token: 'service-token' };
+    },
+  });
+
+  await assert.rejects(() => auth.login('boss', 'wrong'), error => error.statusCode === 401);
+  const boss = await auth.login('BOSS', 'boss-password');
+  assert.equal(boss.username, 'boss');
+  assert.equal('password' in boss, false);
+  assert.equal((await auth.authorize(`Bearer ${boss.token}`)).mode, 'all');
+
+  const serviceAuthorization = await auth.getLockBotAuthorization();
+  assert.equal(serviceAuthorization, 'Bearer service-token');
+  assert.equal(await auth.getLockBotAuthorization(), serviceAuthorization);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0][2], '/api/auth/login');
+  assert.deepEqual(requests[0][3].body, { username: 'service-account', password: 'service-password' });
+
+  const alice = await auth.login('alice', 'alice-password');
+  const aliceAccess = await auth.authorize(`Bearer ${alice.token}`);
+  assert.deepEqual(aliceAccess.teamIds, ['team-a']);
+  assert.deepEqual((await auth.resolveMembership(['Alice', 'unlisted'])).assignments, {
+    Alice: { team: 'team-a', source: 'whitelist', pending: false, confidence: 1 },
+  });
+
+  clock = 60_001;
+  await assert.rejects(() => auth.authorize(`Bearer ${boss.token}`), error => error.statusCode === 401);
+});
+
+test('team access limits a leader to their primary organization team and recognizes normalized administrators', async () => {
+  const calls = [];
+  const access = createTeamAccessService({
+    teamAccess: { enabled: true, globalAdmins: ['BigBoss'] },
+  }, {
+    resolveIdentity: async authorization => authorization === 'Bearer boss' ? 'bigboss' : 'Leader-A',
+    resolveUserTeam: async username => {
+      calls.push(username);
+      return { id: username === 'leader-a' ? 'team-a' : 'team-b', label: username === 'leader-a' ? 'Alpha' : 'Beta', primary: true };
+    },
+  });
+
+  const leader = await access.authorize('Bearer leader');
+  const administrator = await access.authorize('Bearer boss');
+
+  assert.deepEqual(leader.teamIds, ['team-a']);
+  assert.equal(leader.mode, 'team');
+  assert.equal(administrator.mode, 'all');
+  assert.deepEqual(calls, ['leader-a']);
+});
+
+test('enabled team access fails closed until the current-user and organization contracts are configured', async () => {
+  const access = createTeamAccessService({ teamAccess: { enabled: true } });
+
+  await assert.rejects(
+    () => access.authorize('Bearer test'),
+    error => error.statusCode === 503 && /identity\.path/.test(error.message),
+  );
+});
+
+test('organization membership retains the Lock Bot user id while grouping by organization team', async () => {
+  const access = createTeamAccessService({ teamAccess: { enabled: true } }, {
+    resolveUserTeam: async username => username === 'alice'
+      ? { id: 'team-a', label: 'Alpha', primary: true }
+      : { id: 'team-b', label: 'Beta', primary: true },
+  });
+
+  const membership = await access.resolveMembership(['Alice', 'bob']);
+
+  assert.equal(membership.assignments.Alice.team, 'team-a');
+  assert.equal(membership.assignments.bob.team, 'team-b');
+  assert.deepEqual(membership.teams.map(team => team.id), ['team-a', 'team-b']);
+});
+
+test('team dashboard payload removes every non-authorized team and ranking', () => {
+  const payload = teamPrivate.scopeDashboardPayload({
+    teams: [{ id: 'team-a' }, { id: 'team-b' }],
+    rankings: [{ userId: 'alice', team: 'team-a' }, { userId: 'bob', team: 'team-b' }],
+  }, { enabled: true, mode: 'team', teamIds: ['team-a'] });
+
+  assert.deepEqual(payload.teams.map(team => team.id), ['team-a']);
+  assert.deepEqual(payload.rankings.map(row => row.userId), ['alice']);
+  assert.deepEqual(payload.access, { enabled: true, mode: 'team', teamIds: ['team-a'] });
+});
+
+test('organization-scoped team queries bypass the full-dashboard cache', async () => {
+  const startAt = Math.floor(new Date('2026-07-27T00:00:00+08:00').getTime() / 1000);
+  const endAt = startAt + 3 * 60 * 60;
+  let occupancyCalls = 0;
+  const membershipPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'team-access-membership-')), 'membership.json');
+  const upstream = createServer((request, response) => {
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'DEVICE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      occupancyCalls += 1;
+      response.end(JSON.stringify([{
+        user_id: 'alice', node_key: 'node1', dev_id: 0, start_time: startAt, end_time: endAt,
+      }]));
+      return;
+    }
+    if (request.url === '/api/bots/running-states') {
+      response.end(JSON.stringify({ data: {} }));
+      return;
+    }
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      response.end(JSON.stringify({ data: [{
+        NameSpace: 'wxtky02-p800-backup-8nic-vd-node1.wxtky02',
+        Items: {
+          XPU0_XPU_UTILIZATION: [{ Timestamp: startAt, Value: 50 }],
+          XPU0_MEM_UTILIZATION: [{ Timestamp: startAt, Value: 70 }],
+        },
+      }] }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  const teamAccess = {
+    enabled: true,
+    authorize: async () => ({ enabled: true, mode: 'team', teamIds: ['team-a'], cacheKey: 'team:leader:team-a' }),
+    resolveMembership: async () => ({
+      version: 'organization:team-a', generatedAt: null, window: null, lastError: null,
+      assignments: { alice: { team: 'team-a', source: 'organization', pending: false, confidence: 1 } },
+      teams: [{ id: 'team-a', label: 'Alpha' }],
+    }),
+  };
+  try {
+    const service = createTeamService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, {
+      membershipPath,
+      lockHistoryCache: { read: () => null, save: () => {} },
+      currentSeconds: () => endAt + 24 * 60 * 60,
+      teamAccess,
+    });
+    const first = await service.queryDashboard('Bearer leader', startAt, endAt);
+    const second = await service.queryDashboard('Bearer leader', startAt, endAt);
+
+    assert.equal(first.cache.hit, false);
+    assert.equal(second.cache.hit, false);
+    assert.equal(first.cache.expiresAt, null);
+    assert.deepEqual(first.teams.map(team => team.id), ['team-a']);
+    assert.deepEqual(first.rankings.map(row => row.userId), ['alice']);
+    assert.equal(occupancyCalls, 2);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+    fs.rmSync(path.dirname(membershipPath), { recursive: true, force: true });
+  }
+});
+
+test('team dashboard phases return one team first, reuse occupancy, and bind bootstrap to the account and range', async () => {
+  const startAt = Math.floor(new Date('2026-07-27T00:00:00+08:00').getTime() / 1000);
+  const endAt = startAt + 3 * 60 * 60;
+  let occupancyCalls = 0;
+  let clock = 0;
+  const metricRequests = [];
+  const membershipPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'team-phase-')), 'membership.json');
+  const upstream = createServer((request, response) => {
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'DEVICE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      occupancyCalls += 1;
+      response.end(JSON.stringify([
+        { user_id: 'alice', node_key: 'node1', dev_id: 0, start_time: startAt, end_time: endAt },
+        { user_id: 'bob', node_key: 'node2', dev_id: 0, start_time: startAt, end_time: endAt },
+      ]));
+      return;
+    }
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      const requestedNodes = new URL(request.url, 'http://localhost').searchParams.get('namespaces').split(',')
+        .map(value => value.match(/node(\d+)\.wxtky02$/)?.[1])
+        .filter(Boolean)
+        .map(Number);
+      metricRequests.push(requestedNodes);
+      response.end(JSON.stringify({ data: requestedNodes.map(nodeId => ({
+        NameSpace: `wxtky02-p800-backup-8nic-vd-node${nodeId}.wxtky02`,
+        Items: {
+          XPU0_XPU_UTILIZATION: [{ Timestamp: startAt, Value: nodeId === 1 ? 50 : 60 }],
+          XPU0_MEM_UTILIZATION: [{ Timestamp: startAt, Value: nodeId === 1 ? 70 : 80 }],
+        },
+      })) }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  const teamAccess = {
+    enabled: true,
+    authorize: async authorization => {
+      if (authorization === 'Bearer leader') return { enabled: true, mode: 'team', teamIds: ['team-a'], cacheKey: 'team:leader:team-a' };
+      return { enabled: true, mode: 'all', teamIds: null, cacheKey: authorization === 'Bearer other' ? 'admin:other' : 'admin:boss' };
+    },
+    resolveMembership: async () => ({
+      version: 'organization:team-a,team-b', generatedAt: null, window: null, lastError: null,
+      assignments: {
+        alice: { team: 'team-a', source: 'organization', pending: false, confidence: 1 },
+        bob: { team: 'team-b', source: 'organization', pending: false, confidence: 1 },
+      },
+      teams: [{ id: 'team-a', label: 'Alpha' }, { id: 'team-b', label: 'Beta' }],
+    }),
+  };
+  try {
+    const service = createTeamService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, {
+      membershipPath,
+      lockHistoryCache: { read: () => null, save: () => {} },
+      currentSeconds: () => endAt + 24 * 60 * 60,
+      nowMs: () => clock,
+      phaseContextTtlMs: 1_000,
+      random: () => 0,
+      teamAccess,
+    });
+
+    const initial = await service.queryDashboard('Bearer boss', startAt, endAt, { phase: 'initial' });
+    assert.equal(initial.progressive.complete, false);
+    assert.equal(initial.progressive.initialTeamId, 'team-a');
+    assert.ok(initial.progressive.bootstrapId);
+    assert.deepEqual(initial.teams.map(team => team.id), ['team-a']);
+    assert.deepEqual(initial.rankings.map(row => row.userId), ['alice']);
+    assert.deepEqual(metricRequests, [[1]]);
+    assert.equal(occupancyCalls, 1);
+
+    await assert.rejects(
+      () => service.queryDashboard('Bearer other', startAt, endAt, { phase: 'full', bootstrapId: initial.progressive.bootstrapId }),
+      error => error.statusCode === 403,
+    );
+    const complete = await service.queryDashboard('Bearer boss', startAt, endAt, { phase: 'full', bootstrapId: initial.progressive.bootstrapId });
+    assert.equal(complete.progressive.complete, true);
+    assert.deepEqual(complete.teams.map(team => team.id), ['team-a', 'team-b']);
+    assert.deepEqual(metricRequests, [[1], [2]]);
+    assert.equal(occupancyCalls, 1);
+
+    const retainedTeam = await service.queryDashboard('Bearer boss', startAt, endAt, { phase: 'initial', initialTeamId: 'team-b' });
+    assert.equal(retainedTeam.progressive.initialTeamId, 'team-b');
+    assert.deepEqual(retainedTeam.teams.map(team => team.id), ['team-b']);
+
+    const leader = await service.queryDashboard('Bearer leader', startAt, endAt, { phase: 'initial' });
+    assert.equal(leader.progressive.complete, true);
+    assert.equal(leader.progressive.bootstrapId, null);
+    assert.deepEqual(leader.teams.map(team => team.id), ['team-a']);
+
+    const expiring = await service.queryDashboard('Bearer boss', startAt, endAt, { phase: 'initial', initialTeamId: 'team-b' });
+    clock = 1_001;
+    await assert.rejects(
+      () => service.queryDashboard('Bearer boss', startAt, endAt, { phase: 'full', bootstrapId: expiring.progressive.bootstrapId }),
+      error => error.statusCode === 400 && /expired/.test(error.message),
+    );
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+    fs.rmSync(path.dirname(membershipPath), { recursive: true, force: true });
   }
 });

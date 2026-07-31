@@ -24,9 +24,9 @@ const X_AXIS_TICK_OPTIONS = [
 ];
 const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
 const TREND_SERIES = [
-  { field: 'xpu', label: 'XPU 利用率', color: '#7c3aed', axis: 'rate' },
-  { field: 'memory', label: '显存利用率', color: '#38bdf8', axis: 'rate' },
-  { field: 'lockedCards', label: '占用卡数', color: '#f97316', axis: 'cards' },
+  { field: 'xpu', label: 'XPU 利用率', color: '#7c3aed', axis: 'rate', className: 'xpu' },
+  { field: 'memory', label: '显存利用率', color: '#38bdf8', axis: 'rate', className: 'memory' },
+  { field: 'lockedCards', label: '占用卡数', color: '#f97316', axis: 'cards', className: 'cards' },
 ];
 const TEAM_COLORS = {
   'operator-testing': '#ea580c',
@@ -34,7 +34,7 @@ const TEAM_COLORS = {
   training: '#16a34a',
   'general-research': '#8b5cf6',
 };
-const PIE_CIRCUMFERENCE = 2 * Math.PI * 42;
+const PIE_CIRCUMFERENCE = 2 * Math.PI * 50;
 
 const rangeStart = ref(null);
 const rangeEnd = ref(null);
@@ -44,13 +44,19 @@ const draftEnd = ref('');
 const panelCollapsed = ref(true);
 const efficiencyCollapsed = ref(false);
 const selectedTeamId = ref('general-research');
+const visibleTrendFields = ref(TREND_SERIES.map(series => series.field));
 const hoveredTrendIndex = ref(null);
+const hoveredPieSegmentId = ref(null);
+const openMetricTip = ref(null);
 const trendCanvas = ref(null);
 const trendTooltip = ref(null);
 const trendTooltipStyle = ref({});
 const dashboard = ref(null);
 const loading = ref(false);
+const backgroundLoading = ref(false);
 const error = ref('');
+const backgroundError = ref('');
+const initialTeamId = ref(null);
 const rangeError = ref('');
 let refreshTimer;
 let requestSequence = 0;
@@ -59,6 +65,7 @@ let resizeHandler;
 const teams = computed(() => dashboard.value?.teams || []);
 const selectedTeam = computed(() => teams.value.find(team => team.id === selectedTeamId.value) || teams.value.at(-1) || null);
 const selectedTrend = computed(() => selectedTeam.value?.trend || []);
+const selectedTrendSeries = computed(() => TREND_SERIES.filter(series => visibleTrendFields.value.includes(series.field)));
 const selectedRankings = computed(() => (dashboard.value?.rankings || []).filter(row => row.team === selectedTeamId.value));
 const timeLabel = computed(() => QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label || '自定义时间范围');
 const averagePeriodLabel = computed(() => QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label.replace('最近 ', '近 ') || '所选范围');
@@ -67,20 +74,6 @@ const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
   : '尚未选择时间范围');
 const dataAsOf = computed(() => Number.isFinite(dashboard.value?.dataAsOf) ? new Date(dashboard.value.dataAsOf * 1000) : null);
 const dataAsOfLabel = computed(() => dataAsOf.value ? formatChinaDateTime(dataAsOf.value) : '暂无可对齐采样点');
-const sampleSeconds = computed(() => dashboard.value?.range?.sampleSeconds || null);
-const sampleLabel = computed(() => {
-  if (!Number.isFinite(sampleSeconds.value)) return '等待采样信息';
-  if (sampleSeconds.value < 3600) return `${sampleSeconds.value / 60} 分钟采样`;
-  if (sampleSeconds.value % 3600 === 0) return `${sampleSeconds.value / 3600} 小时采样`;
-  if (sampleSeconds.value % 60 === 0) return `${sampleSeconds.value / 60} 分钟采样`;
-  return `${sampleSeconds.value} 秒采样`;
-});
-const cacheLabel = computed(() => dashboard.value?.cache?.hit ? '已命中一小时聚合缓存' : '已更新聚合数据');
-const mappingStatus = computed(() => {
-  const membership = dashboard.value?.membership;
-  if (!membership?.generatedAt) return '尚未保存固定团队映射，未映射使用者暂归通用研发并标记待确认。';
-  return `固定团队映射保存于 ${formatChinaDateTime(membership.generatedAt)}；切换筛选区间不会改变团队归属。`;
-});
 const totalCardHours = computed(() => teams.value.reduce((total, team) => total + (Number.isFinite(team.cardHours) ? team.cardHours : 0), 0));
 const pieSegments = computed(() => {
   let offset = 0;
@@ -89,6 +82,7 @@ const pieSegments = computed(() => {
     const segment = {
       id: team.id,
       label: team.label,
+      cardHours: Number.isFinite(team.cardHours) ? team.cardHours : null,
       color: TEAM_COLORS[team.id] || '#64748b',
       percent,
       dasharray: `${percent * PIE_CIRCUMFERENCE} ${PIE_CIRCUMFERENCE}`,
@@ -99,17 +93,21 @@ const pieSegments = computed(() => {
   });
 });
 const historicalMetrics = computed(() => [
-  { label: `${averagePeriodLabel.value}平均节点占用率`, value: formatPercent(selectedTeam.value?.averages?.lockRate), tone: 'node-util' },
-  { label: `${averagePeriodLabel.value}平均 XPU 利用率`, value: formatPercent(selectedTeam.value?.averages?.xpu), tone: 'xpu' },
-  { label: `${averagePeriodLabel.value}平均显存利用率`, value: formatPercent(selectedTeam.value?.averages?.memory), tone: 'memory' },
-  { label: `${averagePeriodLabel.value}平均活跃人数`, value: formatAverageCount(selectedTeam.value?.averages?.activeUsers), tone: 'locked-users' },
-  { label: `${averagePeriodLabel.value}人均锁定卡数`, value: formatAverageCount(selectedTeam.value?.averages?.lockedCardsPerUser), tone: 'cards-per-user' },
+  { label: `${averagePeriodLabel.value}平均节点占用率`, value: formatPercent(selectedTeam.value?.averages?.lockRate), tone: 'node-util', tip: '按采样点计算团队持锁卡数占集群总卡数的比例，再取平均值。' },
+  { label: `${averagePeriodLabel.value}平均 XPU 利用率`, value: formatPercent(selectedTeam.value?.averages?.xpu), tone: 'xpu', tip: '所选范围内，团队成员持锁卡的有效 XPU 利用率样本平均值。' },
+  { label: `${averagePeriodLabel.value}平均显存利用率`, value: formatPercent(selectedTeam.value?.averages?.memory), tone: 'memory', tip: '所选范围内，团队成员持锁卡的有效显存利用率样本平均值。' },
+  { label: `${averagePeriodLabel.value}平均活跃人数`, value: formatAverageCount(selectedTeam.value?.averages?.activeUsers), tone: 'locked-users', tip: '每个采样点去重后的持锁成员数，在所选范围内的平均值。' },
+  { label: `${averagePeriodLabel.value}人均锁定卡数`, value: formatAverageCount(selectedTeam.value?.averages?.lockedCardsPerUser), tone: 'cards-per-user', tip: '所选范围内锁定卡数总量除以持锁成员数总量，仅计有效卡级样本。' },
 ]);
-const trendHasSamples = computed(() => selectedTrend.value.some(hasTrendValue));
+const trendHasSamples = computed(() => selectedTrendSeries.value.length && selectedTrend.value.some(hasTrendValue));
+const trendEmptyMessage = computed(() => selectedTrendSeries.value.length
+  ? '所选团队在此范围内暂无有效卡级样本'
+  : '未选择趋势指标');
 const hoveredTrendPoint = computed(() => {
   const index = hoveredTrendIndex.value;
   return Number.isInteger(index) ? selectedTrend.value[index] || null : null;
 });
+const hoveredPieSegment = computed(() => pieSegments.value.find(segment => segment.id === hoveredPieSegmentId.value) || null);
 
 function setRange(start, end, nextQuickRangeId = null) {
   rangeStart.value = start;
@@ -142,20 +140,56 @@ function resetRange() {
   setQuickRange(QUICK_RANGES.find(range => range.id === '7d'));
 }
 
+function applyDashboard(result, preferredTeamId = null) {
+  dashboard.value = result;
+  const initialTeamId = preferredTeamId || result.progressive?.initialTeamId;
+  if (initialTeamId && result.teams?.some(team => team.id === initialTeamId)) {
+    selectedTeamId.value = initialTeamId;
+  } else if (!result.teams?.some(team => team.id === selectedTeamId.value)) {
+    selectedTeamId.value = result.teams?.[0]?.id || 'general-research';
+  }
+}
+
+function handleDashboardError(caught, target) {
+  if (/401/.test(String(caught?.message))) emit('expired');
+  target.value = caught?.message || '加载团队监控数据失败';
+}
+
 async function load() {
   if (!rangeStart.value || !rangeEnd.value) return;
   const sequence = ++requestSequence;
   loading.value = true;
+  backgroundLoading.value = false;
   error.value = '';
+  backgroundError.value = '';
   try {
-    const result = await fetchTeamDashboard(rangeStart.value, rangeEnd.value, props.token);
+    const initial = await fetchTeamDashboard(rangeStart.value, rangeEnd.value, props.token, {
+      phase: 'initial',
+      initialTeamId: initialTeamId.value,
+    });
     if (sequence !== requestSequence) return;
-    dashboard.value = result;
-    if (!result.teams?.some(team => team.id === selectedTeamId.value)) selectedTeamId.value = result.teams?.[0]?.id || 'general-research';
+    applyDashboard(initial);
+    const progressive = initial.progressive;
+    if (progressive?.initialTeamId) initialTeamId.value = progressive.initialTeamId;
+    if (!progressive?.bootstrapId || progressive.complete) return;
+    loading.value = false;
+    backgroundLoading.value = true;
+    try {
+      const complete = await fetchTeamDashboard(rangeStart.value, rangeEnd.value, props.token, {
+        phase: 'full',
+        bootstrapId: progressive.bootstrapId,
+      });
+      if (sequence !== requestSequence) return;
+      applyDashboard(complete, selectedTeamId.value);
+    } catch (caught) {
+      if (sequence !== requestSequence) return;
+      handleDashboardError(caught, backgroundError);
+    } finally {
+      if (sequence === requestSequence) backgroundLoading.value = false;
+    }
   } catch (caught) {
     if (sequence !== requestSequence) return;
-    if (/401|403/.test(String(caught?.message))) emit('expired');
-    error.value = caught?.message || '加载团队监控数据失败';
+    handleDashboardError(caught, error);
   } finally {
     if (sequence === requestSequence) loading.value = false;
   }
@@ -177,6 +211,10 @@ function formatAverageCount(value) {
   return Number.isFinite(value) ? value.toFixed(1) : '暂无有效样本';
 }
 
+function formatPiePercent(value) {
+  return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '暂无有效样本';
+}
+
 function formatCardHours(value) {
   return Number.isFinite(value) ? `${value.toFixed(1)} 卡时` : '暂无有效样本';
 }
@@ -186,7 +224,29 @@ function formatTrendTime(point) {
 }
 
 function hasTrendValue(point) {
-  return TREND_SERIES.some(series => Number.isFinite(point?.[series.field]));
+  return selectedTrendSeries.value.some(series => Number.isFinite(point?.[series.field]));
+}
+
+function toggleTrendSeries(field) {
+  visibleTrendFields.value = visibleTrendFields.value.includes(field)
+    ? visibleTrendFields.value.filter(value => value !== field)
+    : [...visibleTrendFields.value, field];
+}
+
+function showMetricTip(tone) {
+  openMetricTip.value = tone;
+}
+
+function hideMetricTip(tone) {
+  if (openMetricTip.value === tone) openMetricTip.value = null;
+}
+
+function setPieSegmentHover(id) {
+  hoveredPieSegmentId.value = id;
+}
+
+function clearPieSegmentHover() {
+  hoveredPieSegmentId.value = null;
 }
 
 function trendTimes(points) {
@@ -265,7 +325,8 @@ function drawSmoothedLine(context, segment, series, xFor, yForSeries) {
 function drawTrendChart() {
   const canvas = trendCanvas.value;
   const points = selectedTrend.value;
-  if (!canvas || !points.length) return;
+  const activeSeries = selectedTrendSeries.value;
+  if (!canvas || !points.length || !activeSeries.length) return;
   const surface = canvas.parentElement;
   const width = surface.clientWidth || surface.offsetWidth || 600;
   const height = surface.clientHeight || surface.offsetHeight || 330;
@@ -288,12 +349,14 @@ function drawTrendChart() {
   const cardsYFor = value => TREND_MARGIN.top + (1 - Math.max(0, Math.min(cardAxis.max, value)) / cardAxis.max) * plotHeight;
   const yForSeries = (series, value) => series.axis === 'cards' ? cardsYFor(value) : rateYFor(value);
   const xAxis = buildXAxisTicks(times, Math.max(3, Math.floor(plotWidth / 95) + 1));
+  const showRateAxis = activeSeries.some(series => series.axis === 'rate');
+  const showCardAxis = activeSeries.some(series => series.axis === 'cards');
 
   context.save();
   context.strokeStyle = '#e5e7eb';
   context.lineWidth = .8;
-  TREND_Y_TICKS.forEach(value => {
-    const y = rateYFor(value);
+  (showRateAxis ? TREND_Y_TICKS : cardAxis.ticks).forEach(value => {
+    const y = showRateAxis ? rateYFor(value) : cardsYFor(value);
     context.beginPath();
     context.moveTo(TREND_MARGIN.left, y);
     context.lineTo(width - TREND_MARGIN.right, y);
@@ -302,36 +365,48 @@ function drawTrendChart() {
   context.restore();
 
   context.save();
-  context.fillStyle = '#6d28d9';
   context.font = '11px "SF Mono", "JetBrains Mono", monospace';
-  context.textAlign = 'right';
   context.textBaseline = 'middle';
-  TREND_Y_TICKS.forEach(value => context.fillText(`${value}%`, TREND_MARGIN.left - 8, rateYFor(value)));
-  context.fillStyle = '#ea580c';
-  context.textAlign = 'left';
-  cardAxis.ticks.forEach(value => context.fillText(`${value} 张`, width - TREND_MARGIN.right + 8, cardsYFor(value)));
+  if (showRateAxis) {
+    context.fillStyle = '#6d28d9';
+    context.textAlign = 'right';
+    TREND_Y_TICKS.forEach(value => context.fillText(`${value}%`, TREND_MARGIN.left - 8, rateYFor(value)));
+  }
+  if (showCardAxis) {
+    context.fillStyle = '#ea580c';
+    context.textAlign = 'left';
+    cardAxis.ticks.forEach(value => context.fillText(`${value} 张`, width - TREND_MARGIN.right + 8, cardsYFor(value)));
+  }
   context.font = '600 11px -apple-system, "PingFang SC", sans-serif';
   context.textBaseline = 'top';
-  context.fillStyle = '#6d28d9';
-  context.textAlign = 'left';
-  context.fillText('利用率 (%)', 0, 5);
-  context.fillStyle = '#ea580c';
-  context.textAlign = 'right';
-  context.fillText('占用卡数', width, 5);
+  if (showRateAxis) {
+    context.fillStyle = '#6d28d9';
+    context.textAlign = 'left';
+    context.fillText('利用率 (%)', 0, 5);
+  }
+  if (showCardAxis) {
+    context.fillStyle = '#ea580c';
+    context.textAlign = 'right';
+    context.fillText('占用卡数', width, 5);
+  }
   context.restore();
 
   context.save();
   context.lineWidth = 1.25;
-  context.beginPath();
-  context.strokeStyle = '#6d28d9';
-  context.moveTo(TREND_MARGIN.left, TREND_MARGIN.top);
-  context.lineTo(TREND_MARGIN.left, TREND_MARGIN.top + plotHeight);
-  context.stroke();
-  context.beginPath();
-  context.strokeStyle = '#ea580c';
-  context.moveTo(width - TREND_MARGIN.right, TREND_MARGIN.top);
-  context.lineTo(width - TREND_MARGIN.right, TREND_MARGIN.top + plotHeight);
-  context.stroke();
+  if (showRateAxis) {
+    context.beginPath();
+    context.strokeStyle = '#6d28d9';
+    context.moveTo(TREND_MARGIN.left, TREND_MARGIN.top);
+    context.lineTo(TREND_MARGIN.left, TREND_MARGIN.top + plotHeight);
+    context.stroke();
+  }
+  if (showCardAxis) {
+    context.beginPath();
+    context.strokeStyle = '#ea580c';
+    context.moveTo(width - TREND_MARGIN.right, TREND_MARGIN.top);
+    context.lineTo(width - TREND_MARGIN.right, TREND_MARGIN.top + plotHeight);
+    context.stroke();
+  }
   context.beginPath();
   context.strokeStyle = '#94a3b8';
   context.moveTo(TREND_MARGIN.left, TREND_MARGIN.top + plotHeight);
@@ -367,7 +442,7 @@ function drawTrendChart() {
   context.beginPath();
   context.rect(TREND_MARGIN.left, TREND_MARGIN.top, plotWidth, plotHeight);
   context.clip();
-  TREND_SERIES.forEach(series => {
+  activeSeries.forEach(series => {
     let segment = [];
     const stroke = () => {
       if (!segment.length) return;
@@ -467,7 +542,7 @@ function handleTrendPointer(event) {
   context.lineTo(crosshairX, TREND_MARGIN.top + meta.plotHeight);
   context.stroke();
   context.setLineDash([]);
-  TREND_SERIES.forEach(series => {
+  selectedTrendSeries.value.forEach(series => {
     const value = meta.points[index]?.[series.field];
     if (!Number.isFinite(value)) return;
     context.beginPath();
@@ -503,6 +578,11 @@ watch(selectedTrend, () => {
   scheduleTrendDraw();
 }, { flush: 'post' });
 
+watch(visibleTrendFields, () => {
+  clearTrendHover();
+  scheduleTrendDraw();
+}, { deep: true });
+
 onMounted(() => {
   setQuickRange(QUICK_RANGES.find(range => range.id === '7d'), false);
   void load();
@@ -527,17 +607,8 @@ onBeforeUnmount(() => {
     <header class="team-page-header">
       <div>
         <h1>团队资源效率</h1>
-        <p>按固定团队映射汇总成员持锁资源；历史数据使用同一份映射归属。</p>
-      </div>
-      <div class="team-data-as-of" aria-live="polite">
-        <span>数据截至 {{ dataAsOfLabel }}</span>
-        <span>{{ sampleLabel }} · {{ cacheLabel }}</span>
       </div>
     </header>
-
-    <section class="team-source-notice" :class="{ warning: !dashboard?.membership?.generatedAt || dashboard?.membership?.lastError }" aria-live="polite">
-      {{ mappingStatus }}
-    </section>
 
     <section class="team-filter-section" aria-label="团队时间范围筛选">
       <div class="team-filter-trigger">
@@ -546,19 +617,19 @@ onBeforeUnmount(() => {
           <p>{{ rangeSummary }}</p>
         </div>
         <div class="team-filter-controls">
-          <button type="button" class="team-secondary-button" :aria-expanded="!panelCollapsed" aria-controls="team-range-panel" @click="panelCollapsed = !panelCollapsed">{{ panelCollapsed ? '筛选' : '隐藏筛选' }}</button>
-          <button type="button" class="team-primary-button" :disabled="loading" @click="load">{{ loading ? '正在加载…' : '刷新' }}</button>
+          <button type="button" class="team-secondary-button" :title="panelCollapsed ? '点击筛选' : '隐藏筛选'" :aria-label="panelCollapsed ? '点击筛选' : '隐藏筛选'" :aria-expanded="!panelCollapsed" aria-controls="team-range-panel" @click="panelCollapsed = !panelCollapsed">{{ panelCollapsed ? '点击筛选' : '隐藏筛选' }}</button>
+          <button type="button" class="team-primary-button" :disabled="loading" @click="load">{{ loading ? '正在加载…' : '⟲ 刷新' }}</button>
         </div>
       </div>
       <div v-show="!panelCollapsed" id="team-range-panel" class="team-range-panel">
         <div class="team-quick-panel">
-          <p>快捷范围</p>
+          <p>快捷时间范围</p>
           <div class="team-quick-ranges" aria-label="快捷时间范围">
             <button v-for="quick in QUICK_RANGES" :key="quick.id" type="button" :class="{ active: quickRangeId === quick.id }" :disabled="loading" @click="setQuickRange(quick)">{{ quick.label }}</button>
           </div>
         </div>
         <div class="team-absolute-panel">
-          <p>时间范围</p>
+          <p>时间范围筛选</p>
           <div class="team-date-fields">
             <label>开始时间<input v-model="draftStart" type="datetime-local" step="60" /></label>
             <label>结束时间<input v-model="draftEnd" type="datetime-local" step="60" /></label>
@@ -570,6 +641,8 @@ onBeforeUnmount(() => {
     </section>
 
     <p v-if="error" class="team-error">{{ error }}</p>
+    <p v-if="backgroundLoading" class="team-background-status" aria-live="polite">正在后台加载其他团队数据</p>
+    <p v-else-if="backgroundError" class="team-background-status team-background-error" aria-live="polite">{{ backgroundError }} <button type="button" @click="load">重试</button></p>
 
     <section class="team-section team-efficiency-section" aria-labelledby="team-efficiency-title">
       <div class="team-section-head">
@@ -594,13 +667,20 @@ onBeforeUnmount(() => {
         </article>
         <aside class="team-pie-card" aria-label="团队总卡时占比">
           <div class="team-panel-title">团队总卡时占比</div>
-          <svg v-if="totalCardHours" class="team-pie-chart" viewBox="0 0 160 160" role="img" aria-label="按团队划分的总卡时占比">
-            <circle v-for="segment in pieSegments" :key="segment.id" cx="80" cy="80" r="42" fill="none" :stroke="segment.color" stroke-width="22" :stroke-dasharray="segment.dasharray" :stroke-dashoffset="segment.dashoffset" transform="rotate(-90 80 80)" />
-            <text x="80" y="76" class="team-pie-total">{{ totalCardHours.toFixed(1) }}</text><text x="80" y="94" class="team-pie-caption">卡时</text>
-          </svg>
+          <div v-if="totalCardHours" class="team-pie-visual">
+            <svg class="team-pie-chart" viewBox="0 0 160 160" role="group" aria-label="按团队划分的总卡时占比">
+              <template v-for="segment in pieSegments" :key="segment.id">
+                <circle v-if="segment.percent > 0" cx="80" cy="80" r="50" fill="none" :stroke="segment.color" stroke-width="24" :stroke-dasharray="segment.dasharray" :stroke-dashoffset="segment.dashoffset" transform="rotate(-90 80 80)" tabindex="0" role="img" :aria-label="`${segment.label}，${formatPiePercent(segment.percent)}`" @pointerenter="setPieSegmentHover(segment.id)" @pointerleave="clearPieSegmentHover" @focus="setPieSegmentHover(segment.id)" @blur="clearPieSegmentHover" @keydown.esc="clearPieSegmentHover">
+                  <title>{{ segment.label }}：{{ formatPiePercent(segment.percent) }}</title>
+                </circle>
+              </template>
+              <text x="80" y="76" class="team-pie-total">{{ totalCardHours.toFixed(1) }}</text><text x="80" y="94" class="team-pie-caption">卡时</text>
+            </svg>
+            <div v-if="hoveredPieSegment" class="team-pie-tooltip" role="status"><strong>{{ hoveredPieSegment.label }}</strong><span>{{ formatPiePercent(hoveredPieSegment.percent) }} · {{ formatCardHours(hoveredPieSegment.cardHours) }}</span></div>
+          </div>
           <p v-else class="team-pie-empty">暂无有效卡时数据</p>
           <div v-if="totalCardHours" class="team-pie-legend">
-            <span v-for="segment in pieSegments" :key="segment.id"><i :style="{ backgroundColor: segment.color }"></i>{{ segment.label }} {{ (segment.percent * 100).toFixed(1) }}%</span>
+            <span v-for="segment in pieSegments" :key="segment.id" :title="`${segment.label} ${formatPiePercent(segment.percent)}`"><i :style="{ backgroundColor: segment.color }"></i>{{ segment.label }} {{ formatPiePercent(segment.percent) }}</span>
           </div>
         </aside>
       </div>
@@ -616,24 +696,30 @@ onBeforeUnmount(() => {
 
     <section class="team-snapshot-section" :aria-label="`${selectedTeam?.label || '团队'} ${averagePeriodLabel}历史平均指标`">
       <div class="team-snapshot-grid team-snapshot-primary">
-        <article v-for="metric in historicalMetrics.slice(0, 3)" :key="metric.label" class="team-metric-card" :class="metric.tone"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong></article>
+        <article v-for="metric in historicalMetrics.slice(0, 3)" :key="metric.label" class="team-metric-card" :class="[metric.tone, { 'tip-open': openMetricTip === metric.tone }]">
+          <div class="team-metric-label"><span>{{ metric.label }}</span><button type="button" class="team-tip-icon" :aria-label="`${metric.label}说明`" :aria-describedby="openMetricTip === metric.tone ? `team-metric-tip-${metric.tone}` : undefined" @pointerenter="showMetricTip(metric.tone)" @pointerleave="hideMetricTip(metric.tone)" @focus="showMetricTip(metric.tone)" @blur="hideMetricTip(metric.tone)" @keydown.esc="hideMetricTip(metric.tone)">?</button></div>
+          <strong>{{ metric.value }}</strong>
+          <div v-if="openMetricTip === metric.tone" :id="`team-metric-tip-${metric.tone}`" class="team-metric-tooltip" role="tooltip">{{ metric.tip }}</div>
+        </article>
       </div>
       <div class="team-snapshot-grid team-snapshot-secondary">
-        <article v-for="metric in historicalMetrics.slice(3)" :key="metric.label" class="team-metric-card" :class="metric.tone"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong></article>
+        <article v-for="metric in historicalMetrics.slice(3)" :key="metric.label" class="team-metric-card" :class="[metric.tone, { 'tip-open': openMetricTip === metric.tone }]">
+          <div class="team-metric-label"><span>{{ metric.label }}</span><button type="button" class="team-tip-icon" :aria-label="`${metric.label}说明`" :aria-describedby="openMetricTip === metric.tone ? `team-metric-tip-${metric.tone}` : undefined" @pointerenter="showMetricTip(metric.tone)" @pointerleave="hideMetricTip(metric.tone)" @focus="showMetricTip(metric.tone)" @blur="hideMetricTip(metric.tone)" @keydown.esc="hideMetricTip(metric.tone)">?</button></div>
+          <strong>{{ metric.value }}</strong>
+          <div v-if="openMetricTip === metric.tone" :id="`team-metric-tip-${metric.tone}`" class="team-metric-tooltip" role="tooltip">{{ metric.tip }}</div>
+        </article>
       </div>
     </section>
 
     <section class="team-section" aria-labelledby="team-trend-title">
-      <div class="team-section-head"><div><h2 id="team-trend-title">{{ selectedTeam?.label || '团队' }} 资源利用率 / 占用卡数趋势</h2><p>{{ timeLabel }}，截至 {{ dataAsOfLabel }}，{{ sampleLabel }}；XPU 与显存利用率使用左侧百分比轴，占用卡数使用右侧数量轴。</p></div></div>
+      <div class="team-section-head"><div><h2 id="team-trend-title">{{ selectedTeam?.label || '团队' }} 资源利用率 / 占用卡数趋势</h2></div></div>
       <div class="team-chart-wrap">
         <div v-if="trendHasSamples" class="team-chart-surface">
           <canvas ref="trendCanvas" class="team-chart" role="img" :aria-label="`${selectedTeam?.label || '团队'} XPU 利用率、显存利用率和占用卡数趋势`" @pointerdown="handleTrendPointer" @pointermove="handleTrendPointer" @pointerleave="clearTrendHover"></canvas>
           <div v-if="hoveredTrendPoint" ref="trendTooltip" class="team-chart-tooltip" :style="trendTooltipStyle">
             <strong class="team-tooltip-time">{{ formatTrendTime(hoveredTrendPoint) }}</strong>
             <div class="team-tooltip-section" aria-label="资源趋势">
-              <div class="team-tooltip-row"><span><i class="xpu"></i>XPU 利用率</span><b class="xpu">{{ formatPercent(hoveredTrendPoint.xpu) }}</b></div>
-              <div class="team-tooltip-row"><span><i class="memory"></i>显存利用率</span><b class="memory">{{ formatPercent(hoveredTrendPoint.memory) }}</b></div>
-              <div class="team-tooltip-row"><span><i class="cards"></i>占用卡数</span><b class="cards">{{ formatCards(hoveredTrendPoint.lockedCards) }}</b></div>
+              <div v-for="series in selectedTrendSeries" :key="series.field" class="team-tooltip-row"><span><i :class="series.className"></i>{{ series.label }}</span><b :class="series.className">{{ series.axis === 'cards' ? formatCards(hoveredTrendPoint[series.field]) : formatPercent(hoveredTrendPoint[series.field]) }}</b></div>
             </div>
             <div class="team-tooltip-section team-tooltip-locks" aria-label="锁定资源">
               <div class="team-tooltip-row"><span>锁定节点数</span><b>{{ formatCount(hoveredTrendPoint.lockedNodes) }}</b></div>
@@ -641,13 +727,13 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-        <div v-else class="team-chart-empty">{{ loading ? '正在加载趋势数据' : '所选团队在此范围内暂无有效卡级样本' }}</div>
+        <div v-else class="team-chart-empty">{{ loading ? '正在加载趋势数据' : trendEmptyMessage }}</div>
       </div>
-      <div class="team-legend"><span><i class="xpu"></i>XPU 利用率</span><span><i class="memory"></i>显存利用率</span><span><i class="cards"></i>占用卡数</span></div>
+      <div class="team-legend" aria-label="趋势图例"><button v-for="series in TREND_SERIES" :key="series.field" type="button" :class="{ inactive: !visibleTrendFields.includes(series.field) }" :aria-pressed="visibleTrendFields.includes(series.field)" @click="toggleTrendSeries(series.field)"><i :class="series.className"></i>{{ series.label }}</button></div>
     </section>
 
     <section class="team-section" aria-labelledby="team-ranking-title">
-      <div class="team-section-head"><div><h2 id="team-ranking-title">{{ selectedTeam?.label || '团队' }} 持锁人资源使用排名 <span class="team-range-badge">{{ timeLabel }}</span></h2><p>按 XPU 利用率从低到高排列，用于定位持锁但低计算负载的使用者。</p></div></div>
+      <div class="team-section-head"><div><h2 id="team-ranking-title">{{ selectedTeam?.label || '团队' }} 持锁人资源使用排名 <span class="team-range-badge">{{ timeLabel }}</span></h2></div></div>
       <div class="team-table-wrap">
         <table>
           <thead><tr><th>持锁人</th><th>区间总卡时</th><th>XPU 利用率</th><th>显存利用率</th></tr></thead>
