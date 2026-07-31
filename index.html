@@ -9,20 +9,20 @@
 <body>
 
 <!-- ====== Login Form ====== -->
-<div id="login-form" class="login-container" style="display:none">
+<div id="login-form" class="login-container">
   <h1>开发机集群资源监控</h1>
   <div class="login-card">
-    <h2>Lock Bot 登录</h2>
+    <h2>资源监控登录</h2>
     <input id="login-username" type="text" placeholder="用户名" autocomplete="username">
     <input id="login-password" type="password" placeholder="密码" autocomplete="current-password">
     <button id="login-btn">登 录</button>
     <div class="login-error" id="login-error"></div>
-    <div class="login-hint">登录后自动接入 Lock Bot + 监控数据</div>
+    <div class="login-hint">登录后即可查看节点资源状态</div>
   </div>
 </div>
 
 <!-- ====== Dashboard ====== -->
-<div id="dashboard" style="display:block">
+<div id="dashboard" style="display:none">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
     <h1 style="margin:0">开发机集群资源监控</h1>
   </div>
@@ -34,11 +34,7 @@
   <div class="status-bar" id="status-bar" style="display:none"></div>
 
   <div class="view-bar">
-    <div class="type-toggles" id="type-toggles">
-      <span class="type-btn active" data-type="all">全部</span>
-      <span class="type-btn" data-type="personal">个人</span>
-    </div>
-    <div class="legend-items" id="legend-items" style="display:none">
+    <div class="legend-items" id="legend-items" style="display:flex">
       <div class="legend-item"><span class="legend-line" style="background:#4f46e5"></span><span>XPU 使用率</span></div>
       <div class="legend-item"><span class="legend-line" style="background:#ea580c"></span><span>显存利用率</span></div>
       <div class="legend-item"><span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:rgba(220,38,38,.2);border:1px solid rgba(220,38,38,.35)"></span><span>Lock Bot 锁记录</span></div>
@@ -47,9 +43,9 @@
     <span id="status-mini" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px;"></span>
   </div>
 
-  <div id="personal-view" style="display:none">
+  <div id="personal-view" style="display:block">
     <header class="personal-view-head">
-      <div><h2>个人节点明细</h2><p>按持锁用户、节点和单卡查看当日资源使用。</p></div>
+      <div><h2>节点视图</h2><p>按节点和单卡查看当日资源使用。</p></div>
       <span id="personal-result-summary" class="personal-result-summary">等待节点数据</span>
     </header>
     <div class="personal-controls" aria-label="节点筛选与排序">
@@ -67,11 +63,11 @@
     </div>
     <section class="usage-rank-row" aria-label="用户资源使用排行">
       <article class="usage-rank-panel">
-        <header class="usage-rank-header"><h3>算力使用排行榜</h3><span class="usage-rank-help" title="按当日持锁卡时加权计算 XPU 利用率">?</span></header>
+        <header class="usage-rank-header"><h3>算力使用排行榜</h3><button type="button" class="usage-rank-help" aria-describedby="xpu-usage-ranking-help">?<span id="xpu-usage-ranking-help" class="usage-rank-tooltip" role="tooltip">按当日持锁卡时加权计算 XPU 利用率</span></button></header>
         <div class="usage-rank-list"><table class="usage-rank-table"><thead><tr><th>#</th><th>用户</th><th>卡时</th><th>算力</th></tr></thead><tbody id="xpu-usage-ranking"><tr><td colspan="4">等待有效使用数据</td></tr></tbody></table></div>
       </article>
       <article class="usage-rank-panel">
-        <header class="usage-rank-header"><h3>显存使用排行榜</h3><span class="usage-rank-help" title="按当日持锁卡时加权计算显存利用率">?</span></header>
+        <header class="usage-rank-header"><h3>显存使用排行榜</h3><button type="button" class="usage-rank-help" aria-describedby="memory-usage-ranking-help">?<span id="memory-usage-ranking-help" class="usage-rank-tooltip" role="tooltip">按当日持锁卡时加权计算显存利用率</span></button></header>
         <div class="usage-rank-list"><table class="usage-rank-table"><thead><tr><th>#</th><th>用户</th><th>卡时</th><th>显存</th></tr></thead><tbody id="memory-usage-ranking"><tr><td colspan="4">等待有效使用数据</td></tr></tbody></table></div>
       </article>
     </section>
@@ -82,7 +78,7 @@
   </div>
 
   <!-- Average View -->
-  <div id="average-view">
+  <div id="average-view" style="display:none">
     <div class="avg-controls">
       <label>日期</label>
       <input type="date" id="avg-filter-date">
@@ -127,7 +123,7 @@
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { loginLockBot, fetchLockBotList, fetchAllBotStates, fetchLockBotState, fetchLockBotOccupancy, fetchMonqueryUtilization, fetchMonqueryNodeUtilization, fetchMonqueryCardUtilizationBatches, isAbortError, MONITORED_NODES } from './api.js';
+import { loginDashboard, fetchLockBotList, fetchAllBotStates, fetchLockBotState, fetchLockBotOccupancy, fetchMonqueryUtilization, fetchMonqueryNodeUtilization, fetchMonqueryCardUtilizationBatches, isAbortError, MONITORED_NODES } from './api.js';
 import { adaptNodeData, mergeMonqueryData } from './adapter.js';
 import { drawUtilLine, captureLayerSnapshot, bindCanvasHover as bindTimelineCanvasHover } from './timeline.js';
 import { chinaSlotIndex, formatChinaClock, formatChinaDate, formatChinaMonqueryDateTime, parseChinaDatetimeLocal } from './china-time.js';
@@ -158,7 +154,7 @@ const occupancyCache = new Map();
 let liveLockStats = { lockedNodes: null, lockedCards: null };
 
 // Average view state
-let viewType = 'all';  // 'all' | 'personal'
+const viewType = 'personal';
 let avgWindow = 2;
 let avgTodayXpuMA = [], avgTodayMemMA = [];
 let avgShowTodayMean = true;
@@ -248,6 +244,18 @@ function restoreSession() {
   } catch (e) { clearSession(); return null; }
 }
 
+function showNodeDashboard() {
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('legend-items').style.display = 'flex';
+  document.getElementById('personal-view').style.display = 'block';
+  document.getElementById('average-view').style.display = 'none';
+}
+
+function removeLoadingMessage() {
+  document.getElementById('loading-msg')?.remove();
+}
+
 async function handleLogin() {
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value;
@@ -263,14 +271,15 @@ async function handleLogin() {
   errorEl.textContent = '';
 
   try {
-    token = await loginLockBot(username, password);
+    token = await loginDashboard(username, password);
     const bots = await fetchLockBotList(token);
 
     if (!bots || !bots.length) throw new Error('无可用 Bot，请先创建');
 
     allBots = bots;
     saveSession();
-    document.getElementById('loading-msg').remove();
+    showNodeDashboard();
+    removeLoadingMessage();
 
     // 首次加载
     const status = await loadAllData();
@@ -283,7 +292,8 @@ async function handleLogin() {
     // 认证成功但数据拉取失败 → 仍然进入仪表盘，显示错误状态
     if (token) {
       saveSession();
-      document.getElementById('loading-msg').remove();
+      showNodeDashboard();
+      removeLoadingMessage();
       renderStatusBar({
         lockBot: { ok: false, failedBotIds: [0], totalBots: 0 },
         monquery: { ok: false, errorMessage: err.message },
@@ -306,19 +316,13 @@ function startAutoRefresh() {
   refreshTimer = setInterval(async () => {
     if (document.hidden) return;
     // Refresh active view
-    if (viewType === 'all') {
-      if (document.getElementById('avg-filter-date').value === avgGetTodayStr()) {
-        try { await avgLoadAndRender(); } catch(e) { console.error('Avg auto-refresh:', e); }
-      }
-    } else {
-      try {
-        const status = await loadAllData();
-        renderStatusBar(status);
-      } catch (e) {
-        if (!isAbortError(e)) {
-          console.error('Auto-refresh failed:', e);
-          showToast('数据刷新失败：' + e.message, 5000);
-        }
+    try {
+      const status = await loadAllData();
+      renderStatusBar(status);
+    } catch (e) {
+      if (!isAbortError(e)) {
+        console.error('Auto-refresh failed:', e);
+        showToast('数据刷新失败：' + e.message, 5000);
       }
     }
   }, REFRESH_INTERVAL_MS);
@@ -611,12 +615,8 @@ document.addEventListener('click', async (e) => {
   btn.textContent = '↻ 刷新中…';
   btn.disabled = true;
   try {
-    if (viewType === 'all') {
-      await avgLoadAndRender();
-    } else {
-      const status = await loadAllData();
-      renderStatusBar(status);
-    }
+    const status = await loadAllData();
+    renderStatusBar(status);
   } catch (err) { /* loadAllData 内部已处理 */ }
 });
 
@@ -634,6 +634,25 @@ document.addEventListener('click', e => {
     document.querySelectorAll('.tip-popup.show').forEach(p => p.classList.remove('show'));
   }
 });
+
+function bindUsageRankHelp() {
+  const helps = [...document.querySelectorAll('.usage-rank-help')];
+  const close = () => helps.forEach(help => help.classList.remove('show'));
+  for (const help of helps) {
+    help.addEventListener('click', () => {
+      const wasOpen = help.classList.contains('show');
+      close();
+      if (!wasOpen) help.classList.add('show');
+    });
+    help.addEventListener('mouseleave', () => help.classList.remove('show'));
+    help.addEventListener('blur', () => help.classList.remove('show'));
+  }
+  document.addEventListener('click', event => {
+    if (!event.target.closest('.usage-rank-help')) close();
+  });
+}
+
+bindUsageRankHelp();
 
 function doLogout() {
   hideErrorOverlay();
@@ -660,11 +679,7 @@ function doLogout() {
 document.getElementById('error-retry-btn').addEventListener('click', () => {
   hideErrorOverlay();
   consecutiveFailures = 0;
-  if (viewType === 'all') {
-    avgLoadAndRender();
-  } else {
-    loadAllData().then(status => renderStatusBar(status));
-  }
+  loadAllData().then(status => renderStatusBar(status));
 });
 document.getElementById('error-logout-btn').addEventListener('click', doLogout);
 
@@ -678,7 +693,8 @@ document.getElementById('error-logout-btn').addEventListener('click', doLogout);
       const bots = await fetchLockBotList(token);
       if (bots && bots.length) {
         allBots = bots;
-        document.getElementById('loading-msg').remove();
+        showNodeDashboard();
+        removeLoadingMessage();
         const status = await loadAllData();
         renderStatusBar(status);
         startAutoRefresh();
@@ -690,61 +706,15 @@ document.getElementById('error-logout-btn').addEventListener('click', doLogout);
     token = null;
   }
 
-  // 无有效 session → 自动用默认账号登录
-  console.log('Auto-login with default account…');
-  try {
-    token = await loginLockBot('admin', 'admin123');
-    const bots = await fetchLockBotList(token);
-    if (!bots || !bots.length) throw new Error('无可用 Bot');
-    allBots = bots;
-    saveSession();
-    document.getElementById('loading-msg').remove();
-    const status = await loadAllData();
-    renderStatusBar(status);
-    startAutoRefresh();
-    startNowLineTimer();
-  } catch (e) {
-    console.error('Auto-login failed:', e);
-    // 自动登录失败 → 隐藏仪表盘，显示登录表单
-    document.getElementById('dashboard').style.display = 'none';
-    document.getElementById('login-form').style.display = '';
-    document.getElementById('login-error').textContent = '自动登录失败，请手动输入账号密码';
-  }
+  // 无有效会话时显示应用登录页，不在浏览器中保存任何服务账号密码。
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('login-form').style.display = '';
 })();
 
 // ---- Average View: Init & Event Handlers ----
 
 // Init date picker
 document.getElementById('avg-filter-date').value = avgGetTodayStr();
-
-// Type toggle
-document.getElementById('type-toggles').addEventListener('click', (e) => {
-  const btn = e.target.closest('.type-btn');
-  if (!btn) return;
-  const type = btn.dataset.type;
-  if (type === viewType) return;
-
-  document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  viewType = type;
-
-  if (type === 'all') {
-    document.getElementById('personal-view').style.display = 'none';
-    document.getElementById('legend-items').style.display = 'none';
-    document.getElementById('average-view').style.display = 'block';
-    // Always refresh average data on switch
-    avgLoadAndRender().then(() => {
-      avgBindHover('avg-xpu-chart');
-      avgBindHover('avg-mem-chart');
-    });
-  } else {
-    document.getElementById('personal-view').style.display = 'block';
-    document.getElementById('legend-items').style.display = 'flex';
-    document.getElementById('average-view').style.display = 'none';
-    // Always refresh personal view data on switch
-    loadAllData().then(status => renderStatusBar(status));
-  }
-});
 
 // Window toggle for average view
 document.getElementById('avg-window-toggles').addEventListener('click', (e) => {
@@ -781,12 +751,6 @@ document.getElementById('avg-filter-date').addEventListener('change', () => {
 // Resize handler for average charts
 window.addEventListener('resize', () => {
   if (viewType === 'all' && avgTodayXpuMA.length) avgDrawAllCharts();
-});
-
-// Initial average view load (default view is 'all')
-avgLoadAndRender().then(() => {
-  avgBindHover('avg-xpu-chart');
-  avgBindHover('avg-mem-chart');
 });
 
 // ---- 统计卡片 ----

@@ -4,8 +4,8 @@
     "bind": "0.0.0.0"
   },
   "backend": {
-    "lockbot": { "host": "10.206.192.17", "port": 8875 },
-    "monquery": { "host": "api.mt.noah.baidu.com", "port": 8557 }
+    "lockbot": { "hostEnv": "LOCKBOT_HOST", "portEnv": "LOCKBOT_PORT" },
+    "monquery": { "hostEnv": "MONQUERY_HOST", "portEnv": "MONQUERY_PORT" }
   },
   "appAuth": {
     "sessionTtlSeconds": 14400,
@@ -23,6 +23,11 @@
       {
         "username": "boss",
         "passwordEnv": "XPU_MONITOR_BOSS_PASSWORD",
+        "role": "admin"
+      },
+      {
+        "username": "user",
+        "passwordEnv": "XPU_MONITOR_USER_PASSWORD",
         "role": "admin"
       },
       {

@@ -45,17 +45,18 @@ function fetchWithTimeout(url, options = {}, timeout = 30000) {
 }
 
 /**
- * Lock Bot 登录，返回 JWT access_token
+ * 登录监控应用，返回仅用于本应用代理的会话令牌。
  */
-export async function loginLockBot(username, password) {
-  const resp = await fetchWithTimeout(`${LOCKBOT_BASE}/api/auth/login`, {
+export async function loginDashboard(username, password) {
+  const resp = await fetchWithTimeout('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   });
-  if (!resp.ok) throw new Error(`Login failed: ${resp.status} ${resp.statusText}`);
-  const data = await resp.json();
-  return data.access_token;
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `Login failed: ${resp.status} ${resp.statusText}`);
+  if (!data?.token) throw new Error('Login returned an invalid session');
+  return data.token;
 }
 
 /**

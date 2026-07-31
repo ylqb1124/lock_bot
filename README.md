@@ -28,7 +28,7 @@
 - 白名单定义在根目录 `config.json` 的 `appAuth.accounts`。管理员账号使用 `"role": "admin"`；团队成员账号必须配置 `team.id` 和 `team.label`。
 - 密码只通过对应的环境变量提供，例如 `XPU_MONITOR_BOSS_PASSWORD`，不得写入 `config.json`、示例配置、日志或 Git。
 
-管理员白名单账号为 `admin` 和 `boss`。其密码分别由部署环境中的 `XPU_MONITOR_ADMIN_PASSWORD` 与 `XPU_MONITOR_BOSS_PASSWORD` 提供。要让团队成员看到完整的本团队数据，应为该团队所有可能持锁的 Lock Bot 用户分别创建白名单账号并指定相同的团队信息。
+管理员白名单账号为 `admin`、`boss` 和节点查看账号 `user`。其密码分别由部署环境中的 `XPU_MONITOR_ADMIN_PASSWORD`、`XPU_MONITOR_BOSS_PASSWORD` 与 `XPU_MONITOR_USER_PASSWORD` 提供。要让团队成员看到完整的本团队数据，应为该团队所有可能持锁的 Lock Bot 用户分别创建白名单账号并指定相同的团队信息。
 
 ## 项目结构
 
@@ -72,7 +72,7 @@ npm start
 
 ## 配置与安全
 
-代理从项目根目录读取 `config.json`。`PROXY_PORT`、`LOCKBOT_HOST`、`LOCKBOT_PORT`、`MONQUERY_HOST` 和 `MONQUERY_PORT` 可覆盖网络配置。应用认证配置示例：
+代理从项目根目录读取 `config.json`。后端地址不写入配置文件：`backend.*.hostEnv` 与 `portEnv` 声明所需的环境变量，生产环境须注入 `LOCKBOT_HOST`、`LOCKBOT_PORT`、`MONQUERY_HOST` 和 `MONQUERY_PORT`。`PROXY_PORT` 可覆盖监听端口。应用认证配置示例：
 
 ```json
 {
@@ -90,6 +90,11 @@ npm start
       {
         "username": "boss",
         "passwordEnv": "XPU_MONITOR_BOSS_PASSWORD",
+        "role": "admin"
+      },
+      {
+        "username": "user",
+        "passwordEnv": "XPU_MONITOR_USER_PASSWORD",
         "role": "admin"
       },
       {
@@ -114,10 +119,15 @@ npm test
 npm run build
 
 cd /root/monitor
+LOCKBOT_HOST='<lockbot-host>' \
+LOCKBOT_PORT='<lockbot-port>' \
+MONQUERY_HOST='<monquery-host>' \
+MONQUERY_PORT='<monquery-port>' \
 LOCKBOT_SERVICE_USERNAME='<service-user>' \
 LOCKBOT_SERVICE_PASSWORD='<service-password>' \
 XPU_MONITOR_ADMIN_PASSWORD='<admin-password>' \
 XPU_MONITOR_BOSS_PASSWORD='<boss-password>' \
+XPU_MONITOR_USER_PASSWORD='<user-password>' \
 pm2 restart xpu-monitor --update-env
 pm2 status
 pm2 logs xpu-monitor --lines 50 --nostream

@@ -46,6 +46,19 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   assert.deepEqual(groupIds, flatIds);
 });
 
+test('backend endpoints are injected from named environment variables instead of stored in configuration', () => {
+  const runtimeConfig = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'config.json'), 'utf8'));
+  const exampleConfig = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'config.example.json'), 'utf8'));
+  const proxy = fs.readFileSync(path.join(PROJECT_ROOT, 'web/server/proxy.cjs'), 'utf8');
+
+  for (const config of [runtimeConfig, exampleConfig]) {
+    assert.deepEqual(config.backend.lockbot, { hostEnv: 'LOCKBOT_HOST', portEnv: 'LOCKBOT_PORT' });
+    assert.deepEqual(config.backend.monquery, { hostEnv: 'MONQUERY_HOST', portEnv: 'MONQUERY_PORT' });
+  }
+  assert.match(proxy, /function injectBackendEnvironment\(name, defaults\)/);
+  assert.match(proxy, /process\.env\[hostEnv\]/);
+});
+
 test('legacy static dashboard requests the same 66-node scope and namespaces as the Vue dashboard', () => {
   const legacyApi = fs.readFileSync(path.join(PROJECT_ROOT, 'api.js'), 'utf8');
   const monitored = legacyApi.match(/const MONITORED_NODES = \[([\s\S]*?)\];/);
@@ -59,15 +72,22 @@ test('legacy static dashboard requests the same 66-node scope and namespaces as 
   assert.deepEqual(nonBackupNodeIds.filter(nodeId => nodeId >= 70), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
 });
 
-test('legacy personal view keeps its filter, usage rankings, and expandable card-detail structure', () => {
+test('legacy node view uses the application login and keeps its filter, rankings, and expandable card details', () => {
   const legacyHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'index.html'), 'utf8');
   const styles = fs.readFileSync(path.join(PROJECT_ROOT, 'styles.css'), 'utf8');
   const script = legacyHtml.match(/<script type="module">([\s\S]*?)<\/script>/)?.[1];
 
+  assert.doesNotMatch(legacyHtml, /id="type-toggles"/);
+  assert.doesNotMatch(legacyHtml, /data-type="(?:all|personal)"/);
   assert.match(legacyHtml, /id="personal-result-summary"/);
   assert.match(legacyHtml, /id="xpu-usage-ranking"/);
   assert.match(legacyHtml, /id="memory-usage-ranking"/);
   assert.match(legacyHtml, /id="node-list"/);
+  assert.match(legacyHtml, /class="usage-rank-tooltip"/);
+  assert.match(script, /loginDashboard/);
+  assert.match(script, /function bindUsageRankHelp\(\)/);
+  assert.doesNotMatch(script, /loginLockBot/);
+  assert.doesNotMatch(script, /loginDashboard\('admin'/);
   assert.match(script, /function collectUserUsage\(\)/);
   assert.match(script, /function renderPersonalUsageRankings\(\)/);
   assert.match(script, /className = 'card-detail-row'/);
@@ -1150,6 +1170,7 @@ test('application login keeps the Lock Bot service credential on the server and 
     LOCKBOT_SERVICE_USERNAME: 'service-account',
     LOCKBOT_SERVICE_PASSWORD: 'service-password',
     XPU_MONITOR_BOSS_PASSWORD: 'boss-password',
+    XPU_MONITOR_USER_PASSWORD: 'user-password',
     XPU_MONITOR_ALICE_PASSWORD: 'alice-password',
   };
   const auth = createAppAuthService({
@@ -1159,6 +1180,7 @@ test('application login keeps the Lock Bot service credential on the server and 
       lockbotTokenTtlSeconds: 60,
       accounts: [
         { username: 'boss', passwordEnv: 'XPU_MONITOR_BOSS_PASSWORD', role: 'admin' },
+        { username: 'user', passwordEnv: 'XPU_MONITOR_USER_PASSWORD', role: 'admin' },
         { username: 'alice', passwordEnv: 'XPU_MONITOR_ALICE_PASSWORD', team: { id: 'team-a', label: 'A 团队' } },
       ],
     },
@@ -1176,6 +1198,9 @@ test('application login keeps the Lock Bot service credential on the server and 
   assert.equal(boss.username, 'boss');
   assert.equal('password' in boss, false);
   assert.equal((await auth.authorize(`Bearer ${boss.token}`)).mode, 'all');
+
+  const user = await auth.login('user', 'user-password');
+  assert.equal((await auth.authorize(`Bearer ${user.token}`)).mode, 'all');
 
   const serviceAuthorization = await auth.getLockBotAuthorization();
   assert.equal(serviceAuthorization, 'Bearer service-token');

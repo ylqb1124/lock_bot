@@ -45,8 +45,8 @@ function addChinaMonths(timestamp, months) {
 let config = {
   proxy: { port: 8900, bind: '0.0.0.0' },
   backend: {
-    lockbot: { host: '10.48.184.184', port: 8000 },
-    monquery: { host: 'api.mt.noah.baidu.com', port: 8557 },
+    lockbot: { hostEnv: 'LOCKBOT_HOST', portEnv: 'LOCKBOT_PORT' },
+    monquery: { hostEnv: 'MONQUERY_HOST', portEnv: 'MONQUERY_PORT' },
   },
 };
 
@@ -62,10 +62,21 @@ if (fs.existsSync(CONFIG_PATH)) {
 }
 
 if (process.env.PROXY_PORT) config.proxy.port = Number.parseInt(process.env.PROXY_PORT, 10);
-if (process.env.LOCKBOT_HOST) config.backend.lockbot.host = process.env.LOCKBOT_HOST;
-if (process.env.LOCKBOT_PORT) config.backend.lockbot.port = Number.parseInt(process.env.LOCKBOT_PORT, 10);
-if (process.env.MONQUERY_HOST) config.backend.monquery.host = process.env.MONQUERY_HOST;
-if (process.env.MONQUERY_PORT) config.backend.monquery.port = Number.parseInt(process.env.MONQUERY_PORT, 10);
+config.backend = config.backend || {};
+
+function injectBackendEnvironment(name, defaults) {
+  const backend = config.backend[name] = config.backend[name] || {};
+  const hostEnv = backend.hostEnv || defaults.hostEnv;
+  const portEnv = backend.portEnv || defaults.portEnv;
+  if (process.env[hostEnv]) backend.host = process.env[hostEnv];
+  if (process.env[portEnv]) backend.port = Number.parseInt(process.env[portEnv], 10);
+  if (!backend.host || !Number.isInteger(backend.port)) {
+    console.warn(`[config] ${name} requires ${hostEnv} and ${portEnv}`);
+  }
+}
+
+injectBackendEnvironment('lockbot', { hostEnv: 'LOCKBOT_HOST', portEnv: 'LOCKBOT_PORT' });
+injectBackendEnvironment('monquery', { hostEnv: 'MONQUERY_HOST', portEnv: 'MONQUERY_PORT' });
 if (process.env.TEAM_ACCESS_ENABLED) {
   config.teamAccess = { ...(config.teamAccess || {}), enabled: process.env.TEAM_ACCESS_ENABLED === 'true' };
 }
