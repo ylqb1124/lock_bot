@@ -538,6 +538,40 @@ const botOwner = computed(() => bot.value?.owner || '-')
 const policyClock = ref(Date.now())
 let policyTimer = null
 
+function nextPolicyBoundaryDelay(timestamp) {
+  const policies = storedBotConfig.value.LOCK_POLICIES
+  if (!policies.length) return null
+
+  const beijingMillis = (timestamp + 8 * 60 * 60 * 1000) % (24 * 60 * 60 * 1000)
+  const currentMinute = Math.floor(beijingMillis / 60000)
+  const elapsedMillis = beijingMillis % 60000
+  const boundaries = policies.flatMap((policy) => [policy.start_time, policy.end_time])
+  const boundaryMinutes = [...new Set(boundaries)].map((value) => {
+    const [hour, minute] = value.split(':').map(Number)
+    return hour * 60 + minute
+  })
+  const nextDelta = Math.min(
+    ...boundaryMinutes.map((boundary) => {
+      const delta = (boundary - currentMinute + 1440) % 1440
+      return delta === 0 ? 1440 : delta
+    })
+  )
+  return Math.max(1000, nextDelta * 60000 - elapsedMillis)
+}
+
+function schedulePolicyRefresh() {
+  clearTimeout(policyTimer)
+  const delay = nextPolicyBoundaryDelay(Date.now())
+  if (delay == null) {
+    policyTimer = null
+    return
+  }
+  policyTimer = setTimeout(() => {
+    policyClock.value = Date.now()
+    schedulePolicyRefresh()
+  }, delay)
+}
+
 const storedBotConfig = computed(() => {
   try {
     const overrides =
@@ -761,15 +795,12 @@ onMounted(() => {
   refreshBot()
   fetchState()
   fetchCommandLogs()
-  policyTimer = setInterval(() => {
-    policyClock.value = Date.now()
-  }, 15000)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
   clearInterval(stateTimer)
-  clearInterval(policyTimer)
+  clearTimeout(policyTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
@@ -777,6 +808,8 @@ async function refreshBot() {
   loading.value = true
   try {
     bot.value = await botsStore.getBot(route.params.id)
+    policyClock.value = Date.now()
+    schedulePolicyRefresh()
     // Init bot language from config_overrides
     try {
       const overrides = JSON.parse(bot.value.config_overrides || '{}')
