@@ -39,6 +39,12 @@ VALID_BOT_TYPES = {"NODE", "DEVICE", "QUEUE"}
 _DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
 
+def _reject_device_lock_policies(bot_type: str, config_overrides: dict | None) -> None:
+    """Scheduled node policies are intentionally unsupported by DEVICE bots."""
+    if bot_type == "DEVICE" and config_overrides and config_overrides.get("LOCK_POLICIES"):
+        raise HTTPException(status_code=422, detail="LOCK_POLICIES are supported only for NODE and QUEUE bots")
+
+
 def _get_log_dir(bot_id: int) -> str:
     """Return the log directory for a bot, creating it if needed."""
     d = os.path.join(_DEFAULT_DATA_DIR, "bots", str(bot_id))
@@ -195,8 +201,10 @@ def create_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if body.bot_type.upper() not in VALID_BOT_TYPES:
+    bot_type = body.bot_type.upper()
+    if bot_type not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
+    _reject_device_lock_policies(bot_type, body.config_overrides)
 
     exists = (
         db.query(Bot)
@@ -213,7 +221,7 @@ def create_bot(
     bot = Bot(
         user_id=user.id,
         name=body.name,
-        bot_type=body.bot_type.upper(),
+        bot_type=bot_type,
         platform=body.platform,
         group_id=body.group_id,
         webhook_url=encryption.encrypt(body.webhook_url),
@@ -384,6 +392,7 @@ def update_bot(
                 changes["cluster_configs"] = {"from": old_configs, "to": body.cluster_configs}
         bot.cluster_configs = new_json
     if body.config_overrides is not None:
+        _reject_device_lock_policies(bot.bot_type, body.config_overrides)
         old_overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}
         diff = {}
         for k, v in body.config_overrides.items():

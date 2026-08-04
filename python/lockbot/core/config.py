@@ -5,6 +5,7 @@ import os
 import warnings
 
 from lockbot.core.env import get_boolean_env
+from lockbot.core.lock_policy import LockPolicyValidationError, resolve_lock_policy, validate_lock_policies
 
 
 class ConfigValidationError(Exception):
@@ -67,6 +68,11 @@ _CONFIG_SCHEMA = {
         "default": 16,
         "description": "Max number of machines a single user can lock/book at once (1-16)",
         "env": True,
+    },
+    "LOCK_POLICIES": {
+        "default": [],
+        "description": "Beijing-time resource limits; unmatched times use MAX_LOCK_COUNT/MAX_LOCK_DURATION",
+        "env": False,
     },
     "FORBID_RELOCK": {
         "default": True,
@@ -188,6 +194,10 @@ class Config:
         cc = self._data.get("CLUSTER_CONFIGS")
         if isinstance(cc, list):
             self._data["CLUSTER_CONFIGS"] = {k: k for k in cc}
+        try:
+            self._data["LOCK_POLICIES"] = validate_lock_policies(self._data.get("LOCK_POLICIES"))
+        except LockPolicyValidationError as exc:
+            raise ConfigValidationError(str(exc)) from exc
 
     def get_val(self, key, default=None):
         """Instance-level get (same logic as classmethod get)."""
@@ -197,7 +207,23 @@ class Config:
 
     def set_val(self, key, value):
         """Instance-level set."""
+        if key == "LOCK_POLICIES":
+            try:
+                value = validate_lock_policies(value)
+            except LockPolicyValidationError as exc:
+                raise ConfigValidationError(str(exc)) from exc
         self._data[key] = value
+
+    def get_lock_limits(self, now=None):
+        """Return ``(max_lock_count, max_lock_duration)`` for the active policy."""
+        count = self.get_val("MAX_LOCK_COUNT")
+        duration = self.get_val("MAX_LOCK_DURATION")
+        if self.get_val("BOT_TYPE") in {"NODE", "QUEUE"}:
+            policy = resolve_lock_policy(self.get_val("LOCK_POLICIES"), now)
+            if policy is not None:
+                count = policy["max_lock_count"]
+                duration = policy["max_lock_duration"]
+        return count, duration
 
     def _derive_path(self, key, default=None):
         """Derive computed path keys. Uses BOT_ID-based layout: {DATA_DIR}/bots/{bot_id}/."""
@@ -273,6 +299,11 @@ class Config:
 
         .. deprecated:: Use config.set_val(key, value) instead.
         """
+        if key == "LOCK_POLICIES":
+            try:
+                value = validate_lock_policies(value)
+            except LockPolicyValidationError as exc:
+                raise ConfigValidationError(str(exc)) from exc
         cls._config_data[key] = value
 
     @classmethod
@@ -328,6 +359,11 @@ class Config:
                     raise ConfigValidationError(
                         f"DEVICE CLUSTER_CONFIGS must map to list or dict. Got {type(v)} for key '{k}'"
                     )
+
+        try:
+            cls._config_data["LOCK_POLICIES"] = validate_lock_policies(cls._config_data.get("LOCK_POLICIES"))
+        except LockPolicyValidationError as exc:
+            raise ConfigValidationError(str(exc)) from exc
 
     @classmethod
     def show_all(cls, as_json=False):

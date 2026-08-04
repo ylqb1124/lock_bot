@@ -1,0 +1,128 @@
+"""Validation and resolution helpers for time-based lock policies."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+try:
+    BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+except ZoneInfoNotFoundError:  # Minimal containers may omit the system tzdata package.
+    BEIJING_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
+UNLIMITED = -1
+MIN_POLICY_DURATION = 300
+MAX_POLICY_DURATION = 604800
+MAX_POLICY_COUNT = 16
+
+
+class LockPolicyValidationError(ValueError):
+    """Raised when a scheduled lock policy is malformed or ambiguous."""
+
+
+def _parse_time(value: object, field: str) -> int:
+    if not isinstance(value, str):
+        raise LockPolicyValidationError(f"{field} must use HH:MM format")
+    parts = value.split(":")
+    if len(parts) != 2 or any(not part.isdigit() for part in parts):
+        raise LockPolicyValidationError(f"{field} must use HH:MM format")
+    hour, minute = (int(part) for part in parts)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise LockPolicyValidationError(f"{field} must use a valid time")
+    return hour * 60 + minute
+
+
+def _interval_parts(start: int, end: int) -> list[tuple[int, int]]:
+    if start < end:
+        return [(start, end)]
+    return [(start, 24 * 60), (0, end)]
+
+
+def _validate_limit(value: object, field: str, *, count: bool) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise LockPolicyValidationError(f"{field} must be an integer")
+    if value == UNLIMITED:
+        return value
+    if count and not (1 <= value <= MAX_POLICY_COUNT):
+        raise LockPolicyValidationError(f"{field} must be -1 or between 1 and {MAX_POLICY_COUNT}")
+    if not count and not (MIN_POLICY_DURATION <= value <= MAX_POLICY_DURATION):
+        raise LockPolicyValidationError(
+            f"{field} must be -1 or between {MIN_POLICY_DURATION} and {MAX_POLICY_DURATION}"
+        )
+    return value
+
+
+def validate_lock_policies(value: object) -> list[dict]:
+    """Validate and normalize a list of scheduled lock policies.
+
+    Policy intervals are half-open: ``start_time`` is included and
+    ``end_time`` is excluded. This makes adjacent policies such as 08:00-12:00
+    and 12:00-18:00 valid without overlap.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise LockPolicyValidationError("LOCK_POLICIES must be a list")
+
+    normalized: list[dict] = []
+    intervals: list[list[tuple[int, int]]] = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise LockPolicyValidationError(f"LOCK_POLICIES[{index}] must be an object")
+        required = {"start_time", "end_time", "max_lock_count", "max_lock_duration"}
+        missing = required - raw.keys()
+        if missing:
+            raise LockPolicyValidationError(f"LOCK_POLICIES[{index}] missing: {', '.join(sorted(missing))}")
+        start = _parse_time(raw["start_time"], f"LOCK_POLICIES[{index}].start_time")
+        end = _parse_time(raw["end_time"], f"LOCK_POLICIES[{index}].end_time")
+        if start == end:
+            raise LockPolicyValidationError(f"LOCK_POLICIES[{index}] must not cover an empty interval")
+        count = _validate_limit(raw["max_lock_count"], f"LOCK_POLICIES[{index}].max_lock_count", count=True)
+        duration = _validate_limit(
+            raw["max_lock_duration"], f"LOCK_POLICIES[{index}].max_lock_duration", count=False
+        )
+        current_parts = _interval_parts(start, end)
+        for previous_parts in intervals:
+            if any(
+                left < right_end and right < left_end
+                for left, left_end in previous_parts
+                for right, right_end in current_parts
+            ):
+                raise LockPolicyValidationError("LOCK_POLICIES time ranges must not overlap")
+        intervals.append(current_parts)
+        normalized.append(
+            {
+                "start_time": f"{start // 60:02d}:{start % 60:02d}",
+                "end_time": f"{end // 60:02d}:{end % 60:02d}",
+                "max_lock_count": count,
+                "max_lock_duration": duration,
+            }
+        )
+    return normalized
+
+
+def _as_beijing_datetime(now: datetime | int | float | None) -> datetime:
+    if now is None:
+        return datetime.now(BEIJING_TZ)
+    if isinstance(now, (int, float)):
+        return datetime.fromtimestamp(now, tz=BEIJING_TZ)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=BEIJING_TZ)
+    return now.astimezone(BEIJING_TZ)
+
+
+def resolve_lock_policy(
+    policies: list[dict] | None,
+    now: datetime | int | float | None = None,
+) -> dict | None:
+    """Return the policy active at ``now`` in Beijing time, if any."""
+    if not policies:
+        return None
+    local_now = _as_beijing_datetime(now)
+    minute = local_now.hour * 60 + local_now.minute
+    for policy in policies:
+        start = _parse_time(policy["start_time"], "start_time")
+        end = _parse_time(policy["end_time"], "end_time")
+        active = minute >= start and minute < end if start < end else minute >= start or minute < end
+        if active:
+            return policy
+    return None

@@ -274,6 +274,24 @@
                 />
               </el-form-item>
             </el-col>
+            <el-col v-if="form.bot_type !== 'DEVICE'" :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.lockPolicies') }}
+                  <el-tooltip
+                    :content="$t('botCreate.lockPoliciesHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <LockPolicyEditor
+                  ref="lockPolicyEditorRef"
+                  v-model="advancedConfig.LOCK_POLICIES"
+                />
+              </el-form-item>
+            </el-col>
             <el-col v-if="form.bot_type === 'QUEUE'" :xs="24">
               <el-form-item>
                 <template #label>
@@ -316,6 +334,7 @@ import NodeBotForm from '../components/BotForm/NodeBotForm.vue'
 import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
 import QueueBotForm from '../components/BotForm/QueueBotForm.vue'
 import ClusterPreview from '../components/BotForm/ClusterPreview.vue'
+import LockPolicyEditor from '../components/BotForm/LockPolicyEditor.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -324,6 +343,7 @@ const botsStore = useBotsStore()
 
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
+const lockPolicyEditorRef = ref()
 const saving = ref(false)
 const bot = ref(null)
 const maskedAesKey = ref('')
@@ -354,6 +374,7 @@ const advancedConfig = reactive({
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
   MAX_LOCK_COUNT: 16,
+  LOCK_POLICIES: [],
   FORBID_RELOCK: true,
   LANGUAGE: 'zh',
 })
@@ -407,6 +428,8 @@ onMounted(async () => {
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         if (overrides.MAX_LOCK_COUNT != null)
           advancedConfig.MAX_LOCK_COUNT = overrides.MAX_LOCK_COUNT
+        if (Array.isArray(overrides.LOCK_POLICIES))
+          advancedConfig.LOCK_POLICIES = overrides.LOCK_POLICIES.map((policy) => ({ ...policy }))
         if (overrides.FORBID_RELOCK != null) advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
       } catch {
@@ -434,6 +457,10 @@ async function handleSubmit() {
   try {
     await formRef.value.validate()
   } catch {
+    return
+  }
+
+  if (form.bot_type !== 'DEVICE' && lockPolicyEditorRef.value && !lockPolicyEditorRef.value.validate()) {
     return
   }
 
@@ -471,7 +498,10 @@ async function handleSubmit() {
     const data = { ...form }
     // Always include advanced config_overrides
     data.config_overrides = { ...advancedConfig }
-    if (form.bot_type === 'DEVICE') delete data.config_overrides.MAX_LOCK_COUNT
+    if (form.bot_type === 'DEVICE') {
+      delete data.config_overrides.MAX_LOCK_COUNT
+      delete data.config_overrides.LOCK_POLICIES
+    }
     if (isEdit.value) {
       if (!data.aes_key) delete data.aes_key
       if (!data.token) delete data.token

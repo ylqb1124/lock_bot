@@ -149,15 +149,16 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        max_lock_count = self.config.get_val("MAX_LOCK_COUNT")
-        if len(node_keys) > max_lock_count:
+        timestamp = int(time.time())
+        max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
+        if max_lock_count >= 0 and len(node_keys) > max_lock_count:
             return self.show_error(
                 user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
             )
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
-            if self._user_claimed_node_count(user_id, node_keys) + len(node_keys) > max_lock_count:
+            claimed_count = self._user_claimed_node_count(user_id, node_keys) + len(node_keys)
+            if max_lock_count >= 0 and claimed_count > max_lock_count:
                 return self.show_error(
                     user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
                 )
@@ -179,8 +180,6 @@ class NodeBot(BaseLockBot):
                 return self.show_error(
                     user_id, self._msg_with_usage("error.node_in_use_or_shared", node_key=conflict_keys)
                 )
-
-            timestamp = int(time.time())
 
             if max_dur > 0:
                 for node in nodes:
@@ -233,9 +232,19 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        timestamp = int(time.time())
+        max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
+        if max_lock_count >= 0 and len(node_keys) > max_lock_count:
+            return self.show_error(
+                user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
+            )
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            claimed_count = self._user_claimed_node_count(user_id, node_keys) + len(node_keys)
+            if max_lock_count >= 0 and claimed_count > max_lock_count:
+                return self.show_error(
+                    user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
+                )
             state_changed = False
             for node_key, node in zip(node_keys, nodes, strict=True):
                 state_changed |= self._cleanup_expired_current_users(node_key, node)
@@ -247,8 +256,6 @@ class NodeBot(BaseLockBot):
                 return self.show_error(
                     user_id, self._msg_with_usage("error.node_exclusive_mode", node_key=conflict_keys)
                 )
-
-            timestamp = int(time.time())
 
             if max_dur > 0:
                 for node in nodes:

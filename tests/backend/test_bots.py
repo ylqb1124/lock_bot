@@ -120,6 +120,63 @@ class TestUpdateBot:
         assert resp.status_code == 200
         assert json.loads(resp.json()["config_overrides"])["MAX_LOCK_COUNT"] == 1
 
+    def test_update_config_overrides_accepts_scheduled_lock_policies(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        policies = [
+            {
+                "start_time": "08:00",
+                "end_time": "22:00",
+                "max_lock_count": 2,
+                "max_lock_duration": 7200,
+            }
+        ]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"LOCK_POLICIES": policies}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 200
+        assert json.loads(resp.json()["config_overrides"])["LOCK_POLICIES"] == policies
+
+    def test_update_config_overrides_rejects_overlapping_scheduled_policies(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        policies = [
+            {"start_time": "08:00", "end_time": "22:00", "max_lock_count": 2, "max_lock_duration": 7200},
+            {"start_time": "20:00", "end_time": "23:00", "max_lock_count": 1, "max_lock_duration": 3600},
+        ]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"LOCK_POLICIES": policies}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 422
+
+    def test_device_bot_rejects_scheduled_lock_policies(self, client, admin_header):
+        resp = client.post(
+            "/api/bots",
+            json={
+                **_sample_bot("device-policy"),
+                "bot_type": "DEVICE",
+                "cluster_configs": {"h1": ["A100"]},
+                "config_overrides": {
+                    "LOCK_POLICIES": [
+                        {
+                            "start_time": "08:00",
+                            "end_time": "22:00",
+                            "max_lock_count": 2,
+                            "max_lock_duration": 7200,
+                        }
+                    ]
+                },
+            },
+            headers=admin_header,
+        )
+        assert resp.status_code == 422
+
     def test_update_config_overrides_rejects_out_of_range_max_lock_count(self, client, admin_header):
         create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
         bot_id = create_resp.json()["id"]

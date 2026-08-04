@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 
+from lockbot.core.lock_policy import LockPolicyValidationError, validate_lock_policies
+
 # ── config_overrides value bounds ─────────────────────────────────────────────
 _CFG_RULES: dict[str, tuple[int, int] | None] = {
     # (min, max); None means special-cased below
@@ -13,6 +15,7 @@ _CFG_RULES: dict[str, tuple[int, int] | None] = {
     "TIME_ALERT": (30, 3600),  # 30 s – 1 h
     "MAX_LOCK_DURATION": None,  # -1 (unlimited) or 300–604800
     "MAX_LOCK_COUNT": (1, 16),
+    "LOCK_POLICIES": None,
 }
 
 
@@ -24,6 +27,12 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
         if key not in v:
             continue
         val = v[key]
+        if key == "LOCK_POLICIES":
+            try:
+                v[key] = validate_lock_policies(val)
+            except LockPolicyValidationError as exc:
+                errors.append(str(exc))
+            continue
         if isinstance(val, bool) or not isinstance(val, int):
             errors.append(f"{key} must be an integer")
             continue

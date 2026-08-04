@@ -171,6 +171,15 @@ export default {
     maxLockCount: 'Max Locked/Booked Machines',
     maxLockCountHelp:
       'Max number of machines a single user can lock/book at once in this bot (1-16, default 16)',
+    lockPolicies: 'Scheduled Lock Policies',
+    lockPoliciesHelp:
+      'Matched in Beijing time. Policies override resource command count and maximum duration; unmatched times use the global limits. -1 means unlimited.',
+    addLockPolicy: 'Add Time Policy',
+    removeLockPolicy: 'Remove Time Policy',
+    invalidLockPolicyTime: 'Policy time range is invalid or empty',
+    invalidLockPolicyCount: 'Policy machine count must be -1 or between 1 and 16',
+    invalidLockPolicyDuration: 'Policy maximum duration must be -1 or between 300 and 604800 seconds',
+    overlappingLockPolicies: 'Policy time ranges must not overlap',
     forbidRelock: 'Forbid Re-lock',
     forbidRelockHelp:
       'QUEUE bots only. On (default): the current holder cannot re-lock or re-book the same node, preventing indefinite occupation; Off: re-lock and re-book allowed',

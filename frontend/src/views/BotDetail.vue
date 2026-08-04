@@ -197,6 +197,17 @@
             >
               {{ botConfig.MAX_LOCK_COUNT }}
             </el-descriptions-item>
+            <el-descriptions-item
+              v-if="botConfig.LOCK_POLICIES.length"
+              :label="$t('botCreate.lockPolicies')"
+              :span="2"
+            >
+              <div v-for="(policy, index) in botConfig.LOCK_POLICIES" :key="index" class="policy-summary">
+                <span>{{ policy.start_time }}-{{ policy.end_time }}</span>
+                <span>{{ $t('botCreate.maxLockCount') }}: {{ formatPolicyCount(policy.max_lock_count) }}</span>
+                <span>{{ $t('botCreate.maxLockDuration') }}: {{ formatPolicyDuration(policy.max_lock_duration) }}</span>
+              </div>
+            </el-descriptions-item>
           </template>
         </el-descriptions>
       </el-card>
@@ -536,6 +547,7 @@ const botConfig = computed(() => {
       TIME_ALERT: overrides.TIME_ALERT ?? 300,
       EARLY_NOTIFY: overrides.EARLY_NOTIFY ?? false,
       MAX_LOCK_COUNT: overrides.MAX_LOCK_COUNT ?? 16,
+      LOCK_POLICIES: Array.isArray(overrides.LOCK_POLICIES) ? overrides.LOCK_POLICIES : [],
     }
   } catch {
     return {
@@ -544,6 +556,7 @@ const botConfig = computed(() => {
       TIME_ALERT: 300,
       EARLY_NOTIFY: false,
       MAX_LOCK_COUNT: 16,
+      LOCK_POLICIES: [],
     }
   }
 })
@@ -557,7 +570,8 @@ const hasAdvancedConfig = computed(() => {
     c.MAX_LOCK_DURATION !== -1 ||
     c.TIME_ALERT !== 300 ||
     c.EARLY_NOTIFY !== false ||
-    c.MAX_LOCK_COUNT !== 16
+    c.MAX_LOCK_COUNT !== 16 ||
+    c.LOCK_POLICIES.length > 0
   )
 })
 
@@ -572,6 +586,14 @@ function formatDuration(seconds) {
   if (m > 0) parts.push(`${m}m`)
   if (s > 0 || parts.length === 0) parts.push(`${s}s`)
   return parts.join(' ')
+}
+
+function formatPolicyCount(count) {
+  return count === -1 ? t('botCreate.unlimited') : count
+}
+
+function formatPolicyDuration(duration) {
+  return duration === -1 ? t('botCreate.unlimited') : formatDuration(duration)
 }
 
 // Permission rules:
@@ -981,6 +1003,12 @@ function formatDate(d) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.policy-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 4px 0;
 }
 .json-editor {
   position: relative;

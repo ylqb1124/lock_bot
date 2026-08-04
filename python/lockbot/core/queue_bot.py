@@ -68,16 +68,17 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        timestamp = int(time.time())
+        max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
         forbid_relock = self.config.get_val("FORBID_RELOCK")
-        max_lock_count = self.config.get_val("MAX_LOCK_COUNT")
-        if len(node_keys) > max_lock_count:
+        if max_lock_count >= 0 and len(node_keys) > max_lock_count:
             return self.show_error(
                 user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
             )
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
-            if self._user_claimed_node_count(user_id, node_keys) + len(node_keys) > max_lock_count:
+            claimed_count = self._user_claimed_node_count(user_id, node_keys) + len(node_keys)
+            if max_lock_count >= 0 and claimed_count > max_lock_count:
                 return self.show_error(
                     user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
                 )
@@ -105,7 +106,6 @@ class QueueBot(NodeBot):
                     self._msg_with_usage("error.node_in_use_or_not_your_turn", node_key=node_keys, sep="\n\n"),
                 )
 
-            timestamp = int(time.time())
             users_to_notify = set()
             users_to_notify.add(user_id)
 
@@ -178,17 +178,18 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        timestamp = int(time.time())
+        max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
         forbid_relock = self.config.get_val("FORBID_RELOCK")
-        max_lock_count = self.config.get_val("MAX_LOCK_COUNT")
-        if len(node_keys) > max_lock_count:
+        if max_lock_count >= 0 and len(node_keys) > max_lock_count:
             return self.show_error(
                 user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
             )
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
 
-            if self._user_claimed_node_count(user_id, node_keys) + len(node_keys) > max_lock_count:
+            claimed_count = self._user_claimed_node_count(user_id, node_keys) + len(node_keys)
+            if max_lock_count >= 0 and claimed_count > max_lock_count:
                 return self.show_error(
                     user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
                 )
@@ -204,8 +205,6 @@ class QueueBot(NodeBot):
             # Reject only when FORBID_RELOCK is on; otherwise allow booking one's next slot.
             if forbid_relock and any(find_user_info(node["current_users"], user_id) for node in nodes):
                 return self.show_error(user_id, t("error.relock_forbidden", config=self.config))
-
-            timestamp = int(time.time())
 
             if max_dur > 0 and duration > max_dur:
                 return self.show_error(
@@ -255,13 +254,22 @@ class QueueBot(NodeBot):
 
         content = t("success.take_success_by", config=self.config, user_id=user_id)
         content += self._msg_with_usage("label.before_take", node_key=node_keys)
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        timestamp = int(time.time())
+        max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
+        if max_lock_count >= 0 and len(node_keys) > max_lock_count:
+            return self.show_error(
+                user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
+            )
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            claimed_count = self._user_claimed_node_count(user_id, node_keys) + len(node_keys)
+            if max_lock_count >= 0 and claimed_count > max_lock_count:
+                return self.show_error(
+                    user_id, t("error.max_lock_count_exceeded", config=self.config, max_count=max_lock_count)
+                )
             if any(find_user_info(node["current_users"], user_id) for node in nodes):
                 return self.show_error(user_id, self._msg_with_usage("error.locked_user_cannot_take", sep="\n"))
 
-            timestamp = int(time.time())
             users_to_notify = set()
             users_to_notify.add(user_id)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
