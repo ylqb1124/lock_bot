@@ -145,11 +145,11 @@
                   </el-tooltip>
                 </template>
                 <el-input-number
-                  v-model="advancedConfig.DEFAULT_DURATION"
-                  :min="60"
-                  :max="604800"
-                  :step="300"
-                  :value-on-clear="7200"
+                  v-model="defaultDurationHours"
+                  :min="0.1"
+                  :max="168"
+                  :step="0.5"
+                  :value-on-clear="2"
                   style="width: 100%"
                 />
                 <div class="cfg-unit">{{ formatSeconds(advancedConfig.DEFAULT_DURATION) }}</div>
@@ -168,10 +168,10 @@
                   </el-tooltip>
                 </template>
                 <el-input-number
-                  v-model="advancedConfig.MAX_LOCK_DURATION"
+                  v-model="maxLockDurationHours"
                   :min="-1"
-                  :max="604800"
-                  :step="3600"
+                  :max="168"
+                  :step="0.5"
                   :value-on-clear="-1"
                   style="width: 100%"
                 />
@@ -378,6 +378,24 @@ const advancedConfig = reactive({
   FORBID_RELOCK: true,
   LANGUAGE: 'zh',
 })
+
+const defaultDurationHours = computed({
+  get: () => secondsToHours(advancedConfig.DEFAULT_DURATION),
+  set: (hours) => {
+    advancedConfig.DEFAULT_DURATION = hours === -1 ? -1 : Math.round(Number(hours) * 3600)
+  },
+})
+
+const maxLockDurationHours = computed({
+  get: () => secondsToHours(advancedConfig.MAX_LOCK_DURATION),
+  set: (hours) => {
+    advancedConfig.MAX_LOCK_DURATION = hours === -1 ? -1 : Math.round(Number(hours) * 3600)
+  },
+})
+
+function secondsToHours(seconds) {
+  return seconds === -1 ? -1 : Number((seconds / 3600).toFixed(4))
+}
 
 function formatSeconds(s) {
   if (s == null || s < 0) return ''

@@ -1,5 +1,13 @@
 <template>
   <div class="policy-editor">
+    <div v-if="policies.length" class="policy-column-labels">
+      <span>{{ $t('botCreate.policyStartTime') }}</span>
+      <span></span>
+      <span>{{ $t('botCreate.policyEndTime') }}</span>
+      <span>{{ $t('botCreate.maxLockCount') }}</span>
+      <span>{{ $t('botCreate.lockPolicyDurationHours') }}</span>
+      <span></span>
+    </div>
     <div v-for="(policy, index) in policies" :key="index" class="policy-row">
       <el-time-picker
         :model-value="policy.start_time"
@@ -29,14 +37,14 @@
         @update:model-value="updatePolicy(index, 'max_lock_count', $event)"
       />
       <el-input-number
-        :model-value="policy.max_lock_duration"
+        :model-value="secondsToHours(policy.max_lock_duration)"
         :min="-1"
-        :max="604800"
-        :step="300"
+        :max="168"
+        :step="0.5"
         :value-on-clear="-1"
         controls-position="right"
         class="policy-duration"
-        @update:model-value="updatePolicy(index, 'max_lock_duration', $event)"
+        @update:model-value="updateDuration(index, $event)"
       />
       <el-button
         :icon="Delete"
@@ -45,13 +53,6 @@
         :aria-label="$t('botCreate.removeLockPolicy')"
         @click="removePolicy(index)"
       />
-    </div>
-    <div v-if="policies.length" class="policy-column-labels">
-      <span></span>
-      <span></span>
-      <span>{{ $t('botCreate.maxLockCount') }}</span>
-      <span>{{ $t('botCreate.maxLockDuration') }}</span>
-      <span></span>
     </div>
     <el-button class="policy-add" @click="addPolicy">
       <el-icon><Plus /></el-icon>
@@ -79,6 +80,14 @@ function updatePolicy(index, key, value) {
   next[index][key] = value
   error.value = ''
   emit('update:modelValue', next)
+}
+
+function secondsToHours(seconds) {
+  return seconds === -1 ? -1 : Number((seconds / 3600).toFixed(4))
+}
+
+function updateDuration(index, hours) {
+  updatePolicy(index, 'max_lock_duration', hours === -1 ? -1 : Math.round(hours * 3600))
 }
 
 function addPolicy() {
@@ -177,7 +186,7 @@ defineExpose({ validate })
 .policy-column-labels {
   color: var(--lb-text-secondary);
   font-size: 12px;
-  margin: -2px 0 8px;
+  margin: 0 0 8px;
 }
 .policy-add {
   margin-top: 4px;

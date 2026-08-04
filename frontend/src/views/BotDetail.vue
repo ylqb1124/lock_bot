@@ -195,7 +195,7 @@
               v-if="botConfig.MAX_LOCK_COUNT !== 16"
               :label="$t('botCreate.maxLockCount')"
             >
-              {{ botConfig.MAX_LOCK_COUNT }}
+              {{ formatPolicyCount(botConfig.MAX_LOCK_COUNT) }}
             </el-descriptions-item>
             <el-descriptions-item
               v-if="botConfig.LOCK_POLICIES.length"
@@ -535,7 +535,10 @@ const showToken = ref(false)
 const botLanguage = ref('zh')
 const botOwner = computed(() => bot.value?.owner || '-')
 
-const botConfig = computed(() => {
+const policyClock = ref(Date.now())
+let policyTimer = null
+
+const storedBotConfig = computed(() => {
   try {
     const overrides =
       typeof bot.value?.config_overrides === 'string'
@@ -558,6 +561,40 @@ const botConfig = computed(() => {
       MAX_LOCK_COUNT: 16,
       LOCK_POLICIES: [],
     }
+  }
+})
+
+function beijingMinute(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(timestamp))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return (Number(values.hour) % 24) * 60 + Number(values.minute)
+}
+
+function policyContainsMinute(policy, minute) {
+  const [startHour, startMinute] = policy.start_time.split(':').map(Number)
+  const [endHour, endMinute] = policy.end_time.split(':').map(Number)
+  const start = startHour * 60 + startMinute
+  const end = endHour * 60 + endMinute
+  return start < end ? minute >= start && minute < end : minute >= start || minute < end
+}
+
+const activeLockPolicy = computed(() => {
+  const minute = beijingMinute(policyClock.value)
+  return storedBotConfig.value.LOCK_POLICIES.find((policy) => policyContainsMinute(policy, minute)) || null
+})
+
+const botConfig = computed(() => {
+  const base = storedBotConfig.value
+  const policy = activeLockPolicy.value
+  return {
+    ...base,
+    MAX_LOCK_DURATION: policy?.max_lock_duration ?? base.MAX_LOCK_DURATION,
+    MAX_LOCK_COUNT: policy?.max_lock_count ?? base.MAX_LOCK_COUNT,
   }
 })
 
@@ -724,11 +761,15 @@ onMounted(() => {
   refreshBot()
   fetchState()
   fetchCommandLogs()
+  policyTimer = setInterval(() => {
+    policyClock.value = Date.now()
+  }, 15000)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
   clearInterval(stateTimer)
+  clearInterval(policyTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
