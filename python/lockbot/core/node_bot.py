@@ -419,6 +419,7 @@ class NodeBot(BaseLockBot):
 
         Returns: seconds until next interesting event, or None if no active locks.
         """
+        policy_next = self._check_and_notify_lock_policy()
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
 
@@ -491,6 +492,8 @@ class NodeBot(BaseLockBot):
             except Exception:
                 self.logger.exception("Failed to send alert for bot %s", self.config.get_val("BOT_NAME"))
 
+        if policy_next is not None:
+            min_next = min(min_next, policy_next)
         return max(1.0, min_next) if min_next != float("inf") else None
 
     def _idle_summary(self, node_filter=None):

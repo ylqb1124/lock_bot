@@ -159,6 +159,7 @@ MESSAGES = {
     "notify.duration_clamped": (
         "⚠️【锁定时长调整通知】\n管理员已将最大锁定时长调整为 {max_duration}，您的锁定剩余时长已被自动缩短，请知悉。\n"
     ),
+    "notify.lock_policy_changed": "策略转换：当前单用户最多可锁定/预约{max_count}台，最大时长{max_duration}\n",
     # ── Help: news (inline) ──
     "help.news_header": "📢 公告:\n",
     # ── Help: project links ──

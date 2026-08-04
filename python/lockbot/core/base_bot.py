@@ -4,12 +4,14 @@ lockbot - BaseLockBot
 
 import logging
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from importlib.metadata import version as _pkg_version
 
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
+from lockbot.core.lock_policy import seconds_until_lock_policy_boundary
 from lockbot.core.platforms.infoflow import InfoflowAdapter
 from lockbot.core.utils import format_duration, remaining_duration
 
@@ -83,6 +85,9 @@ class BaseLockBot:
         # through this callback.  The event id makes retries safe.
         self._pending_occupancy_events = self._load_pending_occupancy_events()
         self._on_occupancy_flush: Callable[[list[dict]], set[str]] | None = None
+        # Last limits observed by the scheduler.  ``None`` means the initial
+        # check has not established a baseline yet, so startup is silent.
+        self._last_lock_policy_signature: tuple[int, int] | None = None
 
         self._notify_clamped_users()
 
@@ -104,6 +109,52 @@ class BaseLockBot:
         """Call _on_state_changed if wired up (no-op otherwise)."""
         if self._on_state_changed is not None:
             self._on_state_changed()
+
+    def _policy_duration_text(self, duration: int) -> str:
+        if duration < 0:
+            return t("help.unlimited", config=self.config)
+        hours = duration / 3600
+        return f"{hours:g}h"
+
+    def _check_and_notify_lock_policy(self) -> float | None:
+        """Notify all configured groups once when the active limits change.
+
+        The returned delay is the next policy boundary, allowing the scheduler
+        to wake even when this bot has no active locks or bookings.
+        """
+        if self.config.get_val("BOT_TYPE") not in {"NODE", "QUEUE"}:
+            return None
+
+        now = time.time()
+        limits = self.config.get_lock_limits(now)
+        signature = (int(limits[0]), int(limits[1]))
+        previous = self._last_lock_policy_signature
+        self._last_lock_policy_signature = signature
+        if previous is not None and previous != signature:
+            count_text = t("help.unlimited", config=self.config) if signature[0] < 0 else str(signature[0])
+            duration_text = self._policy_duration_text(signature[1])
+            content = t(
+                "notify.lock_policy_changed",
+                config=self.config,
+                max_count=count_text,
+                max_duration=duration_text,
+            )
+            group_ids = {
+                group_id.strip()
+                for group_id in str(self.config.get_val("GROUP_ID", "") or "").split(",")
+                if group_id.strip()
+            }
+            for group_id in sorted(group_ids):
+                try:
+                    self.adapter.send(self.adapter.build_reply(content, [], group_id=group_id))
+                except Exception:
+                    self.logger.exception(
+                        "Failed to send lock policy transition for bot %s group %s",
+                        self.config.get_val("BOT_NAME"),
+                        group_id,
+                    )
+
+        return seconds_until_lock_policy_boundary(self.config.get_val("LOCK_POLICIES"), now)
 
     def _load_pending_occupancy_events(self) -> list[dict]:
         from lockbot.core.io import load_pending_occupancy_events

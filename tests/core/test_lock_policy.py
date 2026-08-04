@@ -2,7 +2,12 @@ from datetime import datetime, timezone
 
 import pytest
 from lockbot.core.config import Config, ConfigValidationError
-from lockbot.core.lock_policy import BEIJING_TZ, resolve_lock_policy, validate_lock_policies
+from lockbot.core.lock_policy import (
+    BEIJING_TZ,
+    next_lock_policy_boundary,
+    resolve_lock_policy,
+    validate_lock_policies,
+)
 from lockbot.core.node_bot import NodeBot
 
 
@@ -37,6 +42,14 @@ def test_policy_resolution_uses_beijing_time_and_fallback():
     # 07:00 Beijing is still inside the overnight policy.
     assert resolve_lock_policy(policies, datetime(2024, 1, 1, 7, tzinfo=BEIJING_TZ))["max_lock_count"] == -1
     assert resolve_lock_policy([_policy()], datetime(2024, 1, 1, 23, tzinfo=BEIJING_TZ)) is None
+
+
+def test_next_policy_boundary_uses_strictly_future_beijing_minute():
+    policies = validate_lock_policies([_policy("08:00", "22:00")])
+    at_boundary = datetime(2024, 1, 1, 8, 0, tzinfo=BEIJING_TZ)
+    assert next_lock_policy_boundary(policies, at_boundary) == datetime(2024, 1, 1, 22, 0, tzinfo=BEIJING_TZ)
+    before_boundary = datetime(2024, 1, 1, 7, 59, 30, tzinfo=BEIJING_TZ)
+    assert next_lock_policy_boundary(policies, before_boundary) == datetime(2024, 1, 1, 8, 0, tzinfo=BEIJING_TZ)
 
 
 def test_config_uses_policy_limits_for_node_and_falls_back_for_device():
@@ -89,3 +102,50 @@ def test_help_uses_current_lock_limits(tmp_path):
     content = bot.print_help("u1")["message"]["body"][0]["content"]
     assert "最多同时占用2台机器" in content
     assert "最长2.0 小时" in content
+
+
+def test_policy_transition_notifies_each_group_once(tmp_path, monkeypatch):
+    from lockbot.core import base_bot
+
+    class RecordingAdapter:
+        def __init__(self):
+            self.replies = []
+            self.sent = []
+
+        def build_reply(self, content, user_ids, group_id=None, markdown=False):
+            reply = {"content": content, "user_ids": user_ids, "group_id": group_id}
+            self.replies.append(reply)
+            return reply
+
+        def send(self, reply):
+            self.sent.append(reply)
+            return []
+
+    policies = [_policy("08:00", "09:00", count=2, duration=7200)]
+    bot = NodeBot(
+        config_dict={
+            "BOT_ID": "policy-transition",
+            "DATA_DIR": str(tmp_path),
+            "BOT_TYPE": "NODE",
+            "CLUSTER_CONFIGS": ["node1"],
+            "MAX_LOCK_COUNT": 16,
+            "MAX_LOCK_DURATION": -1,
+            "LOCK_POLICIES": policies,
+            "GROUP_ID": "group-b, group-a",
+        }
+    )
+    adapter = RecordingAdapter()
+    bot.adapter = adapter
+
+    fallback = datetime(2024, 1, 1, 7, 59, tzinfo=BEIJING_TZ).timestamp()
+    monkeypatch.setattr(base_bot.time, "time", lambda: fallback)
+    bot._check_and_notify_lock_policy()  # Establish the initial baseline silently.
+    assert adapter.sent == []
+
+    active = datetime(2024, 1, 1, 8, 0, tzinfo=BEIJING_TZ).timestamp()
+    monkeypatch.setattr(base_bot.time, "time", lambda: active)
+    bot._check_and_notify_lock_policy()
+    bot._check_and_notify_lock_policy()
+
+    assert [message["group_id"] for message in adapter.sent] == ["group-a", "group-b"]
+    assert all("策略转换：当前单用户最多可锁定/预约2台，最大时长2h" in message["content"] for message in adapter.sent)

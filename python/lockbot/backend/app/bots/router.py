@@ -151,6 +151,7 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
         "AESKEY": encryption.decrypt(bot.aes_key),
         "TOKEN": encryption.decrypt(bot.token),
+        "GROUP_ID": bot.group_id or "",
         "CLUSTER_CONFIGS": _normalize_cluster_configs(json.loads(bot.cluster_configs)),
     }
     # Resolve owner username for help text display
@@ -356,6 +357,9 @@ def update_bot(
         bot.name = body.name
     if body.group_id is not None:
         bot.group_id = body.group_id
+        running_instance = bot_manager.get_instance(bot_id)
+        if running_instance:
+            running_instance.bot.config.set_val("GROUP_ID", body.group_id or "")
     if body.webhook_url is not None:
         old_val = encryption.decrypt(bot.webhook_url) if bot.webhook_url else ""
         if body.webhook_url != old_val:
@@ -1168,6 +1172,10 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
         existing.add(str(gid))
         bot.group_id = ",".join(sorted(existing))
         db.commit()
+        # A bot may learn its first group after startup. Keep the running
+        # instance in sync so scheduled policy notifications reach it.
+        if instance:
+            instance.bot.config.set_val("GROUP_ID", bot.group_id)
     if uid and bot:
         db.refresh(bot)
         bot.last_user_id = uid

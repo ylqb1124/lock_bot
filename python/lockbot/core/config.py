@@ -24,6 +24,11 @@ _CONFIG_SCHEMA = {
         "description": "Bot token for signature verification",
         "env": True,
     },
+    "GROUP_ID": {
+        "default": "",
+        "description": "Comma-separated Infoflow group IDs for bot-wide notifications",
+        "env": False,
+    },
     "AESKEY": {
         "default": "",
         "description": "Bot AES key for message decryption",

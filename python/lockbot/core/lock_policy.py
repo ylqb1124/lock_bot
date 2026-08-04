@@ -126,3 +126,40 @@ def resolve_lock_policy(
         if active:
             return policy
     return None
+
+
+def next_lock_policy_boundary(
+    policies: list[dict] | None,
+    now: datetime | int | float | None = None,
+) -> datetime | None:
+    """Return the next policy start/end boundary in Beijing time.
+
+    Boundaries are minute-based and strictly after ``now``.  Returning a
+    timezone-aware datetime lets callers use it both for scheduling and for
+    deterministic tests.
+    """
+    if not policies:
+        return None
+    local_now = _as_beijing_datetime(now)
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    candidates: list[datetime] = []
+    for policy in policies:
+        candidates.extend(
+            day_start + timedelta(days=offset, minutes=_parse_time(policy[field], field))
+            for offset in (0, 1)
+            for field in ("start_time", "end_time")
+        )
+    future = [candidate for candidate in candidates if candidate > local_now]
+    return min(future) if future else None
+
+
+def seconds_until_lock_policy_boundary(
+    policies: list[dict] | None,
+    now: datetime | int | float | None = None,
+) -> float | None:
+    """Return seconds until the next policy boundary, or ``None`` if absent."""
+    boundary = next_lock_policy_boundary(policies, now)
+    if boundary is None:
+        return None
+    current = _as_beijing_datetime(now)
+    return max(0.0, (boundary - current).total_seconds())

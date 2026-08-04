@@ -442,6 +442,7 @@ class QueueBot(NodeBot):
 
         Returns: seconds until next interesting event, or None if no active locks/bookings.
         """
+        policy_next = self._check_and_notify_lock_policy()
         trigger_time_alert = False
         trigger_notify_alert = False
         state_changed = False
@@ -561,6 +562,8 @@ class QueueBot(NodeBot):
             except Exception:
                 self.logger.exception("Failed to send alert for bot %s", self.config.get_val("BOT_NAME"))
 
+        if policy_next is not None:
+            min_next = min(min_next, policy_next)
         return max(1.0, min_next) if min_next != float("inf") else None
 
     def _current_usage(self, node_filter=None, user_id=None):

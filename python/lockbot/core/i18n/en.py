@@ -173,6 +173,10 @@ MESSAGES = {
         "The admin has set max lock duration to {max_duration}. "
         "Your remaining lock time has been automatically shortened.\n"
     ),
+    "notify.lock_policy_changed": (
+        "Policy changed: one user may hold/book up to {max_count} machines, "
+        "maximum duration {max_duration}\n"
+    ),
     # ── Help: news (inline) ──
     "help.news_header": "📢 Announcement:\n",
     # ── Help: project links ──
