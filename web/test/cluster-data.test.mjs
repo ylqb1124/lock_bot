@@ -11,6 +11,7 @@ import clusterScope from '../shared/cluster-scope.json' with { type: 'json' };
 import { adaptNodeData } from '../src/services/adapter.js';
 import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } from '../src/services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../src/services/chart-data.js';
+import { buildClusterStats } from '../src/services/cluster-stats.js';
 import { CARD_COUNT, mergeLockBotStates } from '../src/services/cluster-state.js';
 import { CURRENT_MONQUERY_TIMEOUT_MS, DEFAULT_MONQUERY_TIMEOUT_MS } from '../src/services/api.js';
 import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/server-time.js';
@@ -44,6 +45,26 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   const groupIds = clusterScope.nodeGroups.flatMap(group => group.nodeIds).slice().sort((a, b) => a - b);
   const flatIds = [...clusterScope.nodeIds].sort((a, b) => a - b);
   assert.deepEqual(groupIds, flatIds);
+});
+
+test('cluster node usage card averages valid lock trend points in the selected range', () => {
+  const stats = buildClusterStats([{}, {}], {
+    lock: [10, null, 30],
+    xpu: [5, 15],
+    memory: [20, 40],
+  }, true, CARD_COUNT);
+
+  assert.equal(stats.find(card => card.label === '节点使用率').value, '20.0%');
+  assert.equal(stats.find(card => card.label === 'XPU卡平均利用率/峰值利用率').value, '10.0%/15.0%');
+  assert.equal(stats.find(card => card.label === '显存平均利用率/峰值利用率').value, '30.0%/40.0%');
+});
+
+test('cluster node usage card stays unavailable for incomplete or missing lock trends', () => {
+  const incomplete = buildClusterStats([{}], { lock: [10, 30] }, false, CARD_COUNT);
+  const missing = buildClusterStats([{}], { lock: [null, null] }, true, CARD_COUNT);
+
+  assert.equal(incomplete.find(card => card.label === '节点使用率').value, '--');
+  assert.equal(missing.find(card => card.label === '节点使用率').value, '--');
 });
 
 test('backend endpoints are injected from named environment variables instead of stored in configuration', () => {

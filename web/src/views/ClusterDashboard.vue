@@ -4,6 +4,7 @@ import { CURRENT_MONQUERY_TIMEOUT_MS, fetchAllBotStates, fetchClusterTrend, fetc
 import { adaptNodeData } from '../services/adapter.js';
 import { nextAutoRefreshDelay, shouldAutoRefresh } from '../services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../services/chart-data.js';
+import { averageFinite, buildClusterStats } from '../services/cluster-stats.js';
 import { CARD_COUNT, mergeLockBotStates } from '../services/cluster-state.js';
 import { now, syncServerTimeOffset } from '../services/server-time.js';
 import {
@@ -98,8 +99,6 @@ const toast = ref('');
 const nodes = ref([]);
 const bots = ref([]);
 const series = ref({ times: [], xpu: [], memory: [], lock: [] });
-const lockStateComplete = ref(true);
-const failedStateBotIds = ref([]);
 const lockTrendComplete = ref(true);
 const lockTrendFailureCount = ref(0);
 const currentMetricsError = ref('');
@@ -153,13 +152,12 @@ const rangeSummary = computed(() => rangeStart.value && rangeEnd.value
   ? `${formatDateTimeLabel(rangeStart.value)} 至 ${formatDateTimeLabel(rangeEnd.value)}`
   : '');
 const stats = computed(() => currentStatsReady.value
-  ? buildStats(filteredCurrentNodes.value, series.value.xpu, series.value.memory, lockStateComplete.value)
+  ? buildClusterStats(filteredCurrentNodes.value, series.value, lockTrendComplete.value, CARD_COUNT)
   : buildLoadingStats());
 const dataWarning = computed(() => {
   const messages = [];
-  if (!lockStateComplete.value) messages.push(`当前 Lock Bot 状态不完整（${failedStateBotIds.value.length} 个 Bot 请求失败），锁定相关统计暂不显示`);
   if (currentMetricsError.value) messages.push('当前 XPU/显存指标暂缺，系统将在下次自动刷新时重试');
-  if (!lockTrendComplete.value) messages.push(`历史 Lock Bot 数据不完整（${lockTrendFailureCount.value} 个请求失败），锁定趋势暂不显示`);
+  if (!lockTrendComplete.value) messages.push(`历史 Lock Bot 数据不完整（${lockTrendFailureCount.value} 个请求失败），节点使用率趋势和区间平均值暂不显示`);
   return messages.join('；');
 });
 
@@ -307,16 +305,7 @@ function currentSlot() {
 
 function adaptStates(stateResults, monqueryData, sampleSlot) {
   const merged = mergeLockBotStates(stateResults);
-  return {
-    nodes: adaptNodeData(merged.deviceState, monqueryData, sampleSlot, 'DEVICE'),
-    lockStateComplete: merged.lockStateComplete,
-    failedBotIds: merged.failedBotIds,
-  };
-}
-
-function average(values) {
-  const populated = values.filter(Number.isFinite);
-  return populated.length ? populated.reduce((sum, value) => sum + value, 0) / populated.length : null;
+  return adaptNodeData(merged.deviceState, monqueryData, sampleSlot, 'DEVICE');
 }
 
 function buildLoadingStats() {
@@ -326,27 +315,6 @@ function buildLoadingStats() {
     { label: '节点使用率', value: '--', tone: 'locked' },
     { label: 'XPU卡平均利用率/峰值利用率', value: '--/--', tone: 'xpu-avg' },
     { label: '显存平均利用率/峰值利用率', value: '--/--', tone: 'mem-avg' },
-  ];
-}
-
-function buildStats(currentNodes, xpu, memory, isLockStateComplete) {
-  let lockedCards = 0;
-  for (const node of currentNodes) {
-    lockedCards += node.cardHasActiveLock?.filter(Boolean).length || 0;
-  }
-  const totalCards = currentNodes.length * CARD_COUNT;
-  const percent = value => Number.isFinite(value) ? `${value.toFixed(1)}%` : '--';
-  const pair = values => {
-    const mean = average(values);
-    const peak = values.filter(Number.isFinite).reduce((result, value) => Math.max(result, value), -Infinity);
-    return mean === null || !Number.isFinite(peak) ? '--/--' : `${mean.toFixed(1)}%/${peak.toFixed(1)}%`;
-  };
-  return [
-    { label: '总节点', value: String(currentNodes.length), tone: 'total' },
-    { label: '总卡数', value: String(totalCards), tone: 'total' },
-    { label: '节点使用率', value: isLockStateComplete ? percent(totalCards ? lockedCards / totalCards * 100 : null) : '--', tone: 'locked', tip: '当前已通过 Lock Bot 锁定的 XPU 卡占全部计算节点总卡数的比例，反映计算资源已分配给任务的规模。' },
-    { label: 'XPU卡平均利用率/峰值利用率', value: pair(xpu), tone: 'xpu-avg', tip: '平均利用率反映所选时段内集群整体计算负载；峰值利用率反映该时段最高负载水平。' },
-    { label: '显存平均利用率/峰值利用率', value: pair(memory), tone: 'mem-avg', tip: '平均利用率反映所选时段内集群整体显存压力；峰值利用率反映该时段最高显存压力。' },
   ];
 }
 
@@ -527,11 +495,9 @@ async function load() {
     if (!currentOutcome.ok) {
       currentMetricsError.value = currentOutcome.caught?.message || '当前 Monquery 指标请求失败';
     }
-    const currentState = adaptStates(stateResults, currentOutcome.ok ? currentOutcome.data : [], currentSlotAtRequest);
+    const currentNodes = adaptStates(stateResults, currentOutcome.ok ? currentOutcome.data : [], currentSlotAtRequest);
     lastRefreshAt.value = Date.now();
-    nodes.value = currentState.nodes;
-    lockStateComplete.value = currentState.lockStateComplete;
-    failedStateBotIds.value = currentState.failedBotIds;
+    nodes.value = currentNodes;
     currentStatsReady.value = true;
     await nextTick();
 
@@ -679,7 +645,7 @@ function drawChart(canvas, values, color, defaultYMax, defaultTicks, label) {
     points.forEach(({ value, index }, pointIndex) => pointIndex ? context.lineTo(xFor(index), yFor(value)) : context.moveTo(xFor(index), yFor(value)));
     context.stroke();
   });
-  const mean = average(values); const peak = values.reduce((result, value, index) => Number.isFinite(value) && (!result || value > result.value) ? { value, index } : result, null);
+  const mean = averageFinite(values); const peak = values.reduce((result, value, index) => Number.isFinite(value) && (!result || value > result.value) ? { value, index } : result, null);
   if (meanVisible.value && mean !== null) { const y = yFor(mean); context.strokeStyle = '#dc2626'; context.lineWidth = 1; context.beginPath(); context.moveTo(AVG_MARGIN.left, y); context.lineTo(width - AVG_MARGIN.right, y); context.stroke(); context.fillStyle = '#dc2626'; context.font = '700 11px "SF Mono","JetBrains Mono",monospace'; context.textAlign = 'right'; context.textBaseline = 'bottom'; context.fillText(`均值 ${mean.toFixed(1)}%`, width - AVG_MARGIN.right - 4, y - 4); }
   if (peak) { const x = xFor(peak.index); const y = yFor(peak.value); const textY = y < AVG_MARGIN.top + 16 ? y + 18 : y - 10; context.fillStyle = color; context.font = '700 13px "SF Mono","JetBrains Mono",monospace'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.lineWidth = 4; context.strokeStyle = 'rgba(255,255,255,.9)'; context.strokeText('*', x, y); context.fillText('*', x, y); context.font = '700 10px "SF Mono","JetBrains Mono",monospace'; const textX = Math.max(AVG_MARGIN.left + 42, Math.min(width - AVG_MARGIN.right - 42, x)); context.strokeText(`峰值 ${peak.value.toFixed(1)}%`, textX, textY); context.fillText(`峰值 ${peak.value.toFixed(1)}%`, textX, textY); }
   context.restore();
