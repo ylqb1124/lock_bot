@@ -74,3 +74,18 @@ def test_node_lock_uses_scheduled_count_and_duration(tmp_path, monkeypatch):
 def test_config_rejects_invalid_policy():
     with pytest.raises(ConfigValidationError):
         Config({"LOCK_POLICIES": [{**_policy(), "max_lock_count": 0}]})
+
+
+def test_help_uses_current_lock_limits(tmp_path):
+    bot = NodeBot(
+        config_dict={
+            "BOT_ID": "help-policy-test",
+            "DATA_DIR": str(tmp_path),
+            "BOT_TYPE": "NODE",
+            "CLUSTER_CONFIGS": ["node1"],
+        }
+    )
+    bot.config.get_lock_limits = lambda now=None: (2, 7200)
+    content = bot.print_help("u1")["message"]["body"][0]["content"]
+    assert "最多同时占用2台机器" in content
+    assert "最长2.0 小时" in content

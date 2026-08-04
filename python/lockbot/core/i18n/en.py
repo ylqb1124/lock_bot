@@ -104,6 +104,8 @@ MESSAGES = {
     "help.query_at_bot": "    Just @ the bot\n",
     "help.max_duration_warning": "Note: consecutive lock/slock cannot exceed {max_duration}\n\n",
     "help.max_duration_warning_queue": "Note: lock, book, or take duration cannot exceed {max_duration}\n\n",
+    "help.current_limits": "Current limits: one user may hold up to {max_count} machines, maximum duration {max_duration}\n\n",
+    "help.unlimited": "unlimited",
     "help.bot_version": "Bot version: {version}\n",
     "help.bot_id": "Bot ID: {bot_id}\n",
     "help.bot_owner": "Owner: {owner}\n",

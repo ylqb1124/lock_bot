@@ -282,8 +282,10 @@ class BaseLockBot:
         reply_info += self._help_commands()
 
         # ---- footer ----
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        if max_dur > 0:
+        max_count, max_dur = self.config.get_lock_limits()
+        if self.config.get_val("BOT_TYPE") in {"NODE", "QUEUE"}:
+            reply_info += self._help_lock_limits_warning(max_count, max_dur)
+        elif max_dur > 0:
             reply_info += self._help_max_duration_warning(max_dur)
 
         # Compact footer line
@@ -331,6 +333,21 @@ class BaseLockBot:
             "help.max_duration_warning",
             config=self.config,
             max_duration=format_duration(max_duration, config=self.config),
+        )
+
+    def _help_lock_limits_warning(self, max_count, max_duration):
+        """Return the current NODE/QUEUE count and duration limits for help."""
+        count_text = t("help.unlimited", config=self.config) if max_count < 0 else str(max_count)
+        duration_text = (
+            t("help.unlimited", config=self.config)
+            if max_duration < 0
+            else format_duration(max_duration, config=self.config)
+        )
+        return t(
+            "help.current_limits",
+            config=self.config,
+            max_count=count_text,
+            max_duration=duration_text,
         )
 
     _site_cache = {}

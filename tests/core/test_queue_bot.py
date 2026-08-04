@@ -909,7 +909,7 @@ def test_print_help(bot):
     assert "当前使用者不可续锁或预约同一节点" in content
     assert "队首会在节点空闲时自动锁定" in content
     assert "slock" not in content
-    assert "lock、book 或 take 的时长不能超过3.0 小时" in content
+    assert "当前限制】单个用户最多同时占用16台机器，最长3.0 小时" in content
 
 
 def test_print_help_respects_queue_notification_and_relock_config(bot):

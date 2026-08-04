@@ -100,6 +100,8 @@ MESSAGES = {
     "help.query_at_bot": "    直接at机器人\n",
     "help.max_duration_warning": "【注意: 目前禁止连续lock/slock超过{max_duration}】\n\n",
     "help.max_duration_warning_queue": "【注意: lock、book 或 take 的时长不能超过{max_duration}】\n\n",
+    "help.current_limits": "【当前限制】单个用户最多同时占用{max_count}台机器，最长{max_duration}\n\n",
+    "help.unlimited": "不限制",
     "help.bot_version": "机器人版本: {version}\n",
     "help.bot_id": "机器人ID: {bot_id}\n",
     "help.bot_owner": "管理人: {owner}\n",
