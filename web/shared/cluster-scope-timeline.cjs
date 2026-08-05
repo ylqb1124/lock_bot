@@ -55,6 +55,44 @@ function buildNodeTimeline(clusterScope, targetNodeIds) {
 }
 
 /**
+ * 为锁定率生成专用节点范围时间线。lockUsageExclusions 只影响锁定率的
+ * 分子与分母，不改变 XPU/显存趋势、Monquery 查询范围或当前概览的节点范围。
+ */
+function buildLockUsageScopeTimeline(clusterScope, targetNodeIds) {
+  const targetSet = targetNodeIds instanceof Set ? targetNodeIds : new Set(targetNodeIds);
+  const events = new Map();
+  const addEvent = (effectiveFrom, type, nodeIds) => {
+    const effectiveFromSeconds = effectiveFromToSeconds(effectiveFrom);
+    const event = events.get(effectiveFromSeconds) || { add: [], remove: [] };
+    event[type].push(...nodeIds.filter(nodeId => targetSet.has(nodeId)));
+    events.set(effectiveFromSeconds, event);
+  };
+
+  for (const group of clusterScope.nodeGroups || []) addEvent(group.effectiveFrom, 'add', group.nodeIds || []);
+  for (const group of clusterScope.lockUsageExclusions || []) addEvent(group.effectiveFrom, 'remove', group.nodeIds || []);
+
+  const activeNodeIds = new Set();
+  const removedNodeIds = new Set();
+  return [...events.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([effectiveFromSeconds, event]) => {
+      for (const nodeId of event.add) {
+        if (!removedNodeIds.has(nodeId)) activeNodeIds.add(nodeId);
+      }
+      for (const nodeId of event.remove) {
+        removedNodeIds.add(nodeId);
+        activeNodeIds.delete(nodeId);
+      }
+      return { effectiveFromSeconds, nodeIds: [...activeNodeIds] };
+    });
+}
+
+function buildLockUsageTimeline(clusterScope, targetNodeIds) {
+  return buildLockUsageScopeTimeline(clusterScope, targetNodeIds)
+    .map(step => ({ effectiveFromSeconds: step.effectiveFromSeconds, cumulativeCount: step.nodeIds.length }));
+}
+
+/**
  * 给定时间线（buildNodeTimeline 的返回值）和某个采样时间点，
  * 返回该时间点"已生效"的节点数（取 <= sampledAt 的最后一个阶梯的累计值）。
  */
@@ -80,4 +118,12 @@ function totalCardsAt(timeline, cardsPerNode, sampledAtSeconds) {
   return nodeCountAt(timeline, sampledAtSeconds) * cardsPerNode;
 }
 
-module.exports = { buildNodeScopeTimeline, buildNodeTimeline, nodeIdsAt, nodeCountAt, totalCardsAt };
+module.exports = {
+  buildNodeScopeTimeline,
+  buildNodeTimeline,
+  buildLockUsageScopeTimeline,
+  buildLockUsageTimeline,
+  nodeIdsAt,
+  nodeCountAt,
+  totalCardsAt,
+};

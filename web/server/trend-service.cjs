@@ -4,7 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const { performance } = require('node:perf_hooks');
 const clusterScope = require('../shared/cluster-scope.json');
-const { buildNodeScopeTimeline, buildNodeTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+const {
+  buildNodeScopeTimeline,
+  buildNodeTimeline,
+  buildLockUsageScopeTimeline,
+  buildLockUsageTimeline,
+  nodeIdsAt,
+  totalCardsAt,
+} = require('../shared/cluster-scope-timeline.cjs');
 const { createLockBotLiveCache } = require('./lockbot-live-cache.cjs');
 
 const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
@@ -418,8 +425,8 @@ async function lockSeries(config, startAt, endAt, authorization, intervalSeconds
   }
 
   const targetNodeIds = monitoredNodeIds([...targetNodes]);
-  const scopeTimeline = buildNodeScopeTimeline(clusterScope, targetNodeIds);
-  const timeline = buildNodeTimeline(clusterScope, targetNodeIds);
+  const scopeTimeline = buildLockUsageScopeTimeline(clusterScope, targetNodeIds);
+  const timeline = buildLockUsageTimeline(clusterScope, targetNodeIds);
   const activeNodeNames = new Map();
   const activeNodesAt = sampledAt => {
     if (!activeNodeNames.has(sampledAt)) {

@@ -1172,6 +1172,64 @@ test('lock rate adds node70 through node79 at 10:00 China time', async (t) => {
   }
 });
 
+test('lock rate excludes node38, node68, and node69 from its scope at the removal boundary', async (t) => {
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2026-08-06T00:00:00+08:00').getTime();
+  t.after(() => { Date.now = originalDateNow; });
+
+  const beforeRemoval = Math.floor(new Date('2026-08-04T23:55:00+08:00').getTime() / 1000);
+  const removalTime = Math.floor(new Date('2026-08-05T00:00:00+08:00').getTime() / 1000);
+  const originalTotalCards = clusterScope.nodeIds.length * clusterScope.cardsPerNode;
+  const exclusion = clusterScope.lockUsageExclusions.find(group => group.effectiveFrom === '2026-08-05T00:00:00+08:00');
+  const reducedTotalCards = (clusterScope.nodeIds.length - exclusion.nodeIds.length) * clusterScope.cardsPerNode;
+  const monqueryNodes = new Set();
+
+  assert.deepEqual(exclusion.nodeIds, [38, 68, 69]);
+  assert.equal(originalTotalCards, 528);
+  assert.equal(reducedTotalCards, 504);
+
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      const namespaces = new URL(request.url, 'http://localhost').searchParams.get('namespaces');
+      for (const name of namespaces.match(/node\d+/g) || []) monqueryNodes.add(Number(name.slice(4)));
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'DEVICE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      response.end(JSON.stringify([
+        { node_key: 'node1', dev_id: 0, start_time: beforeRemoval, end_time: removalTime + 24 * 60 * 60 },
+        { node_key: 'node38', dev_id: 0, start_time: beforeRemoval, end_time: removalTime + 24 * 60 * 60 },
+        { node_key: 'node68', dev_id: 0, start_time: beforeRemoval, end_time: removalTime + 24 * 60 * 60 },
+        { node_key: 'node69', dev_id: 0, start_time: beforeRemoval, end_time: removalTime + 24 * 60 * 60 },
+      ]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(beforeRemoval, removalTime, 'Bearer test', null, 300);
+
+    assert.equal(result.lock[0], 4 / originalTotalCards * 100);
+    assert.equal(result.lock[result.times.indexOf(removalTime)], 1 / reducedTotalCards * 100);
+    assert.deepEqual([...monqueryNodes].filter(node => [38, 68, 69].includes(node)).sort((a, b) => a - b), [38, 68, 69]);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 test('team access keeps the current full dashboard behavior until organization access is enabled', async () => {
   let identityCalls = 0;
   const access = createTeamAccessService({}, {
