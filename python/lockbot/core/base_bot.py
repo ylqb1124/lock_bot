@@ -11,7 +11,11 @@ from importlib.metadata import version as _pkg_version
 
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
-from lockbot.core.lock_policy import seconds_until_lock_policy_boundary
+from lockbot.core.lock_policy import (
+    iter_lock_policy_changes,
+    lock_policy_limits,
+    next_lock_policy_change,
+)
 from lockbot.core.platforms.infoflow import InfoflowAdapter
 from lockbot.core.utils import format_duration, remaining_duration
 
@@ -88,6 +92,10 @@ class BaseLockBot:
         # Last limits observed by the scheduler.  ``None`` means the initial
         # check has not established a baseline yet, so startup is silent.
         self._last_lock_policy_signature: tuple[int, int] | None = None
+        self._last_lock_policy_check_at: float | None = None
+        # Event keys are kept in memory intentionally.  A restart establishes
+        # the current baseline and never replays an already elapsed preview.
+        self._policy_notification_events: set[str] = set()
 
         self._notify_clamped_users()
 
@@ -117,44 +125,103 @@ class BaseLockBot:
         return f"{hours:g}h"
 
     def _check_and_notify_lock_policy(self) -> float | None:
-        """Notify all configured groups once when the active limits change.
+        """Send policy previews and confirmations and return the next wakeup.
 
-        The returned delay is the next policy boundary, allowing the scheduler
-        to wake even when this bot has no active locks or bookings.
+        Policy events are based on effective limits rather than every raw
+        interval edge.  The first check only establishes a baseline, which is
+        what prevents a restart during the one-hour preview window from
+        replaying that preview.
         """
         if self.config.get_val("BOT_TYPE") not in {"NODE", "QUEUE"}:
             return None
 
         now = time.time()
-        limits = self.config.get_lock_limits(now)
-        signature = (int(limits[0]), int(limits[1]))
-        previous = self._last_lock_policy_signature
+        policies = self.config.get_val("LOCK_POLICIES")
+        fallback_limits = (
+            int(self.config.get_val("MAX_LOCK_COUNT")),
+            int(self.config.get_val("MAX_LOCK_DURATION")),
+        )
+        signature = lock_policy_limits(policies, fallback_limits, now)
+        previous_check = self._last_lock_policy_check_at
         self._last_lock_policy_signature = signature
-        if previous is not None and previous != signature:
-            count_text = t("help.unlimited", config=self.config) if signature[0] < 0 else str(signature[0])
-            duration_text = self._policy_duration_text(signature[1])
-            content = t(
-                "notify.lock_policy_changed",
-                config=self.config,
-                max_count=count_text,
-                max_duration=duration_text,
+        self._last_lock_policy_check_at = now
+
+        if previous_check is None:
+            return self._next_policy_notification_delay(now, policies, fallback_limits)
+
+        # Include the next hour so a check that lands inside a preview window
+        # can send it even when the scheduler was delayed past its exact time.
+        changes = list(
+            iter_lock_policy_changes(
+                policies, fallback_limits, previous_check, now + 3600
             )
-            group_ids = {
-                group_id.strip()
-                for group_id in str(self.config.get_val("GROUP_ID", "") or "").split(",")
-                if group_id.strip()
-            }
-            for group_id in sorted(group_ids):
-                try:
-                    self.adapter.send(self.adapter.build_reply(content, [], group_id=group_id))
-                except Exception:
-                    self.logger.exception(
-                        "Failed to send lock policy transition for bot %s group %s",
+        )
+        transitioned_now = any(boundary.timestamp() == now for boundary, _new, _old in changes)
+        for boundary, new_limits, _old_limits in changes:
+            boundary_ts = boundary.timestamp()
+            event_id = str(int(boundary_ts))
+            if boundary_ts <= now:
+                self._send_policy_event(event_id, "transition", new_limits)
+            else:
+                preview_ts = boundary_ts - 3600
+                if (
+                    previous_check < preview_ts <= now < boundary_ts
+                    and not (preview_ts == now and transitioned_now)
+                ):
+                    self._send_policy_event(event_id, "preview", new_limits)
+
+        return self._next_policy_notification_delay(now, policies, fallback_limits)
+
+    def _next_policy_notification_delay(self, now: float, policies, fallback_limits) -> float | None:
+        change = next_lock_policy_change(policies, fallback_limits, now)
+        if change is None:
+            return None
+        boundary = change[0].timestamp()
+        preview = boundary - 3600
+        return max(0.0, preview - now) if now < preview else max(0.0, boundary - now)
+
+    def _send_policy_event(self, event_id: str, phase: str, limits: tuple[int, int]) -> None:
+        key = f"{event_id}:{phase}"
+        if key in self._policy_notification_events:
+            return
+        self._policy_notification_events.add(key)
+
+        count_text = t("help.unlimited", config=self.config) if limits[0] < 0 else str(limits[0])
+        duration_text = self._policy_duration_text(limits[1])
+        message_key = "notify.lock_policy_upcoming" if phase == "preview" else "notify.lock_policy_changed"
+        content = t(message_key, config=self.config, max_count=count_text, max_duration=duration_text)
+        group_ids = {
+            group_id.strip()
+            for group_id in str(self.config.get_val("GROUP_ID", "") or "").split(",")
+            if group_id.strip()
+        }
+        for group_id in sorted(group_ids):
+            try:
+                reply = self.adapter.build_reply(content, [], group_id=group_id)
+                responses = self.adapter.send(reply)
+                failed = []
+                for item in responses or []:
+                    status = item[0] if isinstance(item, (tuple, list)) and item else None
+                    if not isinstance(status, int) or not 200 <= status < 300:
+                        failed.append(item)
+                if failed:
+                    summary = "; ".join(str(item)[:200] for item in failed)
+                    self.logger.error(
+                        "Policy %s webhook failed: bot=%s group=%s response=%s",
+                        phase,
                         self.config.get_val("BOT_NAME"),
                         group_id,
+                        summary,
                     )
-
-        return seconds_until_lock_policy_boundary(self.config.get_val("LOCK_POLICIES"), now)
+            except Exception as exc:
+                self.logger.error(
+                    "Policy %s webhook exception: bot=%s group=%s error=%s",
+                    phase,
+                    self.config.get_val("BOT_NAME"),
+                    group_id,
+                    exc,
+                    exc_info=True,
+                )
 
     def _load_pending_occupancy_events(self) -> list[dict]:
         from lockbot.core.io import load_pending_occupancy_events

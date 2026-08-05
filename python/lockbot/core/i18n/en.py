@@ -177,6 +177,10 @@ MESSAGES = {
         "Policy changed: one user may hold/book up to {max_count} machines, "
         "maximum duration {max_duration}\n"
     ),
+    "notify.lock_policy_upcoming": (
+        "Policy reminder: in 1 hour one user may hold/book up to {max_count} machines, "
+        "maximum duration {max_duration}\n"
+    ),
     # ── Help: news (inline) ──
     "help.news_header": "📢 Announcement:\n",
     # ── Help: project links ──

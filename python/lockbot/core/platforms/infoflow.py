@@ -100,7 +100,10 @@ class InfoflowAdapter(MessageAdapter):
                 body.append({"type": "TEXT", "content": label})
                 body.append({"type": "LINK", "href": url})
                 body.append({"type": "TEXT", "content": "\n"})
-        body.append({"type": "AT", "atuserids": list(user_ids)})
+        # A group broadcast has no users to mention; avoid emitting an empty
+        # AT body while retaining the legacy standalone empty-list shape.
+        if user_ids or not group_id:
+            body.append({"type": "AT", "atuserids": list(user_ids)})
         msg = {
             "message": {
                 "header": {},

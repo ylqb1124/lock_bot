@@ -163,3 +163,62 @@ def seconds_until_lock_policy_boundary(
         return None
     current = _as_beijing_datetime(now)
     return max(0.0, (boundary - current).total_seconds())
+
+
+def lock_policy_limits(
+    policies: list[dict] | None,
+    fallback_limits: tuple[int, int],
+    now: datetime | int | float | None = None,
+) -> tuple[int, int]:
+    """Return the effective ``(count, duration)`` limits at *now*."""
+    policy = resolve_lock_policy(policies, now)
+    if policy is None:
+        return int(fallback_limits[0]), int(fallback_limits[1])
+    return int(policy["max_lock_count"]), int(policy["max_lock_duration"])
+
+
+def iter_lock_policy_changes(
+    policies: list[dict] | None,
+    fallback_limits: tuple[int, int],
+    start: datetime | int | float,
+    end: datetime | int | float,
+):
+    """Yield effective policy changes in ``(start, end]``.
+
+    A change is ``(boundary, new_limits, old_limits)``.  Policy ranges repeat
+    every Beijing day; only boundaries that actually alter the final limits
+    are yielded, so gaps and adjacent equal-limit policies are handled too.
+    """
+    if not policies:
+        return
+    local_start = _as_beijing_datetime(start)
+    local_end = _as_beijing_datetime(end)
+    if local_end <= local_start:
+        return
+
+    day_start = (local_start - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    day_count = (local_end.date() - day_start.date()).days + 2
+    candidates: set[datetime] = set()
+    for offset in range(max(0, day_count)):
+        current_day = day_start + timedelta(days=offset)
+        for policy in policies:
+            for field in ("start_time", "end_time"):
+                candidates.add(current_day + timedelta(minutes=_parse_time(policy[field], field)))
+
+    for boundary in sorted(candidate for candidate in candidates if local_start < candidate <= local_end):
+        old_limits = lock_policy_limits(policies, fallback_limits, boundary - timedelta(seconds=1))
+        new_limits = lock_policy_limits(policies, fallback_limits, boundary + timedelta(seconds=1))
+        if old_limits != new_limits:
+            yield boundary, new_limits, old_limits
+
+
+def next_lock_policy_change(
+    policies: list[dict] | None,
+    fallback_limits: tuple[int, int],
+    now: datetime | int | float | None = None,
+) -> tuple[datetime, tuple[int, int], tuple[int, int]] | None:
+    """Return the next boundary that changes effective limits, if any."""
+    current = _as_beijing_datetime(now)
+    # One full extra day is enough because policy boundaries repeat daily.
+    horizon = current + timedelta(days=3)
+    return next(iter_lock_policy_changes(policies, fallback_limits, current, horizon), None)
