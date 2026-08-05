@@ -151,7 +151,7 @@ def test_node_lock_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
     assert "资源申请成功" in accepted["message"]["body"][0]["content"]
 
     rejected_renewal = bot.lock("u1", "lock node1 3h")
-    assert "1.0 小时" in rejected_renewal["message"]["body"][0]["content"]
+    assert "2.0 小时" in rejected_renewal["message"]["body"][0]["content"]
 
 
 def test_queue_book_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
