@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { fetchTeamDashboard } from '../services/api.js';
 import { chinaTimeParts, formatChinaDatetimeLocal, formatChinaDateTime, isSameChinaDay, parseChinaDatetimeLocal } from '../services/china-time.js';
+import { formatAverageUserCount } from '../services/team-metrics.js';
 import '../team-dashboard.css';
 
 const props = defineProps({ token: { type: String, required: true } });
@@ -96,7 +97,7 @@ const historicalMetrics = computed(() => [
   { label: `${averagePeriodLabel.value}平均节点占用率`, value: formatPercent(selectedTeam.value?.averages?.lockRate), tone: 'node-util', tip: '按采样点计算团队持锁卡数占集群总卡数的比例，再取平均值。' },
   { label: `${averagePeriodLabel.value}平均 XPU 利用率`, value: formatPercent(selectedTeam.value?.averages?.xpu), tone: 'xpu', tip: '所选范围内，团队成员持锁卡的有效 XPU 利用率样本平均值。' },
   { label: `${averagePeriodLabel.value}平均显存利用率`, value: formatPercent(selectedTeam.value?.averages?.memory), tone: 'memory', tip: '所选范围内，团队成员持锁卡的有效显存利用率样本平均值。' },
-  { label: `${averagePeriodLabel.value}平均活跃人数`, value: formatAverageCount(selectedTeam.value?.averages?.activeUsers), tone: 'locked-users', tip: '每个采样点去重后的持锁成员数，在所选范围内的平均值。' },
+  { label: `${averagePeriodLabel.value}平均活跃人数`, value: formatAverageUserCount(selectedTeam.value?.averages?.activeUsers), tone: 'locked-users', tip: '每个采样点去重后的持锁成员数，在所选范围内的平均值。' },
   { label: `${averagePeriodLabel.value}人均锁定卡数`, value: formatAverageCount(selectedTeam.value?.averages?.lockedCardsPerUser), tone: 'cards-per-user', tip: '所选范围内锁定卡数总量除以持锁成员数总量，仅计有效卡级样本。' },
 ]);
 const trendHasSamples = computed(() => selectedTrendSeries.value.length && selectedTrend.value.some(hasTrendValue));

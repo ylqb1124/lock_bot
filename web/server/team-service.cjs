@@ -460,6 +460,10 @@ function simulatedTeamForUser(userId) {
   return TEAM_DEFINITIONS[index].id;
 }
 
+function effectiveTeamForUser(assignments, userId) {
+  return assignments?.[userId]?.team || simulatedTeamForUser(userId);
+}
+
 function classifyUser(evidence, userId) {
   const simulatedTeam = simulatedTeamForUser(userId);
   if (evidence.sampleCount < 36) return { team: simulatedTeam, pending: true, confidence: 0, reason: '有效卡级样本不足 36 个，按用户稳定模拟分组' };
@@ -506,7 +510,7 @@ function aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sam
         }
         const userId = [...owners][0];
         const assignment = assignments?.[userId];
-        const team = assignment?.team || 'general-research';
+        const team = effectiveTeamForUser(assignments, userId);
         const user = userSamples.get(userId) || { ...createUserAggregate(userId), sampleSeconds };
         if (!user.samples) user.samples = [];
         user.samples.push({ timestamp, xpu: metric.xpu, memory: metric.memory });
@@ -598,8 +602,8 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
     const assignment = membership.assignments?.[user.userId];
     return {
       userId: user.userId,
-      team: assignment?.team || 'general-research',
-      source: assignment?.source || 'fallback',
+      team: effectiveTeamForUser(membership.assignments, user.userId),
+      source: assignment?.source || 'simulated',
       pending: assignment?.pending ?? true,
       confidence: assignment?.confidence ?? 0,
       cardHours: evidence.cardHours,
@@ -847,7 +851,7 @@ function createTeamService(config, options = {}) {
     const teamDefinitions = access.membershipSource === 'whitelist'
       ? mergeTeamDefinitions(access.teams, membership.teams, TEAM_DEFINITIONS)
       : mergeTeamDefinitions(access.teams, membership.teams);
-    const activeTeamIds = new Set(intervals.map(interval => membership.assignments?.[interval.userId]?.team).filter(Boolean));
+    const activeTeamIds = new Set(intervals.map(interval => effectiveTeamForUser(membership.assignments, interval.userId)).filter(Boolean));
     const candidates = teamDefinitions.filter(team => activeTeamIds.has(team.id));
     const initialTeamId = access.mode === 'team'
       ? access.teamIds?.[0]
@@ -856,7 +860,7 @@ function createTeamService(config, options = {}) {
         : candidates[Math.min(candidates.length - 1, Math.floor(Math.max(0, random()) * candidates.length))]?.id
           || null);
     const initialTeam = teamDefinitionFor(initialTeamId, teamDefinitions);
-    const initialNodeNames = intervalNodeNames(intervals.filter(interval => membership.assignments?.[interval.userId]?.team === initialTeamId));
+    const initialNodeNames = intervalNodeNames(intervals.filter(interval => effectiveTeamForUser(membership.assignments, interval.userId) === initialTeamId));
     const initialMetrics = await fetchCardMetrics(config, startAt, endAt, initialNodeNames, sampleSeconds);
     const ownership = aggregateOwnership(intervals, initialMetrics, membership.assignments, startAt, endAt, sampleSeconds);
     const payload = scopeDashboardPayload({
@@ -1012,6 +1016,7 @@ module.exports = {
     mergeMembership,
     classifyUser,
     simulatedTeamForUser,
+    effectiveTeamForUser,
     userEvidence,
     mergeAutoAssignments,
     readMembership,

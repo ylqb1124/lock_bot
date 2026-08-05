@@ -15,6 +15,7 @@ import { buildClusterStats } from '../src/services/cluster-stats.js';
 import { CARD_COUNT, mergeLockBotStates } from '../src/services/cluster-state.js';
 import { CURRENT_MONQUERY_TIMEOUT_MS, DEFAULT_MONQUERY_TIMEOUT_MS } from '../src/services/api.js';
 import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/server-time.js';
+import { formatAverageUserCount } from '../src/services/team-metrics.js';
 
 const require = createRequire(import.meta.url);
 const { createTrendService, _private } = require('../server/trend-service.cjs');
@@ -349,6 +350,30 @@ test('unclassified users receive a stable simulated team instead of collapsing i
   assert.equal(first.team, second.team);
   assert.notEqual(first.team, undefined);
   assert.match(first.reason, /稳定模拟分组/);
+});
+
+test('unmapped users use the same stable simulated team in ownership and rankings', () => {
+  const timestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
+  const cards = Array.from({ length: CARD_COUNT }, () => ({}));
+  cards[0] = { xpu: 52, memory: 72 };
+  const assignments = {};
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'unmapped-b', node: 'node1', cards: [0], start: timestamp - 1, end: timestamp + 1 },
+  ], new Map([['node1', new Map([[timestamp, cards]])]]), assignments, timestamp - 1, timestamp + 1, 300);
+  const payload = teamPrivate.buildDashboardPayload(ownership, { assignments }, timestamp - 1, timestamp + 1, 300);
+  const simulatedTeam = teamPrivate.simulatedTeamForUser('unmapped-b');
+
+  assert.equal(simulatedTeam, 'operator-testing');
+  assert.equal(ownership.teamPoints.get(timestamp).get(simulatedTeam).cardCount, 1);
+  assert.equal(payload.rankings[0].team, simulatedTeam);
+  assert.equal(payload.rankings[0].source, 'simulated');
+});
+
+test('average active user counts are rounded up for display', () => {
+  assert.equal(formatAverageUserCount(1.01), '2');
+  assert.equal(formatAverageUserCount(1.5), '2');
+  assert.equal(formatAverageUserCount(2), '2');
+  assert.equal(formatAverageUserCount(null), '暂无有效样本');
 });
 
 test('team scheduler uses Unix seconds rather than JavaScript milliseconds for its analysis window', () => {
