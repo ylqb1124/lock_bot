@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from lockbot.core.config import Config, ConfigValidationError
 from lockbot.core.lock_policy import (
     BEIJING_TZ,
     next_lock_policy_boundary,
+    policy_crossing_duration_limit,
     resolve_lock_policy,
     validate_lock_policies,
 )
@@ -87,6 +88,98 @@ def test_node_lock_uses_scheduled_count_and_duration(tmp_path, monkeypatch):
 def test_config_rejects_invalid_policy():
     with pytest.raises(ConfigValidationError):
         Config({"LOCK_POLICIES": [{**_policy(), "max_lock_count": 0}]})
+
+
+def test_crossing_policy_duration_is_capped_but_two_hours_can_cross():
+    policies = validate_lock_policies(
+        [
+            _policy("08:00", "22:00", count=2, duration=7200),
+            _policy("22:00", "08:00", count=-1, duration=36000),
+        ]
+    )
+    fallback = (16, -1)
+    at_two = datetime(2024, 1, 1, 2, 0, tzinfo=BEIJING_TZ)
+    assert policy_crossing_duration_limit(policies, fallback, at_two, at_two + timedelta(hours=10)) == 6 * 3600
+    assert policy_crossing_duration_limit(policies, fallback, at_two, at_two + timedelta(hours=6)) is None
+
+    at_seven = datetime(2024, 1, 1, 7, 0, tzinfo=BEIJING_TZ)
+    assert policy_crossing_duration_limit(policies, fallback, at_seven, at_seven + timedelta(hours=2)) is None
+    assert policy_crossing_duration_limit(policies, fallback, at_seven, at_seven + timedelta(hours=3)) == 3600
+
+
+def test_crossing_policy_duration_handles_fallback_gap():
+    policies = validate_lock_policies([_policy("08:00", "22:00", count=2, duration=7200)])
+    fallback = (16, -1)
+    in_gap = datetime(2024, 1, 1, 23, 0, tzinfo=BEIJING_TZ)
+    next_morning = in_gap + timedelta(hours=10)
+    assert policy_crossing_duration_limit(policies, fallback, in_gap, next_morning) == 9 * 3600
+
+
+def test_node_lock_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
+    from lockbot.core import node_bot
+
+    policies = [
+        _policy("08:00", "22:00", count=2, duration=7200),
+        _policy("22:00", "08:00", count=-1, duration=36000),
+    ]
+    bot = NodeBot(
+        config_dict={
+            "BOT_ID": "cross-policy-node",
+            "DATA_DIR": str(tmp_path),
+            "BOT_TYPE": "NODE",
+            "CLUSTER_CONFIGS": ["node1"],
+            "LOCK_POLICIES": policies,
+            "MAX_LOCK_COUNT": 16,
+            "MAX_LOCK_DURATION": -1,
+        }
+    )
+
+    monkeypatch.setattr(
+        node_bot.time,
+        "time",
+        lambda: datetime(2024, 1, 1, 2, 0, tzinfo=BEIJING_TZ).timestamp(),
+    )
+    rejected = bot.lock("u1", "lock node1 10h")
+    assert "6.0 小时" in rejected["message"]["body"][0]["content"]
+
+    monkeypatch.setattr(
+        node_bot.time,
+        "time",
+        lambda: datetime(2024, 1, 1, 7, 0, tzinfo=BEIJING_TZ).timestamp(),
+    )
+    accepted = bot.lock("u1", "lock node1 2h")
+    assert "资源申请成功" in accepted["message"]["body"][0]["content"]
+
+    rejected_renewal = bot.lock("u1", "lock node1 3h")
+    assert "1.0 小时" in rejected_renewal["message"]["body"][0]["content"]
+
+
+def test_queue_book_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
+    from lockbot.core import queue_bot
+    from lockbot.core.queue_bot import QueueBot
+
+    bot = QueueBot(
+        config_dict={
+            "BOT_ID": "cross-policy-queue",
+            "DATA_DIR": str(tmp_path),
+            "BOT_TYPE": "QUEUE",
+            "CLUSTER_CONFIGS": ["node1"],
+            "LOCK_POLICIES": [
+                _policy("08:00", "22:00", count=2, duration=7200),
+                _policy("22:00", "08:00", count=-1, duration=36000),
+            ],
+            "MAX_LOCK_COUNT": 16,
+            "MAX_LOCK_DURATION": -1,
+        }
+    )
+    monkeypatch.setattr(
+        queue_bot.time,
+        "time",
+        lambda: datetime(2024, 1, 1, 2, 0, tzinfo=BEIJING_TZ).timestamp(),
+    )
+    bot.lock("holder", "lock node1 2h")
+    rejected = bot.book("u1", "book node1 10h")
+    assert "6.0 小时" in rejected["message"]["body"][0]["content"]
 
 
 def test_help_uses_current_lock_limits(tmp_path):

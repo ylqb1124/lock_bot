@@ -15,6 +15,7 @@ from lockbot.core.lock_policy import (
     iter_lock_policy_changes,
     lock_policy_limits,
     next_lock_policy_change,
+    policy_crossing_duration_limit,
 )
 from lockbot.core.platforms.infoflow import InfoflowAdapter
 from lockbot.core.utils import format_duration, remaining_duration
@@ -123,6 +124,38 @@ class BaseLockBot:
             return t("help.unlimited", config=self.config)
         hours = duration / 3600
         return f"{hours:g}h"
+
+    def _lock_duration_violation(
+        self,
+        now: int,
+        start_time: int,
+        total_duration: int,
+        current_max_duration: int,
+    ) -> int | None:
+        """Return the applicable maximum if a request exceeds policy limits."""
+        remaining = max(int(start_time) + int(total_duration) - int(now), 0)
+        allowed_limits = []
+        if current_max_duration > 0:
+            allowed_limits.append(int(current_max_duration))
+
+        policies = self.config.get_val("LOCK_POLICIES")
+        fallback_limits = (
+            int(self.config.get_val("MAX_LOCK_COUNT")),
+            int(self.config.get_val("MAX_LOCK_DURATION")),
+        )
+        crossing_limit = policy_crossing_duration_limit(
+            policies,
+            fallback_limits,
+            now,
+            int(start_time) + int(total_duration),
+        )
+        if crossing_limit is not None:
+            allowed_limits.append(crossing_limit)
+
+        if not allowed_limits:
+            return None
+        allowed = min(allowed_limits)
+        return allowed if remaining > allowed else None
 
     def _check_and_notify_lock_policy(self) -> float | None:
         """Send policy previews and confirmations and return the next wakeup.

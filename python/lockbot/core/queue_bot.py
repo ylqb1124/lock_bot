@@ -109,28 +109,30 @@ class QueueBot(NodeBot):
             users_to_notify = set()
             users_to_notify.add(user_id)
 
-            if max_dur > 0:
-                for node in nodes:
-                    booking_info = find_user_info(node["booking_list"], user_id)
-                    if not command_has_duration and booking_info:
-                        check_duration = booking_info["duration"]
-                    else:
-                        check_duration = duration
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        check_duration += user_info["duration"]
-                        start_time = user_info["start_time"]
-                    else:
-                        start_time = timestamp
-                    if remaining_duration(start_time, check_duration) > max_dur:
-                        return self.show_error(
-                            user_id,
-                            t(
-                                "error.lock_max_duration_exceeded",
-                                config=self.config,
-                                max_duration=format_duration(max_dur, config=self.config),
-                            ),
-                        )
+            for node in nodes:
+                booking_info = find_user_info(node["booking_list"], user_id)
+                if not command_has_duration and booking_info:
+                    check_duration = booking_info["duration"]
+                else:
+                    check_duration = duration
+                user_info = find_user_info(node["current_users"], user_id)
+                if user_info:
+                    check_duration += user_info["duration"]
+                    start_time = user_info["start_time"]
+                else:
+                    start_time = timestamp
+                duration_violation = self._lock_duration_violation(
+                    timestamp, start_time, check_duration, max_dur
+                )
+                if duration_violation is not None:
+                    return self.show_error(
+                        user_id,
+                        t(
+                            "error.lock_max_duration_exceeded",
+                            config=self.config,
+                            max_duration=format_duration(duration_violation, config=self.config),
+                        ),
+                    )
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -206,13 +208,14 @@ class QueueBot(NodeBot):
             if forbid_relock and any(find_user_info(node["current_users"], user_id) for node in nodes):
                 return self.show_error(user_id, t("error.relock_forbidden", config=self.config))
 
-            if max_dur > 0 and duration > max_dur:
+            duration_violation = self._lock_duration_violation(timestamp, timestamp, duration, max_dur)
+            if duration_violation is not None:
                 return self.show_error(
                     user_id,
                     t(
                         "error.lock_max_duration_exceeded",
                         config=self.config,
-                        max_duration=format_duration(max_dur, config=self.config),
+                        max_duration=format_duration(duration_violation, config=self.config),
                     ),
                 )
 
@@ -274,13 +277,14 @@ class QueueBot(NodeBot):
             users_to_notify.add(user_id)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
 
-            if max_dur > 0 and remaining_duration(timestamp, duration) > max_dur:
+            duration_violation = self._lock_duration_violation(timestamp, timestamp, duration, max_dur)
+            if duration_violation is not None:
                 return self.show_error(
                     user_id,
                     t(
                         "error.lock_max_duration_exceeded",
                         config=self.config,
-                        max_duration=format_duration(max_dur, config=self.config),
+                        max_duration=format_duration(duration_violation, config=self.config),
                     ),
                 )
 

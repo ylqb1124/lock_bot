@@ -13,6 +13,7 @@ UNLIMITED = -1
 MIN_POLICY_DURATION = 300
 MAX_POLICY_DURATION = 604800
 MAX_POLICY_COUNT = 16
+CROSS_POLICY_EXCEPTION_DURATION = 2 * 60 * 60
 
 
 class LockPolicyValidationError(ValueError):
@@ -222,3 +223,38 @@ def next_lock_policy_change(
     # One full extra day is enough because policy boundaries repeat daily.
     horizon = current + timedelta(days=3)
     return next(iter_lock_policy_changes(policies, fallback_limits, current, horizon), None)
+
+
+def policy_crossing_duration_limit(
+    policies: list[dict] | None,
+    fallback_limits: tuple[int, int],
+    now: datetime | int | float,
+    end_time: datetime | int | float,
+    *,
+    exception_duration: int = CROSS_POLICY_EXCEPTION_DURATION,
+) -> int | None:
+    """Return the latest allowed duration when a request crosses a limit edge.
+
+    ``None`` means no stricter duration policy is entered before ``end_time``.
+    The returned value is seconds from *now* to the first crossed boundary;
+    ending exactly at a boundary is allowed.  Short requests up to the fixed
+    two-hour exception may cross the boundary without being rejected.
+    """
+    current = _as_beijing_datetime(now)
+    end_timestamp = _as_beijing_datetime(end_time).timestamp()
+    if end_timestamp <= current.timestamp():
+        return None
+
+    for boundary, new_limits, _old_limits in iter_lock_policy_changes(
+        policies, fallback_limits, current, _as_beijing_datetime(end_time)
+    ):
+        boundary_timestamp = boundary.timestamp()
+        if boundary_timestamp >= end_timestamp:
+            continue
+        next_duration = new_limits[1]
+        if next_duration <= 0:
+            continue
+        remaining_duration = end_timestamp - current.timestamp()
+        if remaining_duration > next_duration and remaining_duration > exception_duration:
+            return max(0, int(boundary_timestamp - current.timestamp()))
+    return None

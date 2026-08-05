@@ -181,26 +181,28 @@ class NodeBot(BaseLockBot):
                     user_id, self._msg_with_usage("error.node_in_use_or_shared", node_key=conflict_keys)
                 )
 
-            if max_dur > 0:
-                for node in nodes:
-                    total_duration = duration
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        total_duration += user_info["duration"]
-                        start_time = user_info["start_time"]
-                    else:
-                        start_time = timestamp
-                    if remaining_duration(start_time, total_duration) > max_dur:
-                        if state_changed:
-                            self._save_and_notify()
-                        return self.show_error(
-                            user_id,
-                            t(
-                                "error.lock_max_duration_exceeded",
-                                config=self.config,
-                                max_duration=format_duration(max_dur, config=self.config),
-                            ),
-                        )
+            for node in nodes:
+                total_duration = duration
+                user_info = find_user_info(node["current_users"], user_id)
+                if user_info:
+                    total_duration += user_info["duration"]
+                    start_time = user_info["start_time"]
+                else:
+                    start_time = timestamp
+                duration_violation = self._lock_duration_violation(
+                    timestamp, start_time, total_duration, max_dur
+                )
+                if duration_violation is not None:
+                    if state_changed:
+                        self._save_and_notify()
+                    return self.show_error(
+                        user_id,
+                        t(
+                            "error.lock_max_duration_exceeded",
+                            config=self.config,
+                            max_duration=format_duration(duration_violation, config=self.config),
+                        ),
+                    )
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -257,24 +259,26 @@ class NodeBot(BaseLockBot):
                     user_id, self._msg_with_usage("error.node_exclusive_mode", node_key=conflict_keys)
                 )
 
-            if max_dur > 0:
-                for node in nodes:
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        total_duration = user_info["duration"] + duration
-                        start_time = user_info["start_time"]
-                    else:
-                        total_duration = duration
-                        start_time = timestamp
-                    if remaining_duration(start_time, total_duration) > max_dur:
-                        if state_changed:
-                            self._save_and_notify()
-                        msg = t(
-                            "error.slock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(max_dur, config=self.config),
-                        )
-                        return self.show_error(user_id, msg)
+            for node in nodes:
+                user_info = find_user_info(node["current_users"], user_id)
+                if user_info:
+                    total_duration = user_info["duration"] + duration
+                    start_time = user_info["start_time"]
+                else:
+                    total_duration = duration
+                    start_time = timestamp
+                duration_violation = self._lock_duration_violation(
+                    timestamp, start_time, total_duration, max_dur
+                )
+                if duration_violation is not None:
+                    if state_changed:
+                        self._save_and_notify()
+                    msg = t(
+                        "error.slock_max_duration_exceeded",
+                        config=self.config,
+                        max_duration=format_duration(duration_violation, config=self.config),
+                    )
+                    return self.show_error(user_id, msg)
 
             for node in nodes:
                 node["status"] = "shared"
