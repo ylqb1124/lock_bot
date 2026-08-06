@@ -235,9 +235,11 @@ def policy_crossing_duration_limit(
 ) -> int | None:
     """Return the latest allowed duration when a request crosses a limit edge.
 
-    ``None`` means no stricter duration policy is entered before ``end_time``.
-    The returned value is seconds from *now* to the first crossed boundary;
-    ending exactly at a boundary is allowed.  Short requests up to the fixed
+    ``None`` means no stricter scheduled policy is entered before ``end_time``.
+    The returned value is seconds from *now* to the first crossed scheduled
+    policy boundary; ending exactly at a boundary is allowed.  A gap between
+    scheduled policies does not cap a lock started in the preceding policy:
+    only the next configured policy can do so.  Short requests up to the fixed
     two-hour exception may cross the boundary without being rejected.
     """
     current = _as_beijing_datetime(now)
@@ -250,6 +252,11 @@ def policy_crossing_duration_limit(
     ):
         boundary_timestamp = boundary.timestamp()
         if boundary_timestamp >= end_timestamp:
+            continue
+        # Global fallback limits still apply to locks *started* in a policy
+        # gap.  They must not, however, create an artificial cross-policy
+        # cutoff when a lock passes through a gap to a later scheduled policy.
+        if resolve_lock_policy(policies, boundary + timedelta(seconds=1)) is None:
             continue
         next_duration = new_limits[1]
         if next_duration <= 0:

@@ -107,12 +107,22 @@ def test_crossing_policy_duration_is_capped_but_two_hours_can_cross():
     assert policy_crossing_duration_limit(policies, fallback, at_seven, at_seven + timedelta(hours=3)) == 3600
 
 
-def test_crossing_policy_duration_handles_fallback_gap():
-    policies = validate_lock_policies([_policy("08:00", "22:00", count=2, duration=7200)])
-    fallback = (16, -1)
-    in_gap = datetime(2024, 1, 1, 23, 0, tzinfo=BEIJING_TZ)
-    next_morning = in_gap + timedelta(hours=10)
-    assert policy_crossing_duration_limit(policies, fallback, in_gap, next_morning) == 9 * 3600
+def test_crossing_policy_duration_skips_fallback_gap_before_next_policy():
+    policies = validate_lock_policies(
+        [
+            _policy("10:00", "11:20", count=4, duration=36000),
+            _policy("15:00", "22:00", count=2, duration=7200),
+        ]
+    )
+    fallback = (16, 7200)
+    at_ten_twenty = datetime(2024, 1, 1, 10, 20, tzinfo=BEIJING_TZ)
+
+    # The fallback limit applies when a lock starts in the 11:20-15:00 gap,
+    # but it must not cap a lock that began in the preceding scheduled period.
+    assert (
+        policy_crossing_duration_limit(policies, fallback, at_ten_twenty, at_ten_twenty + timedelta(hours=9))
+        == 4 * 3600 + 40 * 60
+    )
 
 
 def test_node_lock_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
