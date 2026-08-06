@@ -47,8 +47,8 @@ class TestInfoflowBuildReply:
 
     def test_with_group_id(self):
         adapter = InfoflowAdapter()
-        msg = adapter.build_reply("hi", ["u1"], group_id="group123")
-        assert msg["message"]["header"]["toid"] == "group123"
+        msg = adapter.build_reply("hi", ["u1"], group_id="123")
+        assert msg["message"]["header"]["toid"] == [123]
 
     def test_empty_list(self):
         adapter = InfoflowAdapter()

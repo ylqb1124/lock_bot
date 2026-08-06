@@ -291,7 +291,7 @@ def test_help_uses_current_lock_limits(tmp_path):
     assert "最长2.0 小时" in content
 
 
-def test_policy_transition_notifies_each_group_once(tmp_path, monkeypatch):
+def test_policy_preview_and_transition_notify_each_group_once(tmp_path, monkeypatch):
     from lockbot.core import base_bot
 
     class RecordingAdapter:
@@ -306,7 +306,7 @@ def test_policy_transition_notifies_each_group_once(tmp_path, monkeypatch):
 
         def send(self, reply):
             self.sent.append(reply)
-            return []
+            return [(200, '{"errcode": 0}')]
 
     policies = [_policy("08:00", "09:00", count=2, duration=7200)]
     bot = NodeBot(
@@ -318,21 +318,30 @@ def test_policy_transition_notifies_each_group_once(tmp_path, monkeypatch):
             "MAX_LOCK_COUNT": 16,
             "MAX_LOCK_DURATION": -1,
             "LOCK_POLICIES": policies,
-            "GROUP_ID": "group-b, group-a",
+            "GROUP_ID": "2002, 1001",
         }
     )
     adapter = RecordingAdapter()
     bot.adapter = adapter
 
-    fallback = datetime(2024, 1, 1, 7, 59, tzinfo=BEIJING_TZ).timestamp()
+    fallback = datetime(2024, 1, 1, 6, 59, tzinfo=BEIJING_TZ).timestamp()
     monkeypatch.setattr(base_bot.time, "time", lambda: fallback)
     bot._check_and_notify_lock_policy()  # Establish the initial baseline silently.
     assert adapter.sent == []
+
+    preview = datetime(2024, 1, 1, 7, 0, tzinfo=BEIJING_TZ).timestamp()
+    monkeypatch.setattr(base_bot.time, "time", lambda: preview)
+    bot._check_and_notify_lock_policy()
+    assert [message["group_id"] for message in adapter.sent] == [1001, 2002]
+    assert all("策略提醒：1小时后" in message["content"] for message in adapter.sent)
 
     active = datetime(2024, 1, 1, 8, 0, tzinfo=BEIJING_TZ).timestamp()
     monkeypatch.setattr(base_bot.time, "time", lambda: active)
     bot._check_and_notify_lock_policy()
     bot._check_and_notify_lock_policy()
 
-    assert [message["group_id"] for message in adapter.sent] == ["group-a", "group-b"]
-    assert all("策略转换：当前单用户最多可锁定/预约2台，最大时长2h" in message["content"] for message in adapter.sent)
+    assert [message["group_id"] for message in adapter.sent] == [1001, 2002, 1001, 2002]
+    assert all(
+        "策略转换：当前单用户最多可锁定/预约2台，最大时长2h" in message["content"]
+        for message in adapter.sent[2:]
+    )

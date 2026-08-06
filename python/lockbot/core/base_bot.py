@@ -18,6 +18,7 @@ from lockbot.core.lock_policy import (
     policy_crossing_duration_limit,
 )
 from lockbot.core.platforms.infoflow import InfoflowAdapter
+from lockbot.core.request import webhook_response_succeeded
 from lockbot.core.utils import format_duration, remaining_duration
 
 
@@ -217,17 +218,25 @@ class BaseLockBot:
         key = f"{event_id}:{phase}"
         if key in self._policy_notification_events:
             return
-        self._policy_notification_events.add(key)
 
         count_text = t("help.unlimited", config=self.config) if limits[0] < 0 else str(limits[0])
         duration_text = self._policy_duration_text(limits[1])
         message_key = "notify.lock_policy_upcoming" if phase == "preview" else "notify.lock_policy_changed"
         content = t(message_key, config=self.config, max_count=count_text, max_duration=duration_text)
         group_ids = {
-            group_id.strip()
+            int(group_id.strip())
             for group_id in str(self.config.get_val("GROUP_ID", "") or "").split(",")
             if group_id.strip()
         }
+        if not group_ids:
+            self.logger.warning(
+                "Policy %s notification skipped: bot=%s has no configured groups",
+                phase,
+                self.config.get_val("BOT_NAME"),
+            )
+            return
+
+        succeeded = True
         for group_id in sorted(group_ids):
             try:
                 reply = self.adapter.build_reply(content, [], group_id=group_id)
@@ -235,9 +244,11 @@ class BaseLockBot:
                 failed = []
                 for item in responses or []:
                     status = item[0] if isinstance(item, (tuple, list)) and item else None
-                    if not isinstance(status, int) or not 200 <= status < 300:
+                    response_text = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else ""
+                    if not webhook_response_succeeded(status, response_text):
                         failed.append(item)
-                if failed:
+                if not responses or failed:
+                    succeeded = False
                     summary = "; ".join(str(item)[:200] for item in failed)
                     self.logger.error(
                         "Policy %s webhook failed: bot=%s group=%s response=%s",
@@ -247,6 +258,7 @@ class BaseLockBot:
                         summary,
                     )
             except Exception as exc:
+                succeeded = False
                 self.logger.error(
                     "Policy %s webhook exception: bot=%s group=%s error=%s",
                     phase,
@@ -255,6 +267,8 @@ class BaseLockBot:
                     exc,
                     exc_info=True,
                 )
+        if succeeded:
+            self._policy_notification_events.add(key)
 
     def _load_pending_occupancy_events(self) -> list[dict]:
         from lockbot.core.io import load_pending_occupancy_events

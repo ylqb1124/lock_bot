@@ -69,7 +69,7 @@ def handle_webhook(
     # Set reply target (group id)
     toid = msg_data["message"]["header"].get("toid")
     if toid:
-        reply["message"]["header"]["toid"] = toid
+        reply["message"]["header"]["toid"] = [int(toid)]
 
     # Send reply via per-bot adapter
     adapter.send(reply)

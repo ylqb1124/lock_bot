@@ -69,6 +69,22 @@ def _extract_md_table_header(content: str) -> str:
     return ""
 
 
+def webhook_response_succeeded(status_code: int | None, response_text: str) -> bool:
+    """Return whether an Infoflow webhook response succeeded at both HTTP and API levels."""
+    if not isinstance(status_code, int) or not 200 <= status_code < 300:
+        return False
+    try:
+        payload = json.loads(response_text)
+    except (TypeError, ValueError):
+        return True
+    if not isinstance(payload, dict):
+        return True
+    for key in ("errcode", "errorcode"):
+        if key in payload:
+            return payload[key] == 0
+    return True
+
+
 def post_webhook(msg, config=None):
     """Send a message via webhook, splitting long TEXT/MD content into chunks.
 
@@ -151,10 +167,10 @@ def _post_with_retry(url, payload, headers):
     for attempt in range(_MAX_RETRIES + 1):
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=5)
-            if 200 <= response.status_code < 300:
+            if webhook_response_succeeded(response.status_code, response.text):
                 return (response.status_code, response.text)
             logger.warning(
-                "Webhook POST to %s returned %d (attempt %d/%d): %s",
+                "Webhook POST to %s failed (attempt %d/%d): %s",
                 url,
                 response.status_code,
                 attempt + 1,

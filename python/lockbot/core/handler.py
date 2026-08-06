@@ -114,7 +114,7 @@ def handle_request(echostr, signature, rn, timestamp, msg_base64, bot):
 
     toid = msg_data["message"]["header"].get("toid", None)
     if toid:
-        reply["message"]["header"]["toid"] = toid
+        reply["message"]["header"]["toid"] = [int(toid)]
 
     _global_adapter.send(reply)
     return "command succeed"

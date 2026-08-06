@@ -83,6 +83,7 @@ class InfoflowAdapter(MessageAdapter):
                 - tuple(label, href) → TEXT(label) + LINK(href) body elements
             user_ids: List of user IDs to @mention.
             group_id: Optional group chat ID (toid) for the reply target.
+                Infoflow requires a numeric JSON array, even for one group.
             markdown: If True, string content is sent as an "MD" body so the
                 platform renders markdown (tables, colors, etc.).
 
@@ -111,7 +112,11 @@ class InfoflowAdapter(MessageAdapter):
             }
         }
         if group_id:
-            msg["message"]["header"]["toid"] = group_id
+            try:
+                group_ids = group_id if isinstance(group_id, (list, tuple, set)) else [group_id]
+                msg["message"]["header"]["toid"] = [int(value) for value in group_ids]
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Infoflow group IDs must be numeric") from exc
         return msg
 
     def send(self, msg: dict) -> list:

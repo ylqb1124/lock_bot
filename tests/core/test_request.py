@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from lockbot.core.request import post_webhook
+from lockbot.core.request import post_webhook, webhook_response_succeeded
 
 
 @pytest.fixture
@@ -61,3 +61,10 @@ def test_post_webhook_with_newlines(mock_post, sample_msg_with_newlines):
     assert first_content == "A" * 1900
     # Second part: 500 'B's
     assert second_content == "B" * 500
+
+
+def test_webhook_response_requires_zero_infoflow_error_code():
+    assert webhook_response_succeeded(200, '{"errcode": 0}')
+    assert webhook_response_succeeded(200, '{"errorcode": 0}')
+    assert not webhook_response_succeeded(200, '{"errcode": 40035}')
+    assert not webhook_response_succeeded(500, '{"errcode": 0}')
