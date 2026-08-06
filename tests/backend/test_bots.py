@@ -140,6 +140,27 @@ class TestUpdateBot:
         assert resp.status_code == 200
         assert json.loads(resp.json()["config_overrides"])["LOCK_POLICIES"] == policies
 
+    def test_update_config_overrides_normalizes_policy_weekdays(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        policies = [
+            {
+                "start_time": "08:00",
+                "end_time": "22:00",
+                "weekdays": ["sun", "sat"],
+                "max_lock_count": -1,
+                "max_lock_duration": -1,
+            }
+        ]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"LOCK_POLICIES": policies}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 200
+        assert json.loads(resp.json()["config_overrides"])["LOCK_POLICIES"][0]["weekdays"] == ["sat", "sun"]
+
     def test_update_config_overrides_rejects_overlapping_scheduled_policies(self, client, admin_header):
         create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
         bot_id = create_resp.json()["id"]

@@ -12,13 +12,16 @@ from lockbot.core.lock_policy import (
 from lockbot.core.node_bot import NodeBot
 
 
-def _policy(start="08:00", end="22:00", count=2, duration=7200):
-    return {
+def _policy(start="08:00", end="22:00", count=2, duration=7200, weekdays=None):
+    policy = {
         "start_time": start,
         "end_time": end,
         "max_lock_count": count,
         "max_lock_duration": duration,
     }
+    if weekdays is not None:
+        policy["weekdays"] = weekdays
+    return policy
 
 
 def test_policy_validation_supports_adjacent_and_overnight_ranges():
@@ -34,6 +37,27 @@ def test_policy_validation_rejects_overlap_and_empty_ranges():
         validate_lock_policies([_policy("08:00", "08:00")])
 
 
+def test_policy_validation_allows_different_weekdays_and_checks_overnight_coverage():
+    policies = validate_lock_policies(
+        [
+            _policy(weekdays=["sun", "sat"]),
+            _policy(weekdays=["mon"]),
+        ]
+    )
+    assert policies[0]["weekdays"] == ["sat", "sun"]
+
+    with pytest.raises(ValueError, match="must not overlap"):
+        validate_lock_policies(
+            [
+                _policy("22:00", "08:00", weekdays=["sun"]),
+                _policy("06:00", "09:00", weekdays=["mon"]),
+            ]
+        )
+
+    with pytest.raises(ValueError, match="non-empty list"):
+        validate_lock_policies([_policy(weekdays=[])])
+
+
 def test_policy_resolution_uses_beijing_time_and_fallback():
     policies = validate_lock_policies([_policy(), _policy("22:00", "08:00", -1, -1)])
     # 00:00 UTC is 08:00 Beijing, so the daytime policy is active.
@@ -43,6 +67,14 @@ def test_policy_resolution_uses_beijing_time_and_fallback():
     # 07:00 Beijing is still inside the overnight policy.
     assert resolve_lock_policy(policies, datetime(2024, 1, 1, 7, tzinfo=BEIJING_TZ))["max_lock_count"] == -1
     assert resolve_lock_policy([_policy()], datetime(2024, 1, 1, 23, tzinfo=BEIJING_TZ)) is None
+
+
+def test_policy_resolution_uses_selected_weekdays_and_overnight_start_day():
+    policy = _policy("22:00", "08:00", count=-1, duration=-1, weekdays=["sun"])
+    policies = validate_lock_policies([policy])
+    assert resolve_lock_policy(policies, datetime(2024, 1, 7, 23, tzinfo=BEIJING_TZ)) is not None
+    assert resolve_lock_policy(policies, datetime(2024, 1, 8, 7, tzinfo=BEIJING_TZ)) is not None
+    assert resolve_lock_policy(policies, datetime(2024, 1, 8, 22, tzinfo=BEIJING_TZ)) is None
 
 
 def test_next_policy_boundary_uses_strictly_future_beijing_minute():
@@ -90,7 +122,7 @@ def test_config_rejects_invalid_policy():
         Config({"LOCK_POLICIES": [{**_policy(), "max_lock_count": 0}]})
 
 
-def test_crossing_policy_duration_is_capped_but_two_hours_can_cross():
+def test_crossing_policy_duration_keeps_two_hour_grace_at_a_stricter_boundary():
     policies = validate_lock_policies(
         [
             _policy("08:00", "22:00", count=2, duration=7200),
@@ -104,7 +136,59 @@ def test_crossing_policy_duration_is_capped_but_two_hours_can_cross():
 
     at_seven = datetime(2024, 1, 1, 7, 0, tzinfo=BEIJING_TZ)
     assert policy_crossing_duration_limit(policies, fallback, at_seven, at_seven + timedelta(hours=2)) is None
-    assert policy_crossing_duration_limit(policies, fallback, at_seven, at_seven + timedelta(hours=3)) == 3600
+    assert policy_crossing_duration_limit(policies, fallback, at_seven, at_seven + timedelta(hours=3)) == 2 * 3600
+
+
+def test_crossing_policy_duration_uses_two_hour_grace_when_boundary_is_near():
+    policies = validate_lock_policies(
+        [
+            _policy("08:00", "16:00", count=2, duration=4 * 3600),
+            _policy("16:00", "22:00", count=2, duration=2 * 3600),
+        ]
+    )
+    at_fifteen_thirty = datetime(2024, 1, 1, 15, 30, tzinfo=BEIJING_TZ)
+    assert (
+        policy_crossing_duration_limit(
+            policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=4)
+        )
+        == 2 * 3600
+    )
+
+
+def test_crossing_policy_duration_stops_at_next_start_even_when_it_is_more_permissive():
+    policies = validate_lock_policies(
+        [
+            _policy("15:30", "16:00", count=3, duration=3 * 3600),
+            _policy("18:00", "22:00", count=4, duration=6 * 3600),
+        ]
+    )
+    at_fifteen_thirty = datetime(2024, 1, 1, 15, 30, tzinfo=BEIJING_TZ)
+    assert (
+        policy_crossing_duration_limit(
+            policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=3)
+        )
+        == 2 * 3600 + 30 * 60
+    )
+    assert (
+        policy_crossing_duration_limit(
+            policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=2.5)
+        )
+        is None
+    )
+
+
+def test_sunday_lock_cannot_cross_into_monday_workday_policy():
+    policies = validate_lock_policies(
+        [
+            _policy("00:00", "23:59", count=-1, duration=-1, weekdays=["sat", "sun"]),
+            _policy("08:00", "22:00", count=2, duration=7200, weekdays=["mon", "tue", "wed", "thu", "fri"]),
+        ]
+    )
+    sunday_evening = datetime(2024, 1, 7, 23, 0, tzinfo=BEIJING_TZ)
+    assert (
+        policy_crossing_duration_limit(policies, (16, -1), sunday_evening, sunday_evening + timedelta(hours=10))
+        == 9 * 3600
+    )
 
 
 def test_crossing_policy_duration_skips_fallback_gap_before_next_policy():
@@ -157,8 +241,8 @@ def test_node_lock_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
         "time",
         lambda: datetime(2024, 1, 1, 7, 0, tzinfo=BEIJING_TZ).timestamp(),
     )
-    accepted = bot.lock("u1", "lock node1 2h")
-    assert "资源申请成功" in accepted["message"]["body"][0]["content"]
+    accepted_at_boundary = bot.lock("u1", "lock node1 2h")
+    assert "资源申请成功" in accepted_at_boundary["message"]["body"][0]["content"]
 
     rejected_renewal = bot.lock("u1", "lock node1 3h")
     assert "2.0 小时" in rejected_renewal["message"]["body"][0]["content"]

@@ -1,4 +1,4 @@
-"""Validation and resolution helpers for time-based lock policies."""
+"""Validation and resolution helpers for Beijing-time weekly lock policies."""
 
 from __future__ import annotations
 
@@ -13,7 +13,9 @@ UNLIMITED = -1
 MIN_POLICY_DURATION = 300
 MAX_POLICY_DURATION = 604800
 MAX_POLICY_COUNT = 16
-CROSS_POLICY_EXCEPTION_DURATION = 2 * 60 * 60
+CROSS_POLICY_GRACE_DURATION = 2 * 60 * 60
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+_WEEKDAY_INDEX = {day: index for index, day in enumerate(WEEKDAYS)}
 
 
 class LockPolicyValidationError(ValueError):
@@ -32,12 +34,6 @@ def _parse_time(value: object, field: str) -> int:
     return hour * 60 + minute
 
 
-def _interval_parts(start: int, end: int) -> list[tuple[int, int]]:
-    if start < end:
-        return [(start, end)]
-    return [(start, 24 * 60), (0, end)]
-
-
 def _validate_limit(value: object, field: str, *, count: bool) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise LockPolicyValidationError(f"{field} must be an integer")
@@ -52,12 +48,65 @@ def _validate_limit(value: object, field: str, *, count: bool) -> int:
     return value
 
 
-def validate_lock_policies(value: object) -> list[dict]:
-    """Validate and normalize a list of scheduled lock policies.
+def _validate_weekdays(value: object, field: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise LockPolicyValidationError(f"{field} must be a non-empty list of weekdays")
+    if any(not isinstance(day, str) or day not in _WEEKDAY_INDEX for day in value):
+        raise LockPolicyValidationError(f"{field} must contain only: {', '.join(WEEKDAYS)}")
+    if len(set(value)) != len(value):
+        raise LockPolicyValidationError(f"{field} must not contain duplicate weekdays")
+    return [day for day in WEEKDAYS if day in value]
 
-    Policy intervals are half-open: ``start_time`` is included and
-    ``end_time`` is excluded. This makes adjacent policies such as 08:00-12:00
-    and 12:00-18:00 valid without overlap.
+
+def _policy_weekdays(policy: dict) -> frozenset[int]:
+    """Return policy start weekdays; omitted values preserve daily legacy behavior."""
+    raw_weekdays = policy.get("weekdays")
+    if raw_weekdays is None:
+        return frozenset(range(7))
+    return frozenset(_WEEKDAY_INDEX[day] for day in raw_weekdays)
+
+
+def _coverage_parts(start: int, end: int, weekdays: frozenset[int]) -> list[tuple[int, int, int]]:
+    """Return ``(weekday, start, end)`` segments for overlap validation."""
+    parts: list[tuple[int, int, int]] = []
+    for weekday in weekdays:
+        if start < end:
+            parts.append((weekday, start, end))
+        else:
+            parts.append((weekday, start, 24 * 60))
+            parts.append(((weekday + 1) % 7, 0, end))
+    return parts
+
+
+def _policy_active_at(policy: dict, local_now: datetime) -> bool:
+    start = _parse_time(policy["start_time"], "start_time")
+    end = _parse_time(policy["end_time"], "end_time")
+    minute = local_now.hour * 60 + local_now.minute
+    weekdays = _policy_weekdays(policy)
+    if start < end:
+        return local_now.weekday() in weekdays and start <= minute < end
+    if minute >= start:
+        return local_now.weekday() in weekdays
+    return minute < end and (local_now.weekday() - 1) % 7 in weekdays
+
+
+def _policy_boundaries(policy: dict, day_start: datetime) -> tuple[datetime, datetime] | None:
+    """Return actual boundaries for the date on which a weekly policy begins."""
+    if day_start.weekday() not in _policy_weekdays(policy):
+        return None
+    start = _parse_time(policy["start_time"], "start_time")
+    end = _parse_time(policy["end_time"], "end_time")
+    start_at = day_start + timedelta(minutes=start)
+    end_at = day_start + timedelta(days=1 if start > end else 0, minutes=end)
+    return start_at, end_at
+
+
+def validate_lock_policies(value: object) -> list[dict]:
+    """Validate and normalize scheduled lock policies.
+
+    Intervals are half-open: ``start_time`` is included and ``end_time`` is
+    excluded. ``weekdays`` is optional for backward compatibility; omitted
+    policies apply every day. Cross-midnight ranges belong to their start day.
     """
     if value is None:
         return []
@@ -65,7 +114,7 @@ def validate_lock_policies(value: object) -> list[dict]:
         raise LockPolicyValidationError("LOCK_POLICIES must be a list")
 
     normalized: list[dict] = []
-    intervals: list[list[tuple[int, int]]] = []
+    intervals: list[list[tuple[int, int, int]]] = []
     for index, raw in enumerate(value):
         if not isinstance(raw, dict):
             raise LockPolicyValidationError(f"LOCK_POLICIES[{index}] must be an object")
@@ -81,23 +130,29 @@ def validate_lock_policies(value: object) -> list[dict]:
         duration = _validate_limit(
             raw["max_lock_duration"], f"LOCK_POLICIES[{index}].max_lock_duration", count=False
         )
-        current_parts = _interval_parts(start, end)
+        weekdays = (
+            _validate_weekdays(raw["weekdays"], f"LOCK_POLICIES[{index}].weekdays")
+            if "weekdays" in raw
+            else None
+        )
+        current_parts = _coverage_parts(start, end, _policy_weekdays({"weekdays": weekdays}))
         for previous_parts in intervals:
             if any(
-                left < right_end and right < left_end
-                for left, left_end in previous_parts
-                for right, right_end in current_parts
+                left_day == right_day and left < right_end and right < left_end
+                for left_day, left, left_end in previous_parts
+                for right_day, right, right_end in current_parts
             ):
                 raise LockPolicyValidationError("LOCK_POLICIES time ranges must not overlap")
         intervals.append(current_parts)
-        normalized.append(
-            {
-                "start_time": f"{start // 60:02d}:{start % 60:02d}",
-                "end_time": f"{end // 60:02d}:{end % 60:02d}",
-                "max_lock_count": count,
-                "max_lock_duration": duration,
-            }
-        )
+        policy = {
+            "start_time": f"{start // 60:02d}:{start % 60:02d}",
+            "end_time": f"{end // 60:02d}:{end % 60:02d}",
+            "max_lock_count": count,
+            "max_lock_duration": duration,
+        }
+        if weekdays is not None:
+            policy["weekdays"] = weekdays
+        normalized.append(policy)
     return normalized
 
 
@@ -111,67 +166,66 @@ def _as_beijing_datetime(now: datetime | int | float | None) -> datetime:
     return now.astimezone(BEIJING_TZ)
 
 
-def resolve_lock_policy(
-    policies: list[dict] | None,
-    now: datetime | int | float | None = None,
-) -> dict | None:
+def resolve_lock_policy(policies: list[dict] | None, now: datetime | int | float | None = None) -> dict | None:
     """Return the policy active at ``now`` in Beijing time, if any."""
     if not policies:
         return None
     local_now = _as_beijing_datetime(now)
-    minute = local_now.hour * 60 + local_now.minute
-    for policy in policies:
-        start = _parse_time(policy["start_time"], "start_time")
-        end = _parse_time(policy["end_time"], "end_time")
-        active = minute >= start and minute < end if start < end else minute >= start or minute < end
-        if active:
-            return policy
-    return None
+    return next((policy for policy in policies if _policy_active_at(policy, local_now)), None)
 
 
 def next_lock_policy_boundary(
-    policies: list[dict] | None,
-    now: datetime | int | float | None = None,
+    policies: list[dict] | None, now: datetime | int | float | None = None
 ) -> datetime | None:
-    """Return the next policy start/end boundary in Beijing time.
-
-    Boundaries are minute-based and strictly after ``now``.  Returning a
-    timezone-aware datetime lets callers use it both for scheduling and for
-    deterministic tests.
-    """
+    """Return the next policy start/end boundary in Beijing time."""
     if not policies:
         return None
     local_now = _as_beijing_datetime(now)
     day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     candidates: list[datetime] = []
-    for policy in policies:
-        candidates.extend(
-            day_start + timedelta(days=offset, minutes=_parse_time(policy[field], field))
-            for offset in (0, 1)
-            for field in ("start_time", "end_time")
-        )
+    for offset in range(8):
+        current_day = day_start + timedelta(days=offset)
+        for policy in policies:
+            boundaries = _policy_boundaries(policy, current_day)
+            if boundaries is not None:
+                candidates.extend(boundaries)
+    future = [candidate for candidate in candidates if candidate > local_now]
+    return min(future) if future else None
+
+
+def next_lock_policy_start(
+    policies: list[dict] | None, now: datetime | int | float | None = None
+) -> datetime | None:
+    """Return the next configured policy start in Beijing time."""
+    if not policies:
+        return None
+    local_now = _as_beijing_datetime(now)
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    candidates: list[datetime] = []
+    for offset in range(8):
+        current_day = day_start + timedelta(days=offset)
+        for policy in policies:
+            boundaries = _policy_boundaries(policy, current_day)
+            if boundaries is not None:
+                candidates.append(boundaries[0])
     future = [candidate for candidate in candidates if candidate > local_now]
     return min(future) if future else None
 
 
 def seconds_until_lock_policy_boundary(
-    policies: list[dict] | None,
-    now: datetime | int | float | None = None,
+    policies: list[dict] | None, now: datetime | int | float | None = None
 ) -> float | None:
     """Return seconds until the next policy boundary, or ``None`` if absent."""
     boundary = next_lock_policy_boundary(policies, now)
     if boundary is None:
         return None
-    current = _as_beijing_datetime(now)
-    return max(0.0, (boundary - current).total_seconds())
+    return max(0.0, (boundary - _as_beijing_datetime(now)).total_seconds())
 
 
 def lock_policy_limits(
-    policies: list[dict] | None,
-    fallback_limits: tuple[int, int],
-    now: datetime | int | float | None = None,
+    policies: list[dict] | None, fallback_limits: tuple[int, int], now: datetime | int | float | None = None
 ) -> tuple[int, int]:
-    """Return the effective ``(count, duration)`` limits at *now*."""
+    """Return effective ``(count, duration)`` limits at *now*."""
     policy = resolve_lock_policy(policies, now)
     if policy is None:
         return int(fallback_limits[0]), int(fallback_limits[1])
@@ -184,12 +238,7 @@ def iter_lock_policy_changes(
     start: datetime | int | float,
     end: datetime | int | float,
 ):
-    """Yield effective policy changes in ``(start, end]``.
-
-    A change is ``(boundary, new_limits, old_limits)``.  Policy ranges repeat
-    every Beijing day; only boundaries that actually alter the final limits
-    are yielded, so gaps and adjacent equal-limit policies are handled too.
-    """
+    """Yield effective policy changes in ``(start, end]`` across weekly policies."""
     if not policies:
         return
     local_start = _as_beijing_datetime(start)
@@ -200,11 +249,12 @@ def iter_lock_policy_changes(
     day_start = (local_start - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     day_count = (local_end.date() - day_start.date()).days + 2
     candidates: set[datetime] = set()
-    for offset in range(max(0, day_count)):
+    for offset in range(day_count):
         current_day = day_start + timedelta(days=offset)
         for policy in policies:
-            for field in ("start_time", "end_time"):
-                candidates.add(current_day + timedelta(minutes=_parse_time(policy[field], field)))
+            boundaries = _policy_boundaries(policy, current_day)
+            if boundaries is not None:
+                candidates.update(boundaries)
 
     for boundary in sorted(candidate for candidate in candidates if local_start < candidate <= local_end):
         old_limits = lock_policy_limits(policies, fallback_limits, boundary - timedelta(seconds=1))
@@ -220,9 +270,7 @@ def next_lock_policy_change(
 ) -> tuple[datetime, tuple[int, int], tuple[int, int]] | None:
     """Return the next boundary that changes effective limits, if any."""
     current = _as_beijing_datetime(now)
-    # One full extra day is enough because policy boundaries repeat daily.
-    horizon = current + timedelta(days=3)
-    return next(iter_lock_policy_changes(policies, fallback_limits, current, horizon), None)
+    return next(iter_lock_policy_changes(policies, fallback_limits, current, current + timedelta(days=8)), None)
 
 
 def policy_crossing_duration_limit(
@@ -230,38 +278,21 @@ def policy_crossing_duration_limit(
     fallback_limits: tuple[int, int],
     now: datetime | int | float,
     end_time: datetime | int | float,
-    *,
-    exception_duration: int = CROSS_POLICY_EXCEPTION_DURATION,
 ) -> int | None:
-    """Return the latest allowed duration when a request crosses a limit edge.
+    """Return the request limit before the next scheduled policy start.
 
-    ``None`` means no stricter scheduled policy is entered before ``end_time``.
-    The returned value is seconds from *now* to the first crossed scheduled
-    policy boundary; ending exactly at a boundary is allowed.  A gap between
-    scheduled policies does not cap a lock started in the preceding policy:
-    only the next configured policy can do so.  Short requests up to the fixed
-    two-hour exception may cross the boundary without being rejected.
+    The next policy start is a boundary even if its limits are more permissive.
+    Requests may use a short, two-hour grace period when that boundary is near.
     """
     current = _as_beijing_datetime(now)
     end_timestamp = _as_beijing_datetime(end_time).timestamp()
     if end_timestamp <= current.timestamp():
         return None
-
-    for boundary, new_limits, _old_limits in iter_lock_policy_changes(
-        policies, fallback_limits, current, _as_beijing_datetime(end_time)
-    ):
-        boundary_timestamp = boundary.timestamp()
-        if boundary_timestamp >= end_timestamp:
-            continue
-        # Global fallback limits still apply to locks *started* in a policy
-        # gap.  They must not, however, create an artificial cross-policy
-        # cutoff when a lock passes through a gap to a later scheduled policy.
-        if resolve_lock_policy(policies, boundary + timedelta(seconds=1)) is None:
-            continue
-        next_duration = new_limits[1]
-        if next_duration <= 0:
-            continue
-        remaining_duration = end_timestamp - current.timestamp()
-        if remaining_duration > next_duration and remaining_duration > exception_duration:
-            return max(0, int(boundary_timestamp - current.timestamp()))
+    boundary = next_lock_policy_start(policies, current)
+    if boundary is None or boundary.timestamp() >= end_timestamp:
+        return None
+    until_boundary = max(0, int(boundary.timestamp() - current.timestamp()))
+    allowed_duration = max(until_boundary, CROSS_POLICY_GRACE_DURATION)
+    if end_timestamp - current.timestamp() > allowed_duration:
+        return allowed_duration
     return None

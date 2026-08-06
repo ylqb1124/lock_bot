@@ -204,6 +204,7 @@
             >
               <div v-for="(policy, index) in botConfig.LOCK_POLICIES" :key="index" class="policy-summary">
                 <span>{{ policy.start_time }}-{{ policy.end_time }}</span>
+                <span>{{ formatPolicyWeekdays(policy) }}</span>
                 <span>{{ $t('botCreate.maxLockCount') }}: {{ formatPolicyCount(policy.max_lock_count) }}</span>
                 <span>{{ $t('botCreate.maxLockDuration') }}: {{ formatPolicyDuration(policy.max_lock_duration) }}</span>
               </div>
@@ -542,21 +543,23 @@ function nextPolicyBoundaryDelay(timestamp) {
   const policies = storedBotConfig.value.LOCK_POLICIES
   if (!policies.length) return null
 
-  const beijingMillis = (timestamp + 8 * 60 * 60 * 1000) % (24 * 60 * 60 * 1000)
-  const currentMinute = Math.floor(beijingMillis / 60000)
-  const elapsedMillis = beijingMillis % 60000
-  const boundaries = policies.flatMap((policy) => [policy.start_time, policy.end_time])
-  const boundaryMinutes = [...new Set(boundaries)].map((value) => {
-    const [hour, minute] = value.split(':').map(Number)
-    return hour * 60 + minute
-  })
-  const nextDelta = Math.min(
-    ...boundaryMinutes.map((boundary) => {
-      const delta = (boundary - currentMinute + 1440) % 1440
-      return delta === 0 ? 1440 : delta
-    })
-  )
-  return Math.max(1000, nextDelta * 60000 - elapsedMillis)
+  const beijingNow = timestamp + 8 * 60 * 60 * 1000
+  const date = new Date(beijingNow)
+  const dayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  const candidates = []
+  for (let offset = 0; offset < 8; offset++) {
+    const startOfDay = dayStart + offset * 24 * 60 * 60 * 1000
+    const weekday = (new Date(startOfDay).getUTCDay() + 6) % 7
+    for (const policy of policies) {
+      if (!policyWeekdays(policy).includes(weekday)) continue
+      const start = policyMinutes(policy.start_time)
+      const end = policyMinutes(policy.end_time)
+      candidates.push(startOfDay + start * 60000)
+      candidates.push(startOfDay + (start > end ? 1 : 0) * 24 * 60 * 60 * 1000 + end * 60000)
+    }
+  }
+  const next = Math.min(...candidates.filter((candidate) => candidate > beijingNow))
+  return Number.isFinite(next) ? Math.max(1000, next - beijingNow) : null
 }
 
 function schedulePolicyRefresh() {
@@ -598,28 +601,39 @@ const storedBotConfig = computed(() => {
   }
 })
 
-function beijingMinute(timestamp) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Shanghai',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date(timestamp))
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return (Number(values.hour) % 24) * 60 + Number(values.minute)
+const policyWeekdayValues = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+function policyWeekdays(policy) {
+  return Array.isArray(policy.weekdays)
+    ? policy.weekdays.map((day) => policyWeekdayValues.indexOf(day))
+    : [0, 1, 2, 3, 4, 5, 6]
 }
 
-function policyContainsMinute(policy, minute) {
-  const [startHour, startMinute] = policy.start_time.split(':').map(Number)
-  const [endHour, endMinute] = policy.end_time.split(':').map(Number)
-  const start = startHour * 60 + startMinute
-  const end = endHour * 60 + endMinute
-  return start < end ? minute >= start && minute < end : minute >= start || minute < end
+function policyMinutes(value) {
+  const [hour, minute] = value.split(':').map(Number)
+  return hour * 60 + minute
+}
+
+function beijingClock(timestamp) {
+  const date = new Date(timestamp + 8 * 60 * 60 * 1000)
+  return {
+    minute: date.getUTCHours() * 60 + date.getUTCMinutes(),
+    weekday: (date.getUTCDay() + 6) % 7,
+  }
+}
+
+function policyContainsMinute(policy, minute, weekday) {
+  const start = policyMinutes(policy.start_time)
+  const end = policyMinutes(policy.end_time)
+  const weekdays = policyWeekdays(policy)
+  if (start < end) return weekdays.includes(weekday) && minute >= start && minute < end
+  if (minute >= start) return weekdays.includes(weekday)
+  return minute < end && weekdays.includes((weekday + 6) % 7)
 }
 
 const activeLockPolicy = computed(() => {
-  const minute = beijingMinute(policyClock.value)
-  return storedBotConfig.value.LOCK_POLICIES.find((policy) => policyContainsMinute(policy, minute)) || null
+  const { minute, weekday } = beijingClock(policyClock.value)
+  return storedBotConfig.value.LOCK_POLICIES.find((policy) => policyContainsMinute(policy, minute, weekday)) || null
 })
 
 const botConfig = computed(() => {
@@ -665,6 +679,11 @@ function formatPolicyCount(count) {
 
 function formatPolicyDuration(duration) {
   return duration === -1 ? t('botCreate.unlimited') : formatDuration(duration)
+}
+
+function formatPolicyWeekdays(policy) {
+  if (!Array.isArray(policy.weekdays)) return t('botCreate.policyEveryDay')
+  return policy.weekdays.map((day) => t(`botCreate.weekday${day[0].toUpperCase()}${day.slice(1)}`)).join(', ')
 }
 
 // Permission rules:

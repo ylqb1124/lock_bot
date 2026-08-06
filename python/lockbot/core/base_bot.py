@@ -12,7 +12,6 @@ from importlib.metadata import version as _pkg_version
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
 from lockbot.core.lock_policy import (
-    CROSS_POLICY_EXCEPTION_DURATION,
     iter_lock_policy_changes,
     lock_policy_limits,
     next_lock_policy_change,
@@ -151,9 +150,7 @@ class BaseLockBot:
             int(start_time) + int(total_duration),
         )
         if crossing_limit is not None:
-            # Requests up to the fixed two-hour cross-policy exception are
-            # valid even when the next boundary is closer than two hours.
-            allowed_limits.append(max(crossing_limit, CROSS_POLICY_EXCEPTION_DURATION))
+            allowed_limits.append(crossing_limit)
 
         if not allowed_limits:
             return None
