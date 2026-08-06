@@ -312,7 +312,7 @@ function buildLoadingStats() {
   return [
     { label: '总节点', value: '--', tone: 'total' },
     { label: '总卡数', value: '--', tone: 'total' },
-    { label: '节点使用率', value: '--', tone: 'locked' },
+    { label: '节点平均使用率', value: '--', tone: 'locked' },
     { label: 'XPU卡平均利用率/峰值利用率', value: '--/--', tone: 'xpu-avg' },
     { label: '显存平均利用率/峰值利用率', value: '--/--', tone: 'mem-avg' },
   ];
