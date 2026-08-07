@@ -98,6 +98,11 @@ Key variables explained:
 | `DATABASE_URL` | No | `sqlite:///{DATA_DIR}/lockbot.db` | Custom database URL (supports PostgreSQL, MySQL, etc.) |
 | `FRONTEND_DIST` | No | `frontend/dist` (auto-detected) | Path to built frontend static files |
 | `REDIS_URL` | No | (in-memory) | Redis URL for distributed rate limiting |
+| `WEBHOOK_MAX_BODY_BYTES` | No | `1048576` | Maximum accepted IM webhook payload size |
+
+> Platform mode runs bot state and scheduling in one process. Start exactly one
+> Uvicorn worker for a given `DATA_DIR`; do not use `--workers` or run a second
+> service instance against the same data directory.
 
 ### 6. Start with tmux
 

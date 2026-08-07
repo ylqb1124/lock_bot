@@ -23,6 +23,7 @@ from lockbot.backend.app.audit.router import router as audit_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.bots.router import router as bots_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
+from lockbot.backend.app.process_lock import ProcessLock
 from lockbot.backend.app.settings.router import router as settings_router
 
 # Configure lockbot loggers to output alongside uvicorn logs
@@ -283,24 +284,29 @@ def _seed_dev_users():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    _migrate_bot_logs_category()
-    _migrate_bot_consecutive_failures()
-    _migrate_users_must_change_password()
-    _migrate_users_token_version()
-    _migrate_bot_soft_delete()
-    _migrate_audit_logs()
-    _migrate_occupancy_records()
-    _seed_dev_admin()
-    _seed_dev_users()
+    process_lock = ProcessLock(os.environ.get("DATA_DIR", "/data"))
+    process_lock.acquire()
     from lockbot.backend.app.bots.manager import bot_manager
 
-    bot_manager.start_scheduler()
-    _reset_running_bots()
-    yield
-    # Shutdown: stop scheduler and clean up all bots
-    logger.info("Shutting down all bots…")
-    bot_manager.shutdown_all()
+    try:
+        Base.metadata.create_all(bind=engine)
+        _migrate_bot_logs_category()
+        _migrate_bot_consecutive_failures()
+        _migrate_users_must_change_password()
+        _migrate_users_token_version()
+        _migrate_bot_soft_delete()
+        _migrate_audit_logs()
+        _migrate_occupancy_records()
+        _seed_dev_admin()
+        _seed_dev_users()
+        bot_manager.start_scheduler()
+        _reset_running_bots()
+        yield
+    finally:
+        # Shutdown: stop scheduler and clean up all bots.
+        logger.info("Shutting down all bots…")
+        bot_manager.shutdown_all()
+        process_lock.release()
 
 
 def _reset_running_bots():

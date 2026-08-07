@@ -203,3 +203,14 @@ class TestRestartBot:
         data = resp.json()
         assert data["status"] == "running"
         assert data["pid"] == 4000
+
+    @patch("lockbot.backend.app.bots.router.bot_manager")
+    def test_restart_failure_marks_bot_error(self, mock_mgr, client, auth_header):
+        bot_id = _create_bot(client, auth_header)
+        mock_mgr.restart_bot.side_effect = ValueError("invalid cluster configuration")
+
+        resp = client.post(f"/api/bots/{bot_id}/restart", headers=auth_header)
+
+        assert resp.status_code == 500
+        detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
+        assert detail["status"] == "error"

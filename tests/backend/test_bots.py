@@ -88,6 +88,43 @@ class TestUpdateBot:
         assert resp.status_code == 200
         assert resp.json()["name"] == "newname"
 
+    def test_running_bot_restarts_after_config_change(self, client, admin_header):
+        from unittest.mock import patch
+
+        with patch("lockbot.backend.app.bots.router.bot_manager") as manager:
+            manager.start_bot.return_value = 1001
+            create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+            bot_id = create_resp.json()["id"]
+            manager.restart_bot.return_value = 1002
+
+            resp = client.put(
+                f"/api/bots/{bot_id}",
+                json={"config_overrides": {"MAX_LOCK_DURATION": 1800}},
+                headers=admin_header,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+        manager.restart_bot.assert_called_once()
+
+    def test_running_bot_config_restart_failure_marks_error(self, client, admin_header):
+        from unittest.mock import patch
+
+        with patch("lockbot.backend.app.bots.router.bot_manager") as manager:
+            manager.start_bot.return_value = 1001
+            create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+            bot_id = create_resp.json()["id"]
+            manager.restart_bot.side_effect = RuntimeError("restart failed")
+
+            resp = client.put(
+                f"/api/bots/{bot_id}",
+                json={"webhook_url": "https://example.com/new-hook"},
+                headers=admin_header,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "error"
+
     def test_update_config_overrides_merged_into_build_config(self, client, admin_header, db_session):
         """Verify config_overrides from update_bot are merged by _build_config_dict."""
         from lockbot.backend.app.bots.models import Bot

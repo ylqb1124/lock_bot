@@ -235,3 +235,11 @@ class TestWebhookLastRequestAt:
 
         detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
         assert detail["last_request_at"] is not None
+
+
+class TestWebhookPayloadLimit:
+    @patch("lockbot.backend.app.bots.router._MAX_WEBHOOK_BODY_BYTES", 8)
+    def test_oversized_payload_is_rejected_before_dispatch(self, client):
+        resp = client.post("/api/bots/webhook/1", content=b"012345678")
+
+        assert resp.status_code == 413

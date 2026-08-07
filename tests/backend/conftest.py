@@ -30,9 +30,11 @@ _TestSession = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
 
 
 @pytest.fixture(autouse=True)
-def _setup_db(tmp_path):
+def _setup_db(tmp_path, monkeypatch):
     """Create tables before each test, drop after. Use tmp_path for log files."""
     from unittest.mock import patch
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
     import lockbot.backend.app.audit.models  # noqa: F401
     import lockbot.backend.app.auth.models  # noqa: F401

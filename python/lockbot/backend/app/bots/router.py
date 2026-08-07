@@ -4,11 +4,14 @@ Bot CRUD + lifecycle + webhook routes.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
 import os
+import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -37,6 +40,19 @@ VALID_BOT_TYPES = {"NODE", "DEVICE", "QUEUE"}
 
 
 _DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
+_LOG_LOCK = threading.RLock()
+_WEBHOOK_LOCKS: dict[int, threading.Lock] = {}
+_WEBHOOK_LOCKS_LOCK = threading.Lock()
+_WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="lockbot-webhook")
+_MAX_WEBHOOK_BODY_BYTES = int(os.environ.get("WEBHOOK_MAX_BODY_BYTES", str(1024 * 1024)))
+
+
+def _run_webhook_serialized(bot_id: int, callback):
+    """Run a blocking callback while preserving command ordering for one bot."""
+    with _WEBHOOK_LOCKS_LOCK:
+        bot_lock = _WEBHOOK_LOCKS.setdefault(bot_id, threading.Lock())
+    with bot_lock:
+        return callback()
 
 
 def _reject_device_lock_policies(bot_type: str, config_overrides: dict | None) -> None:
@@ -67,22 +83,19 @@ def _write_log(bot_id: int, message: str, level: str = "INFO", category: str = "
         "message": message,
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
-        logger.exception("Failed to write log for bot %d", bot_id)
-        return
+    with _LOG_LOCK:
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    # Auto-prune: keep only the most recent MAX_LOG_ENTRIES lines
-    try:
-        with open(log_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        if len(lines) > MAX_LOG_ENTRIES:
-            with open(log_path, "w", encoding="utf-8") as f:
-                f.writelines(lines[-MAX_LOG_ENTRIES:])
-    except OSError:
-        pass
+            # Auto-prune: keep only the most recent MAX_LOG_ENTRIES lines.
+            with open(log_path, encoding="utf-8") as f:
+                lines = f.readlines()
+            if len(lines) > MAX_LOG_ENTRIES:
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines[-MAX_LOG_ENTRIES:])
+        except OSError:
+            logger.exception("Failed to write log for bot %d", bot_id)
 
 
 def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
@@ -338,6 +351,7 @@ def update_bot(
         raise HTTPException(status_code=403, detail="Cannot edit another user's bot")
 
     changes = {}
+    restart_required = False
     if body.name is not None:
         # Check for duplicate name (excluding current bot and deleted bots)
         dup = (
@@ -354,6 +368,7 @@ def update_bot(
             raise HTTPException(status_code=409, detail="Bot name already exists")
         if body.name != bot.name:
             changes["name"] = {"from": bot.name, "to": body.name}
+            restart_required = True
         bot.name = body.name
     if body.group_id is not None:
         bot.group_id = body.group_id
@@ -364,20 +379,24 @@ def update_bot(
         old_val = encryption.decrypt(bot.webhook_url) if bot.webhook_url else ""
         if body.webhook_url != old_val:
             changes["webhook_url"] = "updated"
+            restart_required = True
         bot.webhook_url = encryption.encrypt(body.webhook_url)
     if body.aes_key is not None:
         old_val = encryption.decrypt(bot.aes_key) if bot.aes_key else ""
         if body.aes_key != old_val:
             changes["aes_key"] = "updated"
+            restart_required = True
         bot.aes_key = encryption.encrypt(body.aes_key)
     if body.token is not None:
         old_val = encryption.decrypt(bot.token) if bot.token else ""
         if body.token != old_val:
             changes["token"] = "updated"
+            restart_required = True
         bot.token = encryption.encrypt(body.token)
     if body.cluster_configs is not None:
         new_json = json.dumps(body.cluster_configs, ensure_ascii=False)
         if new_json != (bot.cluster_configs or ""):
+            restart_required = True
             old_configs = json.loads(bot.cluster_configs) if bot.cluster_configs else None
             if isinstance(body.cluster_configs, dict):
                 # DEVICE bot: {node: [devices]} or {node: {"ip","devices"}} → summary with device counts
@@ -405,6 +424,7 @@ def update_bot(
                 diff[k] = {"from": old_v, "to": v}
         if diff:
             changes["config_overrides"] = diff
+            restart_required = True
         bot.config_overrides = json.dumps(body.config_overrides, ensure_ascii=False)
 
     if changes:
@@ -431,6 +451,22 @@ def update_bot(
         )
     db.commit()
     db.refresh(bot)
+    if restart_required and bot.status == "running":
+        config_dict = _build_config_dict(bot, db)
+        try:
+            bot.pid = bot_manager.restart_bot(bot_id, config_dict)
+            bot.consecutive_failures = 0
+            db.commit()
+            db.refresh(bot)
+            _write_log(bot_id, "运行中配置已更新，Bot 已自动重启")
+        except Exception as exc:
+            db.rollback()
+            bot = db.get(Bot, bot_id)
+            bot.status = "error"
+            bot.pid = None
+            bot.consecutive_failures = (bot.consecutive_failures or 0) + 1
+            db.commit()
+            _write_log(bot_id, f"配置更新后自动重启失败: {exc}", level="ERROR")
     return bot
 
 
@@ -648,7 +684,11 @@ def restart_bot(
 
     try:
         pid = bot_manager.restart_bot(bot_id, config_dict)
-    except RuntimeError as e:
+    except Exception as e:
+        bot.status = "error"
+        bot.pid = None
+        bot.consecutive_failures = (bot.consecutive_failures or 0) + 1
+        db.commit()
         _write_log(bot_id, f"重启失败: {e}", level="ERROR")
         raise HTTPException(status_code=500, detail=str(e)) from None
 
@@ -1122,8 +1162,19 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     No JWT auth required — the IM platform authenticates via signature.
     """
+    # Reject oversized callbacks before reading them into memory.
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > _MAX_WEBHOOK_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Webhook payload too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length") from None
+
     # Parse request data (matching Flask's request interface)
     body = await request.body()
+    if len(body) > _MAX_WEBHOOK_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Webhook payload too large")
     form = {}
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("application/x-www-form-urlencoded"):
@@ -1142,9 +1193,14 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
         return await _reply_bot_not_running(bot_id, form, args, body, db)
 
     try:
-        text, code, meta = handle_webhook(
-            instance.bot, raw_form=form, raw_args=args, raw_body=body, base_url=_derive_base_url(request)
-        )
+
+        def callback():
+            return handle_webhook(
+                instance.bot, raw_form=form, raw_args=args, raw_body=body, base_url=_derive_base_url(request)
+            )
+
+        loop = asyncio.get_running_loop()
+        text, code, meta = await loop.run_in_executor(_WEBHOOK_EXECUTOR, _run_webhook_serialized, bot_id, callback)
     except Exception as e:
         tb = traceback.format_exc()
         logger.exception("Webhook handler crashed for bot %d", bot_id)
