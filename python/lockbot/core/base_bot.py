@@ -239,7 +239,7 @@ class BaseLockBot:
         succeeded = True
         for group_id in sorted(group_ids):
             try:
-                reply = self.adapter.build_reply(content, [], group_id=group_id)
+                reply = self.adapter.build_reply(content, [], group_id=group_id, at_all=True)
                 responses = self.adapter.send(reply)
                 failed = []
                 for item in responses or []:

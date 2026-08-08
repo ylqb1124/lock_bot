@@ -50,6 +50,16 @@ class TestInfoflowBuildReply:
         msg = adapter.build_reply("hi", ["u1"], group_id="123")
         assert msg["message"]["header"]["toid"] == [123]
 
+    def test_at_all_with_group_id(self):
+        adapter = InfoflowAdapter()
+        msg = adapter.build_reply("policy changed", [], group_id="123", at_all=True)
+        body = msg["message"]["body"]
+        assert body == [
+            {"type": "TEXT", "content": "policy changed"},
+            {"type": "AT", "atuserids": [], "atall": True},
+        ]
+        assert msg["message"]["header"]["toid"] == [123]
+
     def test_empty_list(self):
         adapter = InfoflowAdapter()
         msg = adapter.build_reply([], ["u1"])

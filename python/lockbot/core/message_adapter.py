@@ -25,7 +25,7 @@ class MessageAdapter(ABC):
         """Extract (user_id, group_id, command_text) from a parsed message."""
 
     @abstractmethod
-    def build_reply(self, content, user_ids, group_id=None, markdown=False) -> dict:
+    def build_reply(self, content, user_ids, group_id=None, markdown=False, at_all=False) -> dict:
         """Build a platform-specific reply message.
 
         Args:
@@ -36,6 +36,8 @@ class MessageAdapter(ABC):
             group_id: Optional group/channel ID to send the reply to.
             markdown: If True, render string content as markdown when the
                 platform supports it.
+            at_all: If True, mention all members in the target group. The
+                platform may ignore user_ids when this is enabled.
 
         Returns:
             Platform-specific message dict ready to be sent.

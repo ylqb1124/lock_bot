@@ -299,8 +299,8 @@ def test_policy_preview_and_transition_notify_each_group_once(tmp_path, monkeypa
             self.replies = []
             self.sent = []
 
-        def build_reply(self, content, user_ids, group_id=None, markdown=False):
-            reply = {"content": content, "user_ids": user_ids, "group_id": group_id}
+        def build_reply(self, content, user_ids, group_id=None, markdown=False, at_all=False):
+            reply = {"content": content, "user_ids": user_ids, "group_id": group_id, "at_all": at_all}
             self.replies.append(reply)
             return reply
 
@@ -341,6 +341,7 @@ def test_policy_preview_and_transition_notify_each_group_once(tmp_path, monkeypa
     bot._check_and_notify_lock_policy()
 
     assert [message["group_id"] for message in adapter.sent] == [1001, 2002, 1001, 2002]
+    assert all(message["at_all"] for message in adapter.sent)
     assert all(
         "策略转换：当前单用户最多可锁定/预约2台，最大时长2h" in message["content"]
         for message in adapter.sent[2:]

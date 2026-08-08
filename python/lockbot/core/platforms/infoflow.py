@@ -73,7 +73,7 @@ class InfoflowAdapter(MessageAdapter):
         command_text = extract_msg_body(msg_data["message"]["body"]).strip()
         return user_id, group_id, command_text
 
-    def build_reply(self, content, user_ids, group_id=None, markdown=False) -> dict:
+    def build_reply(self, content, user_ids, group_id=None, markdown=False, at_all=False) -> dict:
         """Build an Infoflow reply message.
 
         Args:
@@ -86,6 +86,9 @@ class InfoflowAdapter(MessageAdapter):
                 Infoflow requires a numeric JSON array, even for one group.
             markdown: If True, string content is sent as an "MD" body so the
                 platform renders markdown (tables, colors, etc.).
+            at_all: If True, add an Infoflow AT element that mentions all
+                members in the target group. ``user_ids`` is ignored by the
+                platform for this form of mention.
 
         Returns:
             Infoflow message dict with TEXT, optional LINK, and AT body elements.
@@ -103,8 +106,11 @@ class InfoflowAdapter(MessageAdapter):
                 body.append({"type": "TEXT", "content": "\n"})
         # A group broadcast has no users to mention; avoid emitting an empty
         # AT body while retaining the legacy standalone empty-list shape.
-        if user_ids or not group_id:
-            body.append({"type": "AT", "atuserids": list(user_ids)})
+        if user_ids or at_all or not group_id:
+            at_body = {"type": "AT", "atuserids": list(user_ids)}
+            if at_all:
+                at_body["atall"] = True
+            body.append(at_body)
         msg = {
             "message": {
                 "header": {},
