@@ -195,13 +195,8 @@ class NodeBot(BaseLockBot):
                 if duration_violation is not None:
                     if state_changed:
                         self._save_and_notify()
-                    return self.show_error(
-                        user_id,
-                        t(
-                            "error.lock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(duration_violation, config=self.config),
-                        ),
+                    return self.show_duration_limit_error(
+                        user_id, "error.lock_max_duration_exceeded", duration_violation
                     )
 
             for node in nodes:
@@ -273,12 +268,9 @@ class NodeBot(BaseLockBot):
                 if duration_violation is not None:
                     if state_changed:
                         self._save_and_notify()
-                    msg = t(
-                        "error.slock_max_duration_exceeded",
-                        config=self.config,
-                        max_duration=format_duration(duration_violation, config=self.config),
+                    return self.show_duration_limit_error(
+                        user_id, "error.slock_max_duration_exceeded", duration_violation
                     )
-                    return self.show_error(user_id, msg)
 
             for node in nodes:
                 node["status"] = "shared"

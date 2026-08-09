@@ -29,6 +29,10 @@ MESSAGES = {
     "error.node_exclusive_mode": "Node is in exclusive mode\n\n",
     "error.lock_max_duration_exceeded": "Note: consecutive lock cannot exceed {max_duration}\n\n",
     "error.slock_max_duration_exceeded": "Note: consecutive slock cannot exceed {max_duration}\n\n",
+    "error.duration_limit_reason": (
+        "Calculation: min(current limit, cross-policy limit), where cross-policy limit = "
+        "max(time to next switch, 2h).\n"
+    ),
     "error.max_lock_count_exceeded": "Cannot lock/book more than {max_count} machines at once",
     "error.node_not_requested": "You have not requested this node\n",
     "error.unrecognized_command": "❌ Unrecognized command: {command}",

@@ -19,7 +19,6 @@ from lockbot.core.utils import (
     create_user_info,
     duration_to_seconds,
     find_user_info,
-    format_duration,
     remaining_duration,
     remove_user_info,
 )
@@ -245,13 +244,8 @@ class DeviceBot(BaseLockBot):
                         if remaining_duration(start_time, total_duration) > max_dur:
                             if state_changed:
                                 self._save_and_notify()
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.lock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                ),
+                            return self.show_duration_limit_error(
+                                user_id, "error.lock_max_duration_exceeded", max_dur
                             )
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
@@ -321,13 +315,8 @@ class DeviceBot(BaseLockBot):
                         if remaining_duration(start_time, total_duration) > max_dur:
                             if state_changed:
                                 self._save_and_notify()
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.slock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                ),
+                            return self.show_duration_limit_error(
+                                user_id, "error.slock_max_duration_exceeded", max_dur
                             )
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):

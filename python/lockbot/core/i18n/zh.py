@@ -29,6 +29,7 @@ MESSAGES = {
     "error.node_exclusive_mode": "【节点正处于独占状态】\n\n",
     "error.lock_max_duration_exceeded": "【注意: 目前禁止连续lock超过{max_duration}】\n\n",
     "error.slock_max_duration_exceeded": "【注意: 目前禁止连续slock超过{max_duration}】\n\n",
+    "error.duration_limit_reason": "计算：取当前上限与跨策略上限的较小值；跨策略上限=max(距下次切换时长, 2h)。\n",
     "error.max_lock_count_exceeded": "最多同时lock/预约 {max_count} 台机器",
     "error.node_not_requested": "【你并未申请过该节点资源】\n",
     "error.unrecognized_command": "❌【未识别的命令】{command}",

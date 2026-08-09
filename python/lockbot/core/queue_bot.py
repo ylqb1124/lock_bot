@@ -125,13 +125,8 @@ class QueueBot(NodeBot):
                     timestamp, start_time, check_duration, max_dur
                 )
                 if duration_violation is not None:
-                    return self.show_error(
-                        user_id,
-                        t(
-                            "error.lock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(duration_violation, config=self.config),
-                        ),
+                    return self.show_duration_limit_error(
+                        user_id, "error.lock_max_duration_exceeded", duration_violation
                     )
 
             for node in nodes:
@@ -210,13 +205,8 @@ class QueueBot(NodeBot):
 
             duration_violation = self._lock_duration_violation(timestamp, timestamp, duration, max_dur)
             if duration_violation is not None:
-                return self.show_error(
-                    user_id,
-                    t(
-                        "error.lock_max_duration_exceeded",
-                        config=self.config,
-                        max_duration=format_duration(duration_violation, config=self.config),
-                    ),
+                return self.show_duration_limit_error(
+                    user_id, "error.lock_max_duration_exceeded", duration_violation
                 )
 
             locked_any = False
@@ -279,13 +269,8 @@ class QueueBot(NodeBot):
 
             duration_violation = self._lock_duration_violation(timestamp, timestamp, duration, max_dur)
             if duration_violation is not None:
-                return self.show_error(
-                    user_id,
-                    t(
-                        "error.lock_max_duration_exceeded",
-                        config=self.config,
-                        max_duration=format_duration(duration_violation, config=self.config),
-                    ),
+                return self.show_duration_limit_error(
+                    user_id, "error.lock_max_duration_exceeded", duration_violation
                 )
 
             for node_key, node in zip(node_keys, nodes, strict=True):

@@ -235,6 +235,7 @@ def test_node_lock_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
     )
     rejected = bot.lock("u1", "lock node1 10h")
     assert "6.0 小时" in rejected["message"]["body"][0]["content"]
+    assert "计算：取当前上限与跨策略上限的较小值" in rejected["message"]["body"][0]["content"]
 
     monkeypatch.setattr(
         node_bot.time,
@@ -274,6 +275,7 @@ def test_queue_book_uses_cross_policy_duration_limit(tmp_path, monkeypatch):
     bot.lock("holder", "lock node1 2h")
     rejected = bot.book("u1", "book node1 10h")
     assert "6.0 小时" in rejected["message"]["body"][0]["content"]
+    assert "计算：取当前上限与跨策略上限的较小值" in rejected["message"]["body"][0]["content"]
 
 
 def test_help_uses_current_lock_limits(tmp_path):

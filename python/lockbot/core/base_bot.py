@@ -382,6 +382,16 @@ class BaseLockBot:
         """
         return self.adapter.build_reply("\u274c" + error_msg, [user_id])
 
+    def show_duration_limit_error(self, user_id, message_key, max_duration):
+        """Reject an overlong request with the concise policy-limit calculation."""
+        message = t(
+            message_key,
+            config=self.config,
+            max_duration=format_duration(max_duration, config=self.config),
+        )
+        message += t("error.duration_limit_reason", config=self.config)
+        return self.show_error(user_id, message)
+
     # ------------------------------------------------------ _msg_with_usage
     def _msg_with_usage(self, msg_key, *, node_key=None, sep="", **kwargs):
         """Return ``t(msg_key, ...) + sep + self._current_usage(node_key)``."""
