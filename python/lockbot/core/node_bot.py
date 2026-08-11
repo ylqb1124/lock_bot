@@ -106,7 +106,7 @@ class NodeBot(BaseLockBot):
         parse_ok = True
         return _get_return_values()
 
-    def query(self, user_id, node_key=None):
+    def query(self, user_id, node_key=None, invalid_query_nodes=None):
         """
         Query usage of a node
         """
@@ -128,13 +128,26 @@ class NodeBot(BaseLockBot):
                 xpu_usage=xpu_usage,
                 memory_based=self._collect_xpu_on_query,
             )
+            if invalid_query_nodes:
+                content = (
+                    t(
+                        "query.invalid_nodes",
+                        config=self.config,
+                        node_keys=", ".join(invalid_query_nodes),
+                    )
+                    + content
+                )
             return self.adapter.build_reply(content, [user_id], markdown=True)
 
     def _node_ips(self, node_filter=None):
         cluster_configs = self.config.get_val("CLUSTER_CONFIGS") or {}
         result = {}
         for node_key in self.state.bot_state:
-            if node_filter is not None and node_key != node_filter:
+            if (
+                node_filter is not None
+                and node_key != node_filter
+                and not (isinstance(node_filter, (list, tuple, set)) and node_key in node_filter)
+            ):
                 continue
             ip = _get_ip(cluster_configs, node_key)
             if ip:
@@ -189,9 +202,7 @@ class NodeBot(BaseLockBot):
                     start_time = user_info["start_time"]
                 else:
                     start_time = timestamp
-                duration_violation = self._lock_duration_violation(
-                    timestamp, start_time, total_duration, max_dur
-                )
+                duration_violation = self._lock_duration_violation(timestamp, start_time, total_duration, max_dur)
                 if duration_violation is not None:
                     if state_changed:
                         self._save_and_notify()
@@ -262,9 +273,7 @@ class NodeBot(BaseLockBot):
                 else:
                     total_duration = duration
                     start_time = timestamp
-                duration_violation = self._lock_duration_violation(
-                    timestamp, start_time, total_duration, max_dur
-                )
+                duration_violation = self._lock_duration_violation(timestamp, start_time, total_duration, max_dur)
                 if duration_violation is not None:
                     if state_changed:
                         self._save_and_notify()
@@ -299,9 +308,8 @@ class NodeBot(BaseLockBot):
                 ended_at = int(time.time())
                 released_keys = []
                 for node_key, node in self.state.bot_state.items():
-                    had_user = (
-                        find_user_info(node["current_users"], user_id)
-                        or find_user_info(node["booking_list"], user_id)
+                    had_user = find_user_info(node["current_users"], user_id) or find_user_info(
+                        node["booking_list"], user_id
                     )
                     if had_user:
                         released_keys.append(node_key)
@@ -406,6 +414,10 @@ class NodeBot(BaseLockBot):
         parts.append(t("help.section5_title", config=self.config))
         parts.append(t("help.query_at_bot", config=self.config))
         parts.append(t("help.query_node_example", config=self.config, node=example_node0))
+        if example_node1 is not None:
+            parts.append(
+                t("help.query_multi_node_example", config=self.config, node1=example_node0, node2=example_node1)
+            )
         return "".join(parts)
 
     def _check_and_notify(self) -> float | None:
@@ -511,8 +523,7 @@ class NodeBot(BaseLockBot):
             for node_key, node in self.state.bot_state.items()
             if node_key not in requested
             and (
-                find_user_info(node["current_users"], user_id)
-                or find_user_info(node.get("booking_list", []), user_id)
+                find_user_info(node["current_users"], user_id) or find_user_info(node.get("booking_list", []), user_id)
             )
         )
 

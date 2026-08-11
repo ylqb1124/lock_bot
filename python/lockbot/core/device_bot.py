@@ -151,7 +151,7 @@ class DeviceBot(BaseLockBot):
         parse_ok = True
         return _get_return_values()
 
-    def query(self, user_id, node_key=None):
+    def query(self, user_id, node_key=None, invalid_query_nodes=None):
         """
         query current usage
         """
@@ -171,13 +171,26 @@ class DeviceBot(BaseLockBot):
                 node_filter=node_key,
                 xpu_usage=xpu_usage,
             )
+            if invalid_query_nodes:
+                content = (
+                    t(
+                        "query.invalid_nodes",
+                        config=self.config,
+                        node_keys=", ".join(invalid_query_nodes),
+                    )
+                    + content
+                )
             return self.adapter.build_reply(content, [user_id], markdown=True)
 
     def _node_ips(self, node_filter=None):
         cluster_configs = self.config.get_val("CLUSTER_CONFIGS") or {}
         result = {}
         for node_key in self.state.bot_state:
-            if node_filter is not None and node_key != node_filter:
+            if (
+                node_filter is not None
+                and node_key != node_filter
+                and not (isinstance(node_filter, (list, tuple, set)) and node_key in node_filter)
+            ):
                 continue
             ip = _get_ip(cluster_configs, node_key)
             if ip:
@@ -244,9 +257,7 @@ class DeviceBot(BaseLockBot):
                         if remaining_duration(start_time, total_duration) > max_dur:
                             if state_changed:
                                 self._save_and_notify()
-                            return self.show_duration_limit_error(
-                                user_id, "error.lock_max_duration_exceeded", max_dur
-                            )
+                            return self.show_duration_limit_error(user_id, "error.lock_max_duration_exceeded", max_dur)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -315,9 +326,7 @@ class DeviceBot(BaseLockBot):
                         if remaining_duration(start_time, total_duration) > max_dur:
                             if state_changed:
                                 self._save_and_notify()
-                            return self.show_duration_limit_error(
-                                user_id, "error.slock_max_duration_exceeded", max_dur
-                            )
+                            return self.show_duration_limit_error(user_id, "error.slock_max_duration_exceeded", max_dur)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -434,9 +443,7 @@ class DeviceBot(BaseLockBot):
                     if len(device["current_users"]) == 0:
                         device["status"] = "idle"
 
-            reply = self.adapter.build_reply(
-                t("success.resource_released", config=self.config), [user_id]
-            )
+            reply = self.adapter.build_reply(t("success.resource_released", config=self.config), [user_id])
             log_to_file(user_id, "unlock", node_key_list, dev_ids_list, config=self.config)
             self._save_and_notify()
             return reply
@@ -481,6 +488,7 @@ class DeviceBot(BaseLockBot):
         """
         cluster_configs = self.config.get_val("CLUSTER_CONFIGS")
         example_node = next(iter(cluster_configs))
+        example_node2 = next(iter(list(cluster_configs)[1:]), None)
 
         text = t("help.rule3_lock_modes", config=self.config)
         text += t("help.lock_all_devices_example", config=self.config, node=example_node)
@@ -502,6 +510,8 @@ class DeviceBot(BaseLockBot):
         text += t("help.section5_title", config=self.config)
         text += t("help.query_at_bot", config=self.config)
         text += t("help.query_node_example", config=self.config, node=example_node)
+        if example_node2 is not None:
+            text += t("help.query_multi_node_example", config=self.config, node1=example_node, node2=example_node2)
         text += "\n"
 
         return text

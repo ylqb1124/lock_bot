@@ -161,7 +161,11 @@ def _node_sort_key_gpu(entry):
 def build_device_query(bot_state, user_id, config, node_filter=None, xpu_usage=None):
     """Build full markdown query text for a DEVICE bot."""
     if node_filter is not None:
-        bot_state = {k: v for k, v in bot_state.items() if k == node_filter}
+        bot_state = {
+            k: v
+            for k, v in bot_state.items()
+            if k == node_filter or (isinstance(node_filter, (list, tuple, set)) and k in node_filter)
+        }
     # ── header ──────────────────────────────────────────────────────────
     lines = [t("query.cluster_usage_title", config=config, timestamp=_now_str())]
 
@@ -311,7 +315,11 @@ def build_node_query(bot_state, user_id, config, node_filter=None, xpu_usage=Non
     booking column. 5 columns normally, 7 when xpu_usage is provided.
     """
     if node_filter is not None:
-        bot_state = {k: v for k, v in bot_state.items() if k == node_filter}
+        bot_state = {
+            k: v
+            for k, v in bot_state.items()
+            if k == node_filter or (isinstance(node_filter, (list, tuple, set)) and k in node_filter)
+        }
     lines = [t("query.cluster_usage_title", config=config, timestamp=_now_str())]
 
     threshold = config.get_val("MEM_BUSY_THRESHOLD", 10) if config else 10

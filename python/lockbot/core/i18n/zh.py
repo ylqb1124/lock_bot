@@ -60,6 +60,7 @@ MESSAGES = {
     "alert.auto_released_list_header": "已释放的资源列表:\n",
     # ── Query ──
     "query.cluster_usage_title": "机器状态报告（{timestamp}）\n",
+    "query.invalid_nodes": "⚠️ 未识别节点：{node_keys}；以下为有效节点的查询结果。\n",
     "query.idle_summary_node": '<font color="blue">**未lock节点数：{unlocked_nodes}；当前Free节点数：{free_nodes}**</font>\n',
     "query.idle_summary_device": '<font color="blue">**未Lock卡数：{unlocked_devs}；当前Free卡数：{free_devs}**</font>\n',
     "query.status_tip": "ℹ️ 节点状态（XPU显存）：BUSY=全部占用 PARTIAL=部分占用 FREE=全部空闲\n",
@@ -116,6 +117,7 @@ MESSAGES = {
     "help.kickout_example": "    kickout {node} (强制释放{node}节点)\n",
     "help.kickout_multi_example": "    kickout {node1},{node2} (强制释放{node1}、{node2}节点)\n",
     "help.query_node_example": "    query {node} (查询{node}节点)\n",
+    "help.query_multi_node_example": "    query {node1},{node2} (查询多个节点)\n",
     # ── Help text (DEVICE) command examples ──
     "help.lock_all_devices_example": "    lock {node} (锁定当前节点的所有设备)\n",
     "help.lock_device_example": "    lock {node} dev0 (锁定{node}节点的0号设备)\n",

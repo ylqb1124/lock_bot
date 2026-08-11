@@ -38,7 +38,7 @@ class QueueBot(NodeBot):
     def supported_commands(self):
         return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query"]
 
-    def query(self, user_id, node_key=None):
+    def query(self, user_id, node_key=None, invalid_query_nodes=None):
         """Query usage; always uses memory_based=False so the booking column is shown."""
         xpu_usage = None
         if self._collect_xpu_on_query:
@@ -54,6 +54,15 @@ class QueueBot(NodeBot):
                 xpu_usage=xpu_usage,
                 memory_based=False,
             )
+            if invalid_query_nodes:
+                content = (
+                    t(
+                        "query.invalid_nodes",
+                        config=self.config,
+                        node_keys=", ".join(invalid_query_nodes),
+                    )
+                    + content
+                )
             return self.adapter.build_reply(content, [user_id], markdown=True)
 
     def _success_usage(self, node_keys):
@@ -121,9 +130,7 @@ class QueueBot(NodeBot):
                     start_time = user_info["start_time"]
                 else:
                     start_time = timestamp
-                duration_violation = self._lock_duration_violation(
-                    timestamp, start_time, check_duration, max_dur
-                )
+                duration_violation = self._lock_duration_violation(timestamp, start_time, check_duration, max_dur)
                 if duration_violation is not None:
                     return self.show_duration_limit_error(
                         user_id, "error.lock_max_duration_exceeded", duration_violation
@@ -205,9 +212,7 @@ class QueueBot(NodeBot):
 
             duration_violation = self._lock_duration_violation(timestamp, timestamp, duration, max_dur)
             if duration_violation is not None:
-                return self.show_duration_limit_error(
-                    user_id, "error.lock_max_duration_exceeded", duration_violation
-                )
+                return self.show_duration_limit_error(user_id, "error.lock_max_duration_exceeded", duration_violation)
 
             locked_any = False
             booked_any = False
@@ -269,9 +274,7 @@ class QueueBot(NodeBot):
 
             duration_violation = self._lock_duration_violation(timestamp, timestamp, duration, max_dur)
             if duration_violation is not None:
-                return self.show_duration_limit_error(
-                    user_id, "error.lock_max_duration_exceeded", duration_violation
-                )
+                return self.show_duration_limit_error(user_id, "error.lock_max_duration_exceeded", duration_violation)
 
             for node_key, node in zip(node_keys, nodes, strict=True):
                 node["status"] = "exclusive"
@@ -422,6 +425,10 @@ class QueueBot(NodeBot):
         parts.append(t("help.section_query_title_queue", config=self.config))
         parts.append(t("help.query_at_bot", config=self.config))
         parts.append(f"    {example_node0}\n\n")
+        if example_node1 is not None:
+            parts.append(
+                t("help.query_multi_node_example", config=self.config, node1=example_node0, node2=example_node1)
+            )
         return "".join(parts)
 
     def _check_and_notify(self) -> float | None:
@@ -591,8 +598,10 @@ class QueueBot(NodeBot):
         entries = []
         order = 0
         for node_key, node_status in self.state.bot_state.items():
-            if node_filter is not None and node_key != node_filter and not (
-                isinstance(node_filter, list) and node_key in node_filter
+            if (
+                node_filter is not None
+                and node_key != node_filter
+                and not (isinstance(node_filter, list) and node_key in node_filter)
             ):
                 continue
             rem = min_remaining(node_status)

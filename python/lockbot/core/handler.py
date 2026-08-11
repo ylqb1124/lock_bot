@@ -10,6 +10,16 @@ from lockbot.core.message_adapter import MessageAdapter
 from lockbot.core.platforms.infoflow import InfoflowAdapter
 
 
+def _split_query_nodes(text):
+    """Split a comma-separated query target, ignoring duplicate node names."""
+    nodes = []
+    for node in re.split(r"[,，、]", text):
+        node = node.strip()
+        if node and node not in nodes:
+            nodes.append(node)
+    return nodes
+
+
 def execute_command(msg_data, bot):
     adapter = getattr(bot, "adapter", None)
     if not isinstance(adapter, MessageAdapter):
@@ -19,6 +29,8 @@ def execute_command(msg_data, bot):
     cluster_configs = config.get_val("CLUSTER_CONFIGS", {}) if config else Config.get("CLUSTER_CONFIGS", {})
 
     supported_commands = set(bot.supported_commands())
+    cluster_configs = cluster_configs or {}
+    valid_node_keys = set(cluster_configs)
 
     m = re.match(r"^(\w+)", rcv_info, re.I)
     cmd = m.group(1).lower() if m else ""
@@ -27,8 +39,19 @@ def execute_command(msg_data, bot):
     if cmd == "":
         cmd = "query"
 
-    # Treat known node_key as query
-    if cmd not in supported_commands and rcv_info in cluster_configs:
+    query_nodes = None
+    invalid_query_nodes = []
+    if cmd == "query":
+        query_target = rcv_info[m.end() :].strip() if m else ""
+        if query_target:
+            requested_nodes = _split_query_nodes(query_target)
+            query_nodes = [node for node in requested_nodes if node in valid_node_keys]
+            invalid_query_nodes = [node for node in requested_nodes if node not in valid_node_keys]
+    # Treat a known node_key or a comma-separated node list as a query.
+    elif rcv_info in valid_node_keys or any(separator in rcv_info for separator in (",", "，", "、")):
+        requested_nodes = _split_query_nodes(rcv_info)
+        query_nodes = [node for node in requested_nodes if node in valid_node_keys]
+        invalid_query_nodes = [node for node in requested_nodes if node not in valid_node_keys]
         cmd = "query"
 
     if cmd not in supported_commands:
@@ -51,10 +74,22 @@ def execute_command(msg_data, bot):
     elif cmd == "take":
         return bot.take(user_id, rcv_info)
     elif cmd == "query":
-        if rcv_info in cluster_configs:
-            return bot.query(user_id, rcv_info)
-        else:
-            return bot.query(user_id)
+        if query_nodes is not None:
+            if not query_nodes:
+                return bot.show_error(
+                    user_id,
+                    t(
+                        "error.invalid_node_key",
+                        config=getattr(bot, "config", None),
+                        node_key=", ".join(invalid_query_nodes),
+                        valid_keys=str(list(cluster_configs)),
+                    ),
+                )
+            node_filter = query_nodes[0] if len(query_nodes) == 1 else query_nodes
+            if invalid_query_nodes:
+                return bot.query(user_id, node_filter, invalid_query_nodes=invalid_query_nodes)
+            return bot.query(user_id, node_filter)
+        return bot.query(user_id)
     elif cmd in ("help", "h"):
         return bot.print_help(user_id)
     else:

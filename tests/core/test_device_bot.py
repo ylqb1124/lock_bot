@@ -157,6 +157,34 @@ def test_query_with_node_key_also_collects_usage(bot, monkeypatch):
     assert called.get("node_ips") == {"test": "10.0.0.1"}
 
 
+def test_query_with_multiple_node_keys_collects_only_requested_nodes(bot, monkeypatch):
+    """DEVICE multi-node query filters both GPU collection and the table."""
+    import lockbot.core.device_bot as device_bot_mod
+
+    bot.config.set_val(
+        "CLUSTER_CONFIGS",
+        {
+            "test": {"ip": "10.0.0.1", "devices": ["a800"]},
+            "test2": {"ip": "10.0.0.2", "devices": ["a800"]},
+            "test3": {"ip": "10.0.0.3", "devices": ["a800"]},
+        },
+    )
+    idle_device = {"dev_id": 0, "dev_model": "a800", "status": "idle", "current_users": []}
+    bot.state.bot_state = {"test": [idle_device], "test2": [idle_device.copy()], "test3": [idle_device.copy()]}
+    called = {}
+
+    def fake_collect(node_ips, config):
+        called["node_ips"] = node_ips
+        return {}
+
+    monkeypatch.setattr(device_bot_mod, "collect_node_usage", fake_collect)
+    content = bot.query("user1", ["test", "test2"])["message"]["body"][0]["content"]
+
+    assert called["node_ips"] == {"test": "10.0.0.1", "test2": "10.0.0.2"}
+    assert "test" in content and "test2" in content
+    assert "test3" not in content
+
+
 def test_node_ips_returns_valid_ips(bot):
     """_node_ips returns {node_key: ip} for nodes with a real IP."""
     bot.config.set_val(

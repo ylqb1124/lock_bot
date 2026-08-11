@@ -100,6 +100,27 @@ def test_query_single_node_collects_usage(bot, monkeypatch):
     assert called.get("node_ips") == {"test2": "10.0.0.2"}
 
 
+def test_query_multiple_nodes_collects_and_renders_only_requested_nodes(bot, monkeypatch):
+    """Multi-node queries collect and render only the requested nodes."""
+    import lockbot.core.node_bot as node_bot_mod
+
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2", "test3": "10.0.0.3"})
+    bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
+    bot.state.bot_state["test3"] = {"status": "idle", "current_users": [], "booking_list": []}
+    called = {}
+
+    def fake_collect(node_ips, config):
+        called["node_ips"] = node_ips
+        return {}
+
+    monkeypatch.setattr(node_bot_mod, "collect_node_usage", fake_collect)
+    content = bot.query("user1", ["test", "test2"])["message"]["body"][0]["content"]
+
+    assert called["node_ips"] == {"test": "10.0.0.1", "test2": "10.0.0.2"}
+    assert "test" in content and "test2" in content
+    assert "test3" not in content
+
+
 def test_node_ips(bot):
     """_node_ips returns {node_key: ip} and honors node_filter."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})

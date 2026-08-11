@@ -74,6 +74,52 @@ def test_command_node_key(config_get, base_msg, mock_robot):
 
 
 @patch("lockbot.core.config.Config.get")
+def test_command_multiple_node_keys(config_get, base_msg, mock_robot):
+    """A comma-separated node list dispatches a filtered query."""
+    config_get.return_value = {"node1": {}, "node2": {}, "node3": {}}
+    base_msg["message"]["body"][0]["content"] = "node1， node2"
+
+    result = execute_command(base_msg, mock_robot)
+
+    assert result["action"] == "query"
+    mock_robot.query.assert_called_once_with("user123", ["node1", "node2"])
+
+
+@patch("lockbot.core.config.Config.get")
+def test_query_command_multiple_node_keys(config_get, base_msg, mock_robot):
+    """The explicit query command accepts the same comma-separated node list."""
+    config_get.return_value = {"node1": {}, "node2": {}}
+    base_msg["message"]["body"][0]["content"] = "query node1,node2"
+
+    execute_command(base_msg, mock_robot)
+
+    mock_robot.query.assert_called_once_with("user123", ["node1", "node2"])
+
+
+@patch("lockbot.core.config.Config.get")
+def test_query_keeps_valid_nodes_and_reports_invalid_ones(config_get, base_msg, mock_robot):
+    config_get.return_value = {"node1": {}, "node2": {}}
+    base_msg["message"]["body"][0]["content"] = "query node1,missing,node2"
+
+    execute_command(base_msg, mock_robot)
+
+    mock_robot.query.assert_called_once_with("user123", ["node1", "node2"], invalid_query_nodes=["missing"])
+
+
+@patch("lockbot.core.config.Config.get")
+def test_query_with_only_invalid_nodes_returns_error(config_get, base_msg, mock_robot):
+    config_get.return_value = {"node1": {}}
+    base_msg["message"]["body"][0]["content"] = "query missing"
+
+    result = execute_command(base_msg, mock_robot)
+
+    assert result == mock_robot.show_error.return_value
+    mock_robot.query.assert_not_called()
+    mock_robot.print_help.assert_not_called()
+    mock_robot.show_error.assert_called_once()
+
+
+@patch("lockbot.core.config.Config.get")
 def test_command_fallback(config_get, base_msg, mock_robot):
     """Test that an unrecognized command falls back to print_help."""
     config_get.return_value = {}

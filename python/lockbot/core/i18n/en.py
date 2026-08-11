@@ -67,6 +67,7 @@ MESSAGES = {
     "alert.auto_released_list_header": "Released resources:\n",
     # ── Query ──
     "query.cluster_usage_title": "ℹ️ Cluster Usage Details\n",
+    "query.invalid_nodes": "⚠️ Unrecognized nodes: {node_keys}; showing valid node results below.\n",
     "query.idle_summary_node": '<font color="blue">**Unlocked nodes: {unlocked_nodes}; Current FREE nodes: {free_nodes}**</font>\n',
     "query.idle_summary_device": '<font color="blue">**Unlocked cards: {unlocked_devs}; Current FREE cards: {free_devs}**</font>\n',
     "query.status_tip": "ℹ️ Node status (XPU mem): BUSY=all busy, PARTIAL=some busy, FREE=all idle.\n",
@@ -123,6 +124,7 @@ MESSAGES = {
     "help.kickout_example": "    kickout {node} (force-release node {node})\n",
     "help.kickout_multi_example": "    kickout {node1},{node2} (force-release nodes {node1},{node2})\n",
     "help.query_node_example": "    query {node} (query node {node})\n",
+    "help.query_multi_node_example": "    query {node1},{node2} (query multiple nodes)\n",
     # ── Help text (DEVICE) command examples ──
     "help.lock_all_devices_example": "    lock {node} (lock all devices on node)\n",
     "help.lock_device_example": "    lock {node} dev0 (lock device 0 on {node})\n",
