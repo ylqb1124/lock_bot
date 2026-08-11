@@ -474,16 +474,17 @@ function createTrendService(config, options = {}) {
         let completed = false;
         try {
           const monqueryStartedAt = performance.now();
-          const monquery = await fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, targetNodes);
-          monqueryMs = performance.now() - monqueryStartedAt;
+          const monqueryPromise = fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, targetNodes)
+            .finally(() => { monqueryMs = performance.now() - monqueryStartedAt; });
+          const lockStartedAt = performance.now();
+          const lockPromise = lockSeries(config, startAt, endAt, authorization, intervalSeconds, targetNodes, lockHistoryCache, liveLockBotCache)
+            .finally(() => { lockMs = performance.now() - lockStartedAt; });
+          const [monquery, lock] = await Promise.all([monqueryPromise, lockPromise]);
           monqueryNodeCounts = monquery.nodeCounts;
           const { samples } = monquery;
           const times = samples.map(sample => sample.sampledAt);
           const xpu = samples.map(sample => sample.xpu);
           const memory = samples.map(sample => sample.memory);
-          const lockStartedAt = performance.now();
-          const lock = await lockSeries(config, startAt, endAt, authorization, intervalSeconds, targetNodes, lockHistoryCache, liveLockBotCache);
-          lockMs = performance.now() - lockStartedAt;
           const dataAsOf = times.reduce((result, timestamp, index) => Number.isFinite(xpu[index]) || Number.isFinite(memory[index]) ? timestamp : result, null);
           completed = true;
           return { times, xpu, memory, ...lock, dataAsOf, targetNodes, cache: { mode: 'lock-history' } };

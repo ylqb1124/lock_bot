@@ -40,7 +40,7 @@ const QUICK_RANGES = [
 const TREND_INTERVALS = [
   { maxMinutes: 360, seconds: 60 },
   { maxMinutes: 720, seconds: 120 },
-  { maxMinutes: 1440, seconds: 240 },
+  { maxMinutes: 1440, seconds: 360 },
   { maxMinutes: 2880, seconds: 480 },
   { maxMinutes: 10080, seconds: 1200 },
   { maxMinutes: 43200, seconds: 7200 },

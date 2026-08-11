@@ -81,6 +81,14 @@ test('backend endpoints are injected from named environment variables instead of
   assert.match(proxy, /process\.env\[hostEnv\]/);
 });
 
+test('cluster dashboard uses a six-minute trend interval for the 24-hour range', () => {
+  const dashboard = fs.readFileSync(path.join(PROJECT_ROOT, 'web/src/views/ClusterDashboard.vue'), 'utf8');
+  const proxy = fs.readFileSync(path.join(PROJECT_ROOT, 'web/server/proxy.cjs'), 'utf8');
+
+  assert.match(dashboard, /\{ maxMinutes: 1440, seconds: 360 \}/);
+  assert.match(proxy, /new Set\(\[60, 120, 240, 300, 360, 480/);
+});
+
 test('legacy static dashboard requests the same 66-node scope and namespaces as the Vue dashboard', () => {
   const legacyApi = fs.readFileSync(path.join(PROJECT_ROOT, 'api.js'), 'utf8');
   const monitored = legacyApi.match(/const MONITORED_NODES = \[([\s\S]*?)\];/);
@@ -842,6 +850,43 @@ test('automatic refresh only applies to a current range no longer than 24 hours'
   assert.equal(shouldAutoRefresh(now - 60_000, now + 60_000, now), false);
   assert.equal(nextAutoRefreshDelay(now), AUTO_REFRESH_INTERVAL_MS);
   assert.equal(nextAutoRefreshDelay(now + 60_000), 4 * 60 * 1000);
+});
+
+test('cluster trend starts Lock Bot lookup while Monquery is still pending', async () => {
+  let monqueryDone = false;
+  let lockStartedDuringMonquery = false;
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      setTimeout(() => {
+        monqueryDone = true;
+        response.end(JSON.stringify({ data: [] }));
+      }, 60);
+      return;
+    }
+    if (request.url === '/api/bots') {
+      lockStartedDuringMonquery = !monqueryDone;
+      response.end(JSON.stringify([]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(0, 300, 'Bearer test', ['node1'], 300);
+
+    assert.deepEqual(result.times, [0, 300]);
+    assert.equal(lockStartedDuringMonquery, true);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
 });
 
 test('Lock Bot BDC cards are excluded from the computation-node trend', async () => {

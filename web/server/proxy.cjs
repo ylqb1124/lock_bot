@@ -23,7 +23,7 @@ const LEGACY_STATIC_FILES = new Set([
 ]);
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config.json');
 const TREND_NODE_NAMES = new Set(clusterScope.nodeIds.map(node => `node${node}`));
-const TREND_INTERVALS = new Set([60, 120, 240, 300, 480, 1200, 7200, 21600, 43200]);
+const TREND_INTERVALS = new Set([60, 120, 240, 300, 360, 480, 1200, 7200, 21600, 43200]);
 const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
 
 function addChinaMonths(timestamp, months) {
