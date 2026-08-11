@@ -97,6 +97,19 @@ def test_query_command_multiple_node_keys(config_get, base_msg, mock_robot):
 
 
 @patch("lockbot.core.config.Config.get")
+def test_command_with_multiple_nodes_is_not_routed_as_a_query(config_get, base_msg, mock_robot):
+    """Commands such as book retain their multi-node argument unchanged."""
+    config_get.return_value = {"node1": {}, "node2": {}}
+    base_msg["message"]["body"][0]["content"] = "book node1,node2 2h"
+
+    result = execute_command(base_msg, mock_robot)
+
+    assert result["action"] == "book"
+    mock_robot.book.assert_called_once_with("user123", "book node1,node2 2h")
+    mock_robot.query.assert_not_called()
+
+
+@patch("lockbot.core.config.Config.get")
 def test_query_keeps_valid_nodes_and_reports_invalid_ones(config_get, base_msg, mock_robot):
     config_get.return_value = {"node1": {}, "node2": {}}
     base_msg["message"]["body"][0]["content"] = "query node1,missing,node2"

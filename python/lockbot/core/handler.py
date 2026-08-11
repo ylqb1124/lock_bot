@@ -48,7 +48,9 @@ def execute_command(msg_data, bot):
             query_nodes = [node for node in requested_nodes if node in valid_node_keys]
             invalid_query_nodes = [node for node in requested_nodes if node not in valid_node_keys]
     # Treat a known node_key or a comma-separated node list as a query.
-    elif rcv_info in valid_node_keys or any(separator in rcv_info for separator in (",", "，", "、")):
+    elif cmd not in supported_commands and (
+        rcv_info in valid_node_keys or any(separator in rcv_info for separator in (",", "，", "、"))
+    ):
         requested_nodes = _split_query_nodes(rcv_info)
         query_nodes = [node for node in requested_nodes if node in valid_node_keys]
         invalid_query_nodes = [node for node in requested_nodes if node not in valid_node_keys]
