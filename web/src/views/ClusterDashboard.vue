@@ -79,7 +79,7 @@ function persistNodeSelection(names) {
 
 const rangeStart = ref(null);
 const rangeEnd = ref(null);
-const quickRangeId = ref('3h');
+const quickRangeId = ref('24h');
 const trendDataAsOf = ref(null);
 const lastRefreshAt = ref(null);
 const draftStart = ref('');
@@ -342,7 +342,7 @@ function refreshData() {
 }
 
 function resetRange() {
-  setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
+  setQuickRange(QUICK_RANGES.find(range => range.id === '24h'));
   selectedNodes.value = [];
   draftSelectedNodes.value = [];
   persistNodeSelection([]);
@@ -717,7 +717,7 @@ function scheduleAutoRefresh() {
 
 onMounted(async () => {
   await syncServerTimeOffset();
-  setQuickRange(QUICK_RANGES.find(range => range.id === '3h'));
+  setQuickRange(QUICK_RANGES.find(range => range.id === '24h'));
   const storedNodes = loadStoredNodeSelection();
   selectedNodes.value = storedNodes;
   draftSelectedNodes.value = [...storedNodes];
@@ -774,7 +774,7 @@ onBeforeUnmount(() => {
           <div class="cluster-range-quick">
             <input v-model="quickSearch" class="cluster-quick-search" type="search" placeholder="搜索快捷时间" />
             <div class="cluster-quick-list"><button v-for="quick in filteredQuickRanges" :key="quick.id" type="button" class="cluster-quick-item" :class="{ active: quickRangeId === quick.id }" :disabled="loading" @click="setQuickRange(quick); commitNodeSelection(); load()">{{ quick.label }}</button></div>
-            <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="重置为最近 3 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
+            <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="重置为最近 24 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
           </div>
           <div class="cluster-range-nodes">
             <div class="cluster-range-title">节点筛选</div>
