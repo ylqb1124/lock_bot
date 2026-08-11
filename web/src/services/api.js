@@ -147,12 +147,24 @@ async function fetchMonqueryItems(start, end, nodeNums, items, options = {}) {
   return data.data || [];
 }
 
-function makeNodeBatches(batchSize) {
+function makeNodeBatches(batchSize, nodeNums = MONITORED_NODES) {
   const batches = [];
-  for (let i = 0; i < MONITORED_NODES.length; i += batchSize) {
-    batches.push(MONITORED_NODES.slice(i, i + batchSize));
+  for (let i = 0; i < nodeNums.length; i += batchSize) {
+    batches.push(nodeNums.slice(i, i + batchSize));
   }
   return batches;
+}
+
+export function metricNodeIdsAt(value) {
+  const timestamp = value instanceof Date ? value.getTime() : Number(value);
+  const excluded = new Set();
+  for (const group of clusterScope.metricUsageExclusions || []) {
+    const effectiveFrom = Date.parse(group.effectiveFrom);
+    if (Number.isFinite(effectiveFrom) && effectiveFrom <= timestamp) {
+      for (const nodeId of group.nodeIds || []) excluded.add(nodeId);
+    }
+  }
+  return MONITORED_NODES.filter(nodeId => !excluded.has(nodeId));
 }
 
 function parseMonqueryDateTime(value) {
@@ -286,8 +298,9 @@ export async function fetchTeamDashboard(start, end, token, options = {}) {
 
 export async function fetchMonqueryUtilization(start, end, options = {}) {
   const tasks = [];
+  const currentMetricNodes = metricNodeIdsAt(parseMonqueryDateTime(end));
   for (const [sliceStart, sliceEnd] of makeTimeSlices(start, end)) {
-    for (const nodeNums of makeNodeBatches(16)) {
+    for (const nodeNums of makeNodeBatches(16, currentMetricNodes)) {
       tasks.push(() => fetchMonqueryItems(sliceStart, sliceEnd, nodeNums, MONQUERY_ITEMS, options));
     }
   }

@@ -33,5 +33,11 @@
       "nodeIds": [38, 68, 69]
     }
   ],
+  "metricUsageExclusions": [
+    {
+      "effectiveFrom": "2026-08-11T08:00:00+08:00",
+      "nodeIds": [38, 68, 69]
+    }
+  ],
   "pendingNodeGroups": []
 }

@@ -5,10 +5,10 @@ const path = require('path');
 const { performance } = require('node:perf_hooks');
 const clusterScope = require('../shared/cluster-scope.json');
 const {
-  buildNodeScopeTimeline,
   buildNodeTimeline,
   buildLockUsageScopeTimeline,
   buildLockUsageTimeline,
+  buildMetricUsageScopeTimeline,
   nodeIdsAt,
   totalCardsAt,
 } = require('../shared/cluster-scope-timeline.cjs');
@@ -220,12 +220,15 @@ async function fetchMonqueryNodes(config, startAt, endAt, intervalSeconds, nodes
     });
     return requestJson(config.backend.monquery.host, config.backend.monquery.port, `/monquery/getHistoryitemdata?${params}`);
   }));
-  return parseSamples(responses.flatMap(normalizeEntries), startAt, endAt, intervalSeconds);
+  const entries = responses.flatMap(normalizeEntries).sort((left, right) => String(
+    left?.NameSpace ?? left?.Namespace ?? left?.namespace ?? '',
+  ).localeCompare(String(right?.NameSpace ?? right?.Namespace ?? right?.namespace ?? '')));
+  return parseSamples(entries, startAt, endAt, intervalSeconds);
 }
 
 async function fetchMonqueryWindow(config, startAt, endAt, intervalSeconds, requestedNodes = null) {
   const targetNodeIds = monitoredNodeIds(requestedNodes);
-  const scopeTimeline = buildNodeScopeTimeline(clusterScope, targetNodeIds);
+  const scopeTimeline = buildMetricUsageScopeTimeline(clusterScope, targetNodeIds);
   const windows = monqueryWindows(scopeTimeline, startAt, endAt, intervalSeconds);
   const samples = await Promise.all(windows.map(window => fetchMonqueryNodes(
     config,

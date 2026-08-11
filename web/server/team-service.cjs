@@ -3,7 +3,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const clusterScope = require('../shared/cluster-scope.json');
-const { buildNodeTimeline, buildNodeScopeTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+const { buildNodeTimeline, buildMetricUsageScopeTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
 const { createLockHistoryCache, lockHistoryScopeKey } = require('./trend-service.cjs');
 const { createTeamAccessService } = require('./team-access.cjs');
 const { createLockBotLiveCache } = require('./lockbot-live-cache.cjs');
@@ -480,7 +480,7 @@ function classifyUser(evidence, userId) {
 }
 
 function aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sampleSeconds = SAMPLE_SECONDS) {
-  const nodeScopeTimeline = buildNodeScopeTimeline(clusterScope, clusterScope.nodeIds);
+  const nodeScopeTimeline = buildMetricUsageScopeTimeline(clusterScope, clusterScope.nodeIds);
   const intervalsByNode = new Map();
   for (const interval of intervals) {
     const values = intervalsByNode.get(interval.node) || [];

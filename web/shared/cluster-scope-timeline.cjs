@@ -58,7 +58,7 @@ function buildNodeTimeline(clusterScope, targetNodeIds) {
  * 为锁定率生成专用节点范围时间线。lockUsageExclusions 只影响锁定率的
  * 分子与分母，不改变 XPU/显存趋势、Monquery 查询范围或当前概览的节点范围。
  */
-function buildLockUsageScopeTimeline(clusterScope, targetNodeIds) {
+function buildExclusionScopeTimeline(clusterScope, targetNodeIds, exclusions) {
   const targetSet = targetNodeIds instanceof Set ? targetNodeIds : new Set(targetNodeIds);
   const events = new Map();
   const addEvent = (effectiveFrom, type, nodeIds) => {
@@ -69,7 +69,7 @@ function buildLockUsageScopeTimeline(clusterScope, targetNodeIds) {
   };
 
   for (const group of clusterScope.nodeGroups || []) addEvent(group.effectiveFrom, 'add', group.nodeIds || []);
-  for (const group of clusterScope.lockUsageExclusions || []) addEvent(group.effectiveFrom, 'remove', group.nodeIds || []);
+  for (const group of exclusions || []) addEvent(group.effectiveFrom, 'remove', group.nodeIds || []);
 
   const activeNodeIds = new Set();
   const removedNodeIds = new Set();
@@ -87,9 +87,21 @@ function buildLockUsageScopeTimeline(clusterScope, targetNodeIds) {
     });
 }
 
+function buildLockUsageScopeTimeline(clusterScope, targetNodeIds) {
+  return buildExclusionScopeTimeline(clusterScope, targetNodeIds, clusterScope.lockUsageExclusions);
+}
+
 function buildLockUsageTimeline(clusterScope, targetNodeIds) {
   return buildLockUsageScopeTimeline(clusterScope, targetNodeIds)
     .map(step => ({ effectiveFromSeconds: step.effectiveFromSeconds, cumulativeCount: step.nodeIds.length }));
+}
+
+/**
+ * 为 XPU/显存生成专用节点范围时间线。节点仍属于资产范围和筛选范围，
+ * 但在 metricUsageExclusions 生效后不再参与指标查询与聚合。
+ */
+function buildMetricUsageScopeTimeline(clusterScope, targetNodeIds) {
+  return buildExclusionScopeTimeline(clusterScope, targetNodeIds, clusterScope.metricUsageExclusions);
 }
 
 /**
@@ -123,6 +135,7 @@ module.exports = {
   buildNodeTimeline,
   buildLockUsageScopeTimeline,
   buildLockUsageTimeline,
+  buildMetricUsageScopeTimeline,
   nodeIdsAt,
   nodeCountAt,
   totalCardsAt,

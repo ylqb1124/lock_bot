@@ -13,7 +13,7 @@ import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } fro
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../src/services/chart-data.js';
 import { buildClusterStats } from '../src/services/cluster-stats.js';
 import { CARD_COUNT, mergeLockBotStates } from '../src/services/cluster-state.js';
-import { CURRENT_MONQUERY_TIMEOUT_MS, DEFAULT_MONQUERY_TIMEOUT_MS } from '../src/services/api.js';
+import { CURRENT_MONQUERY_TIMEOUT_MS, DEFAULT_MONQUERY_TIMEOUT_MS, metricNodeIdsAt } from '../src/services/api.js';
 import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/server-time.js';
 import { formatAverageUserCount } from '../src/services/team-metrics.js';
 
@@ -46,6 +46,24 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   const groupIds = clusterScope.nodeGroups.flatMap(group => group.nodeIds).slice().sort((a, b) => a - b);
   const flatIds = [...clusterScope.nodeIds].sort((a, b) => a - b);
   assert.deepEqual(groupIds, flatIds);
+});
+
+test('metric monitoring keeps 66 assets but excludes node38, node68, and node69 from Beijing 08:00', () => {
+  const { buildMetricUsageScopeTimeline, nodeIdsAt } = require('../shared/cluster-scope-timeline.cjs');
+  const before = Math.floor(new Date('2026-08-11T07:59:59+08:00').getTime() / 1000);
+  const effectiveFrom = Math.floor(new Date('2026-08-11T08:00:00+08:00').getTime() / 1000);
+  const timeline = buildMetricUsageScopeTimeline(clusterScope, clusterScope.nodeIds);
+
+  assert.equal(clusterScope.nodeIds.length, 66);
+  assert.deepEqual(clusterScope.metricUsageExclusions, [{
+    effectiveFrom: '2026-08-11T08:00:00+08:00',
+    nodeIds: [38, 68, 69],
+  }]);
+  assert.equal(nodeIdsAt(timeline, before).length, 66);
+  assert.equal(nodeIdsAt(timeline, effectiveFrom).length, 63);
+  assert.deepEqual(nodeIdsAt(timeline, effectiveFrom).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
+  assert.equal(metricNodeIdsAt(new Date('2026-08-11T07:59:59+08:00')).length, 66);
+  assert.deepEqual(metricNodeIdsAt(new Date('2026-08-11T08:00:00+08:00')).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
 });
 
 test('cluster node average usage card averages valid lock trend points in the selected range', () => {
@@ -500,6 +518,25 @@ test('team aggregation excludes a node before its scope effective date', () => {
   assert.equal(ownership.allTimes.length, 0);
   assert.equal(ownership.userSamples.size, 0);
   assert.equal(ownership.teamPoints.size, 0);
+});
+
+test('team metric aggregation keeps excluded-node history before Beijing 08:00 and ignores later samples', () => {
+  const before = Math.floor(new Date('2026-08-11T07:55:00+08:00').getTime() / 1000);
+  const effectiveFrom = Math.floor(new Date('2026-08-11T08:00:00+08:00').getTime() / 1000);
+  const cards = Array.from({ length: CARD_COUNT }, () => ({}));
+  cards[0] = { xpu: 60, memory: 70 };
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'excluded-node-user', node: 'node38', cards: [0], start: before - 1, end: effectiveFrom + 1 },
+  ], new Map([['node38', new Map([
+    [before, cards],
+    [effectiveFrom, cards],
+  ])]]), {
+    'excluded-node-user': { team: 'training' },
+  }, before - 1, effectiveFrom + 1, 300);
+
+  assert.deepEqual(ownership.allTimes, [before]);
+  assert.equal(ownership.userSamples.get('excluded-node-user').sampleCount, 1);
+  assert.equal(ownership.teamPoints.has(effectiveFrom), false);
 });
 
 test('team ownership expands node locks, deduplicates one user, and excludes competing users on one card', () => {
@@ -1106,6 +1143,57 @@ test('Monquery trends only query nodes active at each scope boundary', async (t)
     const nodesByWindowStart = new Map(monqueryRequests.map(request => [request.start, request.nodes]));
     assert.deepEqual(nodesByWindowStart.get('20260723235500'), [1]);
     assert.deepEqual(nodesByWindowStart.get('20260724000000'), [1, 60]);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('metric exclusions make post-boundary trends identical with or without the excluded nodes', async () => {
+  const before = Math.floor(new Date('2026-08-11T07:55:00+08:00').getTime() / 1000);
+  const effectiveFrom = Math.floor(new Date('2026-08-11T08:00:00+08:00').getTime() / 1000);
+  const monqueryRequests = [];
+  const upstream = createServer((request, response) => {
+    if (!request.url.startsWith('/monquery/getHistoryitemdata')) {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    const params = new URL(request.url, 'http://localhost').searchParams;
+    const nodes = params.get('namespaces').match(/node\d+/g).map(name => Number(name.slice(4)));
+    const timestamps = [params.get('start'), params.get('end')].map(value => Math.floor(new Date(
+      `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(8, 10)}:${value.slice(10, 12)}:${value.slice(12, 14)}+08:00`
+    ).getTime() / 1000));
+    monqueryRequests.push({ start: params.get('start'), nodes });
+    response.end(JSON.stringify({ data: nodes.map(node => ({
+      NameSpace: `node${node}`,
+      Items: {
+        XPU_AVERAGE_UTILIZATION: timestamps.map(Timestamp => ({ Timestamp, Value: node === 38 ? 90 : 10 })),
+        XPU0_MEM_UTILIZATION: timestamps.map(Timestamp => ({ Timestamp, Value: node === 38 ? 80 : 20 })),
+      },
+    })) }));
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const crossing = await service.query(before, effectiveFrom, null, ['node1', 'node38'], 300);
+    const activeOnly = await service.query(effectiveFrom, effectiveFrom, null, ['node1'], 300);
+    const excludedOnly = await service.query(effectiveFrom, effectiveFrom, null, ['node38'], 300);
+
+    assert.deepEqual(crossing.xpu, [50, 10]);
+    assert.deepEqual(crossing.memory, [50, 20]);
+    assert.deepEqual([crossing.xpu[1]], activeOnly.xpu);
+    assert.deepEqual([crossing.memory[1]], activeOnly.memory);
+    assert.deepEqual(excludedOnly.xpu, [null]);
+    assert.deepEqual(excludedOnly.memory, [null]);
+    const nodesByWindowStart = new Map(monqueryRequests.map(request => [request.start, request.nodes]));
+    assert.deepEqual(nodesByWindowStart.get('20260811075500'), [1, 38]);
+    assert.deepEqual(nodesByWindowStart.get('20260811080000'), [1]);
   } finally {
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
   }
