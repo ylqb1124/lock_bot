@@ -30,16 +30,18 @@ function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
 }
 
-test('cluster scope uses the current 66-node, 528-card computation denominator', () => {
-  assert.equal(clusterScope.nodeIds.length, 66);
+test('cluster scope uses the current 68-node, 544-card computation denominator', () => {
+  assert.equal(clusterScope.nodeIds.length, 68);
   assert.equal(clusterScope.cardsPerNode, 8);
-  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 528);
+  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 544);
   assert.equal(clusterScope.nodeIds.includes(15), false);
   assert.equal(clusterScope.nodeIds.includes(16), false);
   assert.equal(clusterScope.nodeIds.includes(60), true);
   assert.equal(clusterScope.nodeIds.includes(69), true);
   assert.equal(clusterScope.nodeIds.includes(70), true);
   assert.equal(clusterScope.nodeIds.includes(79), true);
+  assert.equal(clusterScope.nodeIds.includes(83), true);
+  assert.equal(clusterScope.nodeIds.includes(84), true);
 });
 
 test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', () => {
@@ -48,21 +50,22 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   assert.deepEqual(groupIds, flatIds);
 });
 
-test('metric monitoring keeps 66 assets but excludes node38, node68, and node69 from Beijing 08:00', () => {
+test('metric monitoring keeps 68 assets but excludes node38, node68, and node69 from Beijing 08:00', () => {
   const { buildMetricUsageScopeTimeline, nodeIdsAt } = require('../shared/cluster-scope-timeline.cjs');
   const before = Math.floor(new Date('2026-08-11T07:59:59+08:00').getTime() / 1000);
   const effectiveFrom = Math.floor(new Date('2026-08-11T08:00:00+08:00').getTime() / 1000);
   const timeline = buildMetricUsageScopeTimeline(clusterScope, clusterScope.nodeIds);
 
-  assert.equal(clusterScope.nodeIds.length, 66);
+  assert.equal(clusterScope.nodeIds.length, 68);
   assert.deepEqual(clusterScope.metricUsageExclusions, [{
     effectiveFrom: '2026-08-11T08:00:00+08:00',
     nodeIds: [38, 68, 69],
   }]);
+  // node83、node84 于 2026-08-12 才生效，08-11 的历史时间点仍是 66 节点。
   assert.equal(nodeIdsAt(timeline, before).length, 66);
   assert.equal(nodeIdsAt(timeline, effectiveFrom).length, 63);
   assert.deepEqual(nodeIdsAt(timeline, effectiveFrom).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
-  assert.equal(metricNodeIdsAt(new Date('2026-08-11T07:59:59+08:00')).length, 66);
+  assert.equal(metricNodeIdsAt(new Date('2026-08-11T07:59:59+08:00')).length, 68);
   assert.deepEqual(metricNodeIdsAt(new Date('2026-08-11T08:00:00+08:00')).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
 });
 
@@ -107,7 +110,7 @@ test('cluster dashboard uses a six-minute trend interval for the 24-hour range',
   assert.match(proxy, /new Set\(\[60, 120, 240, 300, 360, 480/);
 });
 
-test('legacy static dashboard requests the same 66-node scope and namespaces as the Vue dashboard', () => {
+test('legacy static dashboard requests the same 68-node scope and namespaces as the Vue dashboard', () => {
   const legacyApi = fs.readFileSync(path.join(PROJECT_ROOT, 'api.js'), 'utf8');
   const monitored = legacyApi.match(/const MONITORED_NODES = \[([\s\S]*?)\];/);
   const nonBackup = legacyApi.match(/const NON_BACKUP_NODES = \[([\s\S]*?)\];/);
@@ -117,7 +120,7 @@ test('legacy static dashboard requests the same 66-node scope and namespaces as 
   const nonBackupNodeIds = nonBackup[1].match(/\d+/g).map(Number);
 
   assert.deepEqual(nodeIds, clusterScope.nodeIds);
-  assert.deepEqual(nonBackupNodeIds.filter(nodeId => nodeId >= 70), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
+  assert.deepEqual(nonBackupNodeIds.filter(nodeId => nodeId >= 70), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 83, 84]);
 });
 
 test('legacy node view uses the application login and keeps its filter, rankings, and expandable card details', () => {
@@ -274,7 +277,7 @@ test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {
     },
   ]);
 
-  assert.equal(Object.keys(merged.deviceState).length, 66);
+  assert.equal(Object.keys(merged.deviceState).length, 68);
   assert.equal(merged.lockStateComplete, true);
   assert.equal(merged.deviceState.node1.length, CARD_COUNT);
   assert.equal(merged.deviceState.node1[0].current_users.length, 1);
@@ -967,9 +970,11 @@ test('Lock Bot BDC cards are excluded from the computation-node trend', async ()
     }, { lockHistoryCache: { read: () => null, save: () => {} } });
     const result = await service.query(0, 300, 'Bearer test', null, 300);
 
-    assert.equal(result.targetNodes.length, 66);
+    assert.equal(result.targetNodes.length, 68);
     assert.equal(result.targetNodes.includes('bdc9'), false);
     assert.equal(result.targetNodes.includes('node70'), true);
+    assert.equal(result.targetNodes.includes('node83'), true);
+    assert.equal(result.targetNodes.includes('node84'), true);
     assert.equal(result.lock[0], 0);
     assert.equal(monqueryNamespaces.length, 3);
     assert.equal(monqueryNamespaces.some(namespaces => /bdc|NaN/i.test(namespaces)), false);
@@ -1280,7 +1285,7 @@ test('lock rate adds node70 through node79 at 10:00 China time', async (t) => {
   const beforeActivation = Math.floor(new Date('2026-07-29T09:55:00+08:00').getTime() / 1000);
   const atActivation = Math.floor(new Date('2026-07-29T10:00:00+08:00').getTime() / 1000);
   const priorNodeCount = clusterScope.nodeGroups
-    .filter(group => group.effectiveFrom !== '2026-07-29T10:00:00+08:00')
+    .filter(group => group.effectiveFrom < '2026-07-29T10:00:00+08:00')
     .flatMap(group => group.nodeIds)
     .length;
   const activationNodeCount = clusterScope.nodeGroups
@@ -1337,6 +1342,72 @@ test('lock rate adds node70 through node79 at 10:00 China time', async (t) => {
   }
 });
 
+test('lock rate adds node83 and node84 at their 2026-08-12 18:00 China-time boundary', async (t) => {
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2026-08-13T00:00:00+08:00').getTime();
+  t.after(() => { Date.now = originalDateNow; });
+
+  const beforeActivation = Math.floor(new Date('2026-08-12T17:55:00+08:00').getTime() / 1000);
+  const atActivation = Math.floor(new Date('2026-08-12T18:00:00+08:00').getTime() / 1000);
+  const activation = clusterScope.nodeGroups.find(group => group.effectiveFrom === '2026-08-12T18:00:00+08:00');
+  const exclusionIds = new Set((clusterScope.lockUsageExclusions || []).flatMap(group => group.nodeIds));
+  const priorNodeCount = clusterScope.nodeGroups
+    .filter(group => group.effectiveFrom < '2026-08-12T18:00:00+08:00')
+    .flatMap(group => group.nodeIds)
+    .filter(nodeId => !exclusionIds.has(nodeId))
+    .length;
+  const activationNodeCount = activation.nodeIds.filter(nodeId => !exclusionIds.has(nodeId)).length;
+  const priorTotalCards = priorNodeCount * clusterScope.cardsPerNode;
+  const activeTotalCards = (priorNodeCount + activationNodeCount) * clusterScope.cardsPerNode;
+
+  assert.deepEqual(activation.nodeIds, [83, 84]);
+  assert.equal(priorNodeCount, 63);
+  assert.equal(activationNodeCount, 2);
+
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'NODE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      response.end(JSON.stringify([{
+        node_key: 'node1',
+        dev_id: 0,
+        start_time: beforeActivation,
+        end_time: atActivation + 24 * 60 * 60,
+      }, {
+        node_key: 'node83',
+        dev_id: 0,
+        start_time: beforeActivation,
+        end_time: atActivation + 24 * 60 * 60,
+      }]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(beforeActivation, atActivation, 'Bearer test', null, 300);
+
+    assert.equal(result.lock[0], 1 / priorTotalCards * 100);
+    assert.equal(result.lock[result.times.indexOf(atActivation)], 2 / activeTotalCards * 100);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 test('lock rate excludes node38, node68, and node69 from its scope at the removal boundary', async (t) => {
   const originalDateNow = Date.now;
   Date.now = () => new Date('2026-08-06T00:00:00+08:00').getTime();
@@ -1344,9 +1415,14 @@ test('lock rate excludes node38, node68, and node69 from its scope at the remova
 
   const beforeRemoval = Math.floor(new Date('2026-08-04T23:55:00+08:00').getTime() / 1000);
   const removalTime = Math.floor(new Date('2026-08-05T00:00:00+08:00').getTime() / 1000);
-  const originalTotalCards = clusterScope.nodeIds.length * clusterScope.cardsPerNode;
+  // 该边界处 node83、node84 尚未上线（2026-08-12 生效），历史分母只含当时已生效节点。
+  const activeNodeCount = clusterScope.nodeGroups
+    .filter(group => group.effectiveFrom < '2026-08-05T00:00:00+08:00')
+    .flatMap(group => group.nodeIds)
+    .length;
+  const originalTotalCards = activeNodeCount * clusterScope.cardsPerNode;
   const exclusion = clusterScope.lockUsageExclusions.find(group => group.effectiveFrom === '2026-08-05T00:00:00+08:00');
-  const reducedTotalCards = (clusterScope.nodeIds.length - exclusion.nodeIds.length) * clusterScope.cardsPerNode;
+  const reducedTotalCards = (activeNodeCount - exclusion.nodeIds.length) * clusterScope.cardsPerNode;
   const monqueryNodes = new Set();
 
   assert.deepEqual(exclusion.nodeIds, [38, 68, 69]);
