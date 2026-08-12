@@ -30,9 +30,21 @@ const TREND_SERIES = [
   { field: 'lockedCards', label: '占用卡数', color: '#f97316', axis: 'cards', className: 'cards' },
 ];
 const TEAM_COLORS = {
-  'operator-testing': '#ea580c',
-  inference: '#3b82f6',
-  training: '#16a34a',
+  toolchain: '#ea580c',
+  'inference-product': '#3b82f6',
+  hpc: '#0ea5e9',
+  'training-product': '#16a34a',
+  'training-arch': '#22c55e',
+  'inference-arch-a': '#6366f1',
+  'inference-arch-b': '#818cf8',
+  driver: '#f59e0b',
+  multimedia: '#ec4899',
+  qa: '#14b8a6',
+  'paddle-product': '#10b981',
+  'group-arch': '#a855f7',
+  'frontier-arch': '#f43f5e',
+  'comm-lib': '#06b6d4',
+  'software-product': '#eab308',
   'general-research': '#8b5cf6',
 };
 const PIE_CIRCUMFERENCE = 2 * Math.PI * 50;

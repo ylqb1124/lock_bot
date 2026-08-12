@@ -34,11 +34,24 @@ const MONQUERY_ITEMS = Array.from({ length: CARD_COUNT }, (_, card) => [
   `XPU${card}_MEM_UTILIZATION`,
 ]).flat();
 const MEMBERSHIP_PATH = path.join(__dirname, '..', '.devdata', 'team-membership.json');
+const FALLBACK_TEAM_ID = 'general-research';
 const TEAM_DEFINITIONS = [
-  { id: 'operator-testing', label: '算子测试团队' },
-  { id: 'inference', label: '推理团队' },
-  { id: 'training', label: '训练团队' },
-  { id: 'general-research', label: '通用研发' },
+  { id: 'toolchain', label: '工具链组' },
+  { id: 'inference-product', label: '推理产品组' },
+  { id: 'hpc', label: '高性能计算组' },
+  { id: 'training-product', label: '训练产品组' },
+  { id: 'training-arch', label: '训练业务架构组' },
+  { id: 'inference-arch-a', label: '推理业务架构A组' },
+  { id: 'driver', label: '驱动组' },
+  { id: 'multimedia', label: '多媒体组' },
+  { id: 'qa', label: '测试组' },
+  { id: 'paddle-product', label: '飞桨产品组' },
+  { id: 'group-arch', label: '集团业务架构组' },
+  { id: 'inference-arch-b', label: '推理业务架构B组' },
+  { id: 'frontier-arch', label: '前沿架构组' },
+  { id: 'comm-lib', label: '通信库组' },
+  { id: 'software-product', label: '软件产品组' },
+  { id: FALLBACK_TEAM_ID, label: '通用研发' },
 ];
 
 function createHttpError(message, statusCode = 502) {
@@ -455,28 +468,33 @@ function userEvidence(user, sampleSeconds = user.sampleSeconds || SAMPLE_SECONDS
   };
 }
 
-function simulatedTeamForUser(userId) {
-  const index = crypto.createHash('sha256').update(String(userId || 'unassigned')).digest()[0] % TEAM_DEFINITIONS.length;
-  return TEAM_DEFINITIONS[index].id;
+function normalizeUserKey(userId) {
+  return String(userId || '').trim().toLowerCase();
+}
+
+// Lock Bot user ids are "pinyin + optional suffix" (zhangshaokun02, lisi), while the
+// roster is keyed by bare pinyin. Strip the trailing digits to recover the roster key.
+function pinyinFromUserId(userId) {
+  return normalizeUserKey(userId).replace(/[\s_-]*\d+$/, '');
+}
+
+function assignmentForUser(assignments, userId) {
+  if (!assignments) return null;
+  const raw = String(userId || '').trim();
+  return assignments[raw]
+    || assignments[normalizeUserKey(raw)]
+    || assignments[pinyinFromUserId(raw)]
+    || null;
 }
 
 function effectiveTeamForUser(assignments, userId) {
-  return assignments?.[userId]?.team || simulatedTeamForUser(userId);
+  return assignmentForUser(assignments, userId)?.team || FALLBACK_TEAM_ID;
 }
 
 function classifyUser(evidence, userId) {
-  const simulatedTeam = simulatedTeamForUser(userId);
-  if (evidence.sampleCount < 36) return { team: simulatedTeam, pending: true, confidence: 0, reason: '有效卡级样本不足 36 个，按用户稳定模拟分组' };
-  if (evidence.meanXpu >= 50 && evidence.meanMemory >= 60 && evidence.bothHighRatio >= 0.6) {
-    return { team: 'training', pending: false, confidence: Math.min(0.98, 0.7 + evidence.bothHighRatio * 0.25), reason: 'XPU 与显存持续双高' };
-  }
-  if (evidence.meanMemory >= 60 && evidence.memoryHighRatio >= 0.7 && evidence.xpuHighRatio >= 0.05 && evidence.xpuHighRatio <= 0.5) {
-    return { team: 'inference', pending: false, confidence: Math.min(0.94, 0.62 + evidence.memoryHighRatio * 0.25), reason: '显存持续高位，XPU 间歇高值' };
-  }
-  if (evidence.meanXpu >= evidence.meanMemory + 10 && evidence.transitionsPerHour >= 2) {
-    return { team: 'operator-testing', pending: false, confidence: Math.min(0.92, 0.6 + evidence.transitionsPerHour * 0.08), reason: 'XPU 高于显存且高低跳动频繁' };
-  }
-  return { team: simulatedTeam, pending: true, confidence: 0.35, reason: '未命中稳定负载特征，按用户稳定模拟分组' };
+  const fallback = { team: FALLBACK_TEAM_ID, pending: true, confidence: 0, reason: '花名册未收录该用户，归入通用研发' };
+  if (evidence.sampleCount < 36) return fallback;
+  return fallback;
 }
 
 function aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sampleSeconds = SAMPLE_SECONDS) {
@@ -509,7 +527,6 @@ function aggregateOwnership(intervals, metrics, assignments, startAt, endAt, sam
           continue;
         }
         const userId = [...owners][0];
-        const assignment = assignments?.[userId];
         const team = effectiveTeamForUser(assignments, userId);
         const user = userSamples.get(userId) || { ...createUserAggregate(userId), sampleSeconds };
         if (!user.samples) user.samples = [];
@@ -564,7 +581,7 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
         perTeam[team.id].memorySum += point.memorySum;
         point.users.forEach(userId => {
           perTeam[team.id].users.add(userId);
-          if (membership.assignments?.[userId]?.pending || !membership.assignments?.[userId]) perTeam[team.id].pendingUsers.add(userId);
+          if (assignmentForUser(membership.assignments, userId)?.pending !== false) perTeam[team.id].pendingUsers.add(userId);
         });
       }
       latest[team.id] = output;
@@ -599,11 +616,11 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
   });
   const rankings = [...ownership.userSamples.values()].map(user => {
     const evidence = userEvidence(user, sampleSeconds);
-    const assignment = membership.assignments?.[user.userId];
+    const assignment = assignmentForUser(membership.assignments, user.userId);
     return {
       userId: user.userId,
       team: effectiveTeamForUser(membership.assignments, user.userId),
-      source: assignment?.source || 'simulated',
+      source: assignment?.source || 'unlisted',
       pending: assignment?.pending ?? true,
       confidence: assignment?.confidence ?? 0,
       cardHours: evidence.cardHours,
@@ -676,11 +693,10 @@ function mergeAutoAssignments(existing, userSamples, startAt, endAt, generatedAt
       evidence: Object.fromEntries(Object.entries(evidence).map(([key, value]) => [key, Number.isFinite(value) ? Number(value.toFixed(3)) : value])),
       generatedAt,
     };
-    if (assignments[user.userId]?.source === 'manual') {
-      assignments[user.userId] = { ...assignments[user.userId], candidate };
-    } else {
-      assignments[user.userId] = { ...candidate, source: 'auto' };
+    if (assignmentForUser(assignments, user.userId)?.source === 'manual') {
+      continue;
     }
+    assignments[user.userId] = { ...candidate, source: 'auto' };
   }
   return {
     version: 1,
@@ -999,6 +1015,7 @@ module.exports = {
   createTeamService,
   _private: {
     TEAM_DEFINITIONS,
+    FALLBACK_TEAM_ID,
     MIN_RANGE_SECONDS,
     MAX_RANGE_SECONDS,
     SAMPLE_SECONDS,
@@ -1015,7 +1032,8 @@ module.exports = {
     mergeTeamDefinitions,
     mergeMembership,
     classifyUser,
-    simulatedTeamForUser,
+    pinyinFromUserId,
+    assignmentForUser,
     effectiveTeamForUser,
     userEvidence,
     mergeAutoAssignments,

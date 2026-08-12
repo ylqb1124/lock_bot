@@ -337,48 +337,34 @@ test('chart helpers skip empty points, expand the scale, and cap percentage axes
   });
 });
 
-test('team classifier prioritizes training, then inference, then operator testing', () => {
-  assert.deepEqual(teamPrivate.classifyUser({
-    sampleCount: 100,
-    meanXpu: 72,
-    meanMemory: 81,
-    bothHighRatio: 0.72,
-    memoryHighRatio: 0.8,
-    xpuHighRatio: 0.3,
-    transitionsPerHour: 3,
-  }).team, 'training');
-  assert.deepEqual(teamPrivate.classifyUser({
-    sampleCount: 100,
-    meanXpu: 24,
-    meanMemory: 76,
-    bothHighRatio: 0.1,
-    memoryHighRatio: 0.8,
-    xpuHighRatio: 0.2,
-    transitionsPerHour: 0.3,
-  }).team, 'inference');
-  assert.deepEqual(teamPrivate.classifyUser({
-    sampleCount: 100,
-    meanXpu: 58,
-    meanMemory: 33,
-    bothHighRatio: 0.1,
-    memoryHighRatio: 0.2,
-    xpuHighRatio: 0.6,
-    transitionsPerHour: 2.2,
-  }).team, 'operator-testing');
-  assert.equal(teamPrivate.classifyUser({ sampleCount: 35 }).pending, true);
+test('roster lookup resolves Lock Bot user ids with numeric suffixes to their bare pinyin key', () => {
+  assert.equal(teamPrivate.pinyinFromUserId('zhangshaokun02'), 'zhangshaokun');
+  assert.equal(teamPrivate.pinyinFromUserId('zhangshaokun'), 'zhangshaokun');
+  assert.equal(teamPrivate.pinyinFromUserId('ZhangShaoKun02'), 'zhangshaokun');
+  assert.equal(teamPrivate.pinyinFromUserId('lisi_01'), 'lisi');
+  assert.equal(teamPrivate.pinyinFromUserId('lisi-3'), 'lisi');
 });
 
-test('unclassified users receive a stable simulated team instead of collapsing into general research', () => {
-  const evidence = { sampleCount: 35 };
-  const first = teamPrivate.classifyUser(evidence, 'unclassified-user');
-  const second = teamPrivate.classifyUser(evidence, 'unclassified-user');
+test('roster assignment matches exact id before falling back to the pinyin key', () => {
+  const assignments = {
+    zhangshaokun: { team: 'group-arch', source: 'manual', pending: false },
+    lisi02: { team: 'qa', source: 'manual', pending: false },
+  };
 
-  assert.equal(first.team, second.team);
-  assert.notEqual(first.team, undefined);
-  assert.match(first.reason, /稳定模拟分组/);
+  assert.equal(teamPrivate.assignmentForUser(assignments, 'zhangshaokun02').team, 'group-arch');
+  assert.equal(teamPrivate.assignmentForUser(assignments, 'zhangshaokun').team, 'group-arch');
+  assert.equal(teamPrivate.assignmentForUser(assignments, 'lisi02').team, 'qa');
+  assert.equal(teamPrivate.assignmentForUser(assignments, 'unlisted07'), null);
 });
 
-test('unmapped users use the same stable simulated team in ownership and rankings', () => {
+test('users missing from the roster fall back to general research instead of a hashed team', () => {
+  assert.equal(teamPrivate.effectiveTeamForUser({}, 'unlisted-user'), teamPrivate.FALLBACK_TEAM_ID);
+  assert.equal(teamPrivate.effectiveTeamForUser({}, 'unlisted-user'), 'general-research');
+  assert.equal(teamPrivate.classifyUser({ sampleCount: 100 }, 'unlisted-user').team, 'general-research');
+  assert.equal(teamPrivate.classifyUser({ sampleCount: 100 }, 'unlisted-user').pending, true);
+});
+
+test('unmapped users are grouped into general research in both ownership and rankings', () => {
   const timestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
   const cards = Array.from({ length: CARD_COUNT }, () => ({}));
   cards[0] = { xpu: 52, memory: 72 };
@@ -387,12 +373,28 @@ test('unmapped users use the same stable simulated team in ownership and ranking
     { userId: 'unmapped-b', node: 'node1', cards: [0], start: timestamp - 1, end: timestamp + 1 },
   ], new Map([['node1', new Map([[timestamp, cards]])]]), assignments, timestamp - 1, timestamp + 1, 300);
   const payload = teamPrivate.buildDashboardPayload(ownership, { assignments }, timestamp - 1, timestamp + 1, 300);
-  const simulatedTeam = teamPrivate.simulatedTeamForUser('unmapped-b');
 
-  assert.equal(simulatedTeam, 'operator-testing');
-  assert.equal(ownership.teamPoints.get(timestamp).get(simulatedTeam).cardCount, 1);
-  assert.equal(payload.rankings[0].team, simulatedTeam);
-  assert.equal(payload.rankings[0].source, 'simulated');
+  assert.equal(ownership.teamPoints.get(timestamp).get('general-research').cardCount, 1);
+  assert.equal(payload.rankings[0].team, 'general-research');
+  assert.equal(payload.rankings[0].source, 'unlisted');
+});
+
+test('roster-mapped users are counted under their organization team via the pinyin key', () => {
+  const timestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
+  const cards = Array.from({ length: CARD_COUNT }, () => ({}));
+  cards[0] = { xpu: 52, memory: 72 };
+  const assignments = { zhangshaokun: { team: 'group-arch', source: 'manual', pending: false, confidence: 1 } };
+  const ownership = teamPrivate.aggregateOwnership([
+    { userId: 'zhangshaokun02', node: 'node1', cards: [0], start: timestamp - 1, end: timestamp + 1 },
+  ], new Map([['node1', new Map([[timestamp, cards]])]]), assignments, timestamp - 1, timestamp + 1, 300);
+  const payload = teamPrivate.buildDashboardPayload(ownership, { assignments }, timestamp - 1, timestamp + 1, 300);
+  const groupArch = payload.teams.find(team => team.id === 'group-arch');
+
+  assert.equal(ownership.teamPoints.get(timestamp).get('group-arch').cardCount, 1);
+  assert.equal(groupArch.pendingUserCount, 0);
+  assert.equal(payload.rankings[0].userId, 'zhangshaokun02');
+  assert.equal(payload.rankings[0].team, 'group-arch');
+  assert.equal(payload.rankings[0].source, 'manual');
 });
 
 test('average active user counts are rounded up for display', () => {
@@ -434,18 +436,18 @@ test('team payload converts multi-hour samples to card-hours and retains the cur
   const ownership = teamPrivate.aggregateOwnership([
     { userId: 'mapped-user', node: 'node1', cards: [0], start: timestamp - 1, end: timestamp + 1 },
   ], new Map([['node1', new Map([[timestamp, cards]])]]), {
-    'mapped-user': { team: 'training', source: 'auto', pending: false, confidence: 0.8 },
+    'mapped-user': { team: 'training-product', source: 'auto', pending: false, confidence: 0.8 },
   }, timestamp - 1, timestamp + 1, 6 * 60 * 60);
   const payload = teamPrivate.buildDashboardPayload(ownership, {
     generatedAt: '2026-07-28T00:00:00.000Z',
-    assignments: { 'mapped-user': { team: 'training', source: 'auto', pending: false, confidence: 0.8 } },
+    assignments: { 'mapped-user': { team: 'training-product', source: 'auto', pending: false, confidence: 0.8 } },
   }, timestamp - 1, timestamp + 1, 6 * 60 * 60);
-  const training = payload.teams.find(team => team.id === 'training');
+  const training = payload.teams.find(team => team.id === 'training-product');
 
   assert.equal(payload.range.sampleSeconds, 6 * 60 * 60);
   assert.equal(payload.dataAsOf, timestamp);
   assert.equal(training.cardHours, 6);
-  assert.equal(payload.rankings[0].team, 'training');
+  assert.equal(payload.rankings[0].team, 'training-product');
   assert.equal(payload.rankings[0].cardHours, 6);
 });
 
@@ -464,16 +466,16 @@ test('team payload exposes historical averages instead of relying on the latest 
     [firstTimestamp, firstCards],
     [secondTimestamp, secondCards],
   ])]]), {
-    'first-user': { team: 'training' },
-    'second-user': { team: 'training' },
+    'first-user': { team: 'training-product' },
+    'second-user': { team: 'training-product' },
   }, firstTimestamp - 1, secondTimestamp + 1, 20 * 60);
   const payload = teamPrivate.buildDashboardPayload(ownership, {
     assignments: {
-      'first-user': { team: 'training' },
-      'second-user': { team: 'training' },
+      'first-user': { team: 'training-product' },
+      'second-user': { team: 'training-product' },
     },
   }, firstTimestamp - 1, secondTimestamp + 1, 20 * 60);
-  const training = payload.teams.find(team => team.id === 'training');
+  const training = payload.teams.find(team => team.id === 'training-product');
 
   assert.equal(training.current.xpu, 70, 'the current point stays available for trend consumers');
   assert.equal(training.averages.xpu, 50, 'historical XPU averages every valid locked-card sample');
@@ -494,14 +496,14 @@ test('team aggregation excludes missing and conflicting card samples from every 
     { userId: 'first-user', node: 'node1', cards: [2], start: timestamp - 1, end: timestamp + 1 },
     { userId: 'second-user', node: 'node1', cards: [2], start: timestamp - 1, end: timestamp + 1 },
   ], new Map([['node1', new Map([[timestamp, cards]])]]), {
-    'mapped-user': { team: 'training' },
-    'first-user': { team: 'inference' },
-    'second-user': { team: 'operator-testing' },
+    'mapped-user': { team: 'training-product' },
+    'first-user': { team: 'inference-product' },
+    'second-user': { team: 'toolchain' },
   }, timestamp - 1, timestamp + 1, 3 * 60 * 60);
 
-  assert.equal(ownership.teamPoints.get(timestamp).get('training').cardCount, 1);
-  assert.equal(ownership.teamPoints.get(timestamp).has('inference'), false);
-  assert.equal(ownership.teamPoints.get(timestamp).has('operator-testing'), false);
+  assert.equal(ownership.teamPoints.get(timestamp).get('training-product').cardCount, 1);
+  assert.equal(ownership.teamPoints.get(timestamp).has('inference-product'), false);
+  assert.equal(ownership.teamPoints.get(timestamp).has('toolchain'), false);
   assert.equal(ownership.conflictCardSamples, 1);
 });
 
@@ -512,7 +514,7 @@ test('team aggregation excludes a node before its scope effective date', () => {
   const ownership = teamPrivate.aggregateOwnership([
     { userId: 'future-node-user', node: 'node60', cards: [0], start: timestamp - 1, end: timestamp + 1 },
   ], new Map([['node60', new Map([[timestamp, cards]])]]), {
-    'future-node-user': { team: 'training' },
+    'future-node-user': { team: 'training-product' },
   }, timestamp - 1, timestamp + 1);
 
   assert.equal(ownership.allTimes.length, 0);
@@ -531,7 +533,7 @@ test('team metric aggregation keeps excluded-node history before Beijing 08:00 a
     [before, cards],
     [effectiveFrom, cards],
   ])]]), {
-    'excluded-node-user': { team: 'training' },
+    'excluded-node-user': { team: 'training-product' },
   }, before - 1, effectiveFrom + 1, 300);
 
   assert.deepEqual(ownership.allTimes, [before]);
@@ -550,12 +552,12 @@ test('team ownership expands node locks, deduplicates one user, and excludes com
     { userId: 'training-user', node: 'node1', cards: [0], start: 0, end: 600 },
     { userId: 'first-owner', node: 'node1', cards: [2], start: 0, end: 600 },
     { userId: 'second-owner', node: 'node1', cards: [2], start: 0, end: 600 },
-  ], metrics, { 'training-user': { team: 'training' } }, 0, 600);
+  ], metrics, { 'training-user': { team: 'training-product' } }, 0, 600);
 
   assert.equal(ownership.userSamples.get('training-user').sampleCount, 2);
   assert.equal(ownership.userSamples.has('first-owner'), false);
   assert.equal(ownership.conflictCardSamples, 1);
-  assert.equal(ownership.teamPoints.get(300).get('training').cardCount, 2);
+  assert.equal(ownership.teamPoints.get(300).get('training-product').cardCount, 2);
 });
 
 test('team live state expands a node lock to all cards within the requested range', () => {
@@ -577,23 +579,28 @@ test('team live state expands a node lock to all cards within the requested rang
   assert.equal(intervals[0].end, 600);
 });
 
-test('manual team entries retain their assignment while auto evidence is refreshed', () => {
+test('manual roster entries are left untouched while unlisted users are refreshed as auto', () => {
   const samples = Array.from({ length: 40 }, (_, index) => ({ timestamp: index * 300, xpu: 75, memory: 80 }));
-  const user = {
-    userId: 'manual-user',
+  const buildUser = userId => ({
+    userId,
     sampleCount: samples.length,
     xpuSum: samples.reduce((total, sample) => total + sample.xpu, 0),
     memorySum: samples.reduce((total, sample) => total + sample.memory, 0),
     samples,
     perTime: new Map(samples.map(sample => [sample.timestamp, { xpuSum: sample.xpu, count: 1 }])),
-  };
+  });
   const result = teamPrivate.mergeAutoAssignments({
-    assignments: { 'manual-user': { team: 'inference', source: 'manual', pending: false } },
-  }, new Map([['manual-user', user]]), 0, 12_000, '2026-07-27T00:00:00.000Z');
+    assignments: { manualuser: { team: 'inference-product', source: 'manual', pending: false } },
+  }, new Map([
+    ['manualuser02', buildUser('manualuser02')],
+    ['unlisted-user', buildUser('unlisted-user')],
+  ]), 0, 12_000, '2026-07-27T00:00:00.000Z');
 
-  assert.equal(result.assignments['manual-user'].team, 'inference');
-  assert.equal(result.assignments['manual-user'].source, 'manual');
-  assert.equal(result.assignments['manual-user'].candidate.team, 'training');
+  assert.equal(result.assignments.manualuser.team, 'inference-product');
+  assert.equal(result.assignments.manualuser.source, 'manual');
+  assert.equal(result.assignments.manualuser02, undefined, 'a suffixed id must not shadow its manual roster entry');
+  assert.equal(result.assignments['unlisted-user'].team, 'general-research');
+  assert.equal(result.assignments['unlisted-user'].source, 'auto');
 });
 
 test('team dashboard caches an identical aggregation for one hour and reports its cache status', async () => {
