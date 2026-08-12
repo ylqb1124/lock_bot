@@ -123,9 +123,13 @@ def record_occupancy_events(bot_id: int, events: list[dict]) -> set[str]:
             end_time_cn = _epoch_to_cn_datetime(event["end_time"])
             db.add(
                 OccupancyRecord(
-                    bot_id=bot_id, event_id=event_id, session_id=event["session_id"],
-                    resource_type=event["resource_type"], node_key=event["node_key"],
-                    device_id=event.get("device_id"), user_id=event["user_id"],
+                    bot_id=bot_id,
+                    event_id=event_id,
+                    session_id=event["session_id"],
+                    resource_type=event["resource_type"],
+                    node_key=event["node_key"],
+                    device_id=event.get("device_id"),
+                    user_id=event["user_id"],
                     lock_mode=event["lock_mode"],
                     start_time=start_time_cn,
                     end_time=end_time_cn,

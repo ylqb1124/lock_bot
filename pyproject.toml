@@ -71,6 +71,7 @@ ignore = ["SIM108"]
 
 [tool.ruff.lint.per-file-ignores]
 "python/lockbot/backend/**" = ["B008"]  # FastAPI Depends() in defaults is idiomatic
+"python/lockbot/core/xpu_collector.py" = ["E501"]  # embedded remote shell script has unavoidable long lines
 
 [tool.ruff.format]
 quote-style = "double"

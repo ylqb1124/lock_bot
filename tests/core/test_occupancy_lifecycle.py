@@ -20,9 +20,15 @@ def _events(bot):
 
 def _config(tmp_path, bot_id, bot_type, cluster_configs):
     return {
-        "BOT_ID": bot_id, "DATA_DIR": str(tmp_path), "BOT_TYPE": bot_type,
-        "CLUSTER_CONFIGS": cluster_configs, "DEFAULT_DURATION": 3600,
-        "MAX_LOCK_DURATION": 10800, "EARLY_NOTIFY": False, "TIME_ALERT": 300, "WEBHOOK_URL": "",
+        "BOT_ID": bot_id,
+        "DATA_DIR": str(tmp_path),
+        "BOT_TYPE": bot_type,
+        "CLUSTER_CONFIGS": cluster_configs,
+        "DEFAULT_DURATION": 3600,
+        "MAX_LOCK_DURATION": 10800,
+        "EARLY_NOTIFY": False,
+        "TIME_ALERT": 300,
+        "WEBHOOK_URL": "",
     }
 
 

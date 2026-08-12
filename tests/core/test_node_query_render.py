@@ -150,18 +150,12 @@ def test_queue_query_prioritizes_current_users_lock_then_booking():
         "idle-node": {"status": "idle", "current_users": [], "booking_list": []},
         "booked-node": {
             "status": "exclusive",
-            "current_users": [
-                {"user_id": "u1", "start_time": 0, "duration": 999999999999}
-            ],
-            "booking_list": [
-                {"user_id": "u2", "start_time": 0, "duration": 3600, "is_notified": False}
-            ],
+            "current_users": [{"user_id": "u1", "start_time": 0, "duration": 999999999999}],
+            "booking_list": [{"user_id": "u2", "start_time": 0, "duration": 3600, "is_notified": False}],
         },
         "locked-node": {
             "status": "exclusive",
-            "current_users": [
-                {"user_id": "u2", "start_time": 0, "duration": 999999999999}
-            ],
+            "current_users": [{"user_id": "u2", "start_time": 0, "duration": 999999999999}],
             "booking_list": [],
         },
     }

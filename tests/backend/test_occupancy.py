@@ -7,9 +7,15 @@ from lockbot.backend.app.bots import occupancy
 
 def _event(event_id="event-1", **overrides):
     event = {
-        "event_id": event_id, "session_id": "session-1", "resource_type": "device",
-        "node_key": "n1", "device_id": 2, "user_id": "u1", "lock_mode": "exclusive",
-        "start_time": 1_000, "end_time": 1_120,
+        "event_id": event_id,
+        "session_id": "session-1",
+        "resource_type": "device",
+        "node_key": "n1",
+        "device_id": 2,
+        "user_id": "u1",
+        "lock_mode": "exclusive",
+        "start_time": 1_000,
+        "end_time": 1_120,
     }
     event.update(overrides)
     return event

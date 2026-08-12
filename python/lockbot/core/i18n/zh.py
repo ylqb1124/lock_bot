@@ -61,8 +61,12 @@ MESSAGES = {
     # ── Query ──
     "query.cluster_usage_title": "机器状态报告（{timestamp}）\n",
     "query.invalid_nodes": "⚠️ 未识别节点：{node_keys}；以下为有效节点的查询结果。\n",
-    "query.idle_summary_node": '<font color="blue">**未lock节点数：{unlocked_nodes}；当前Free节点数：{free_nodes}**</font>\n',
-    "query.idle_summary_device": '<font color="blue">**未Lock卡数：{unlocked_devs}；当前Free卡数：{free_devs}**</font>\n',
+    "query.idle_summary_node": (
+        '<font color="blue">**未lock节点数：{unlocked_nodes}；当前Free节点数：{free_nodes}**</font>\n'
+    ),
+    "query.idle_summary_device": (
+        '<font color="blue">**未Lock卡数：{unlocked_devs}；当前Free卡数：{free_devs}**</font>\n'
+    ),
     "query.status_tip": "ℹ️ 节点状态（XPU显存）：BUSY=全部占用 PARTIAL=部分占用 FREE=全部空闲\n",
     "query.status_tip_node": "ℹ️ 节点状态（XPU与显存）：BUSY=占用  FREE=空闲\n",
     "query.my_resources_header": "已占用 {resources}\n",
@@ -77,7 +81,8 @@ MESSAGES = {
     ),
     "query.table_header_queue": "| IP | lock同学 | 排队同学 | 节点状态 | 剩余时间 |\n| --- | --- | --- | --- | --- |\n",
     "query.table_header_queue_xpu": (
-        "| IP | lock同学 | 排队同学 | 节点状态 | 剩余时间 | XPU%/MEM% | 容器名 |\n| --- | --- | --- | --- | --- | --- | --- |\n"
+        "| IP | lock同学 | 排队同学 | 节点状态 | 剩余时间 | XPU%/MEM% | 容器名 |\n"
+        "| --- | --- | --- | --- | --- | --- | --- |\n"
     ),
     "query.tip.default": "💡 按需lock，及时释放，谢谢～",
     # ── Device usage ──
@@ -137,12 +142,9 @@ MESSAGES = {
     "help.queue_rule1_forbid_relock": (
         "    规则1: 默认时长{default_duration}, d(天),h(时),m(分); 当前使用者不可续锁或预约同一节点\n"
     ),
-    "help.queue_rule1_allow_relock": (
-        "    规则1: 默认时长{default_duration}, d(天),h(时),m(分); 重复lock会增加时长\n"
-    ),
+    "help.queue_rule1_allow_relock": ("    规则1: 默认时长{default_duration}, d(天),h(时),m(分); 重复lock会增加时长\n"),
     "help.section_booking_title": (
-        "2. 排队 (空闲且无人排队时立即锁定，否则加入队尾; "
-        "队首会在节点空闲时自动锁定; 默认{default_duration})\n"
+        "2. 排队 (空闲且无人排队时立即锁定，否则加入队尾; 队首会在节点空闲时自动锁定; 默认{default_duration})\n"
     ),
     "help.book_example": "    book {node} (排队等候{node}节点)\n",
     "help.book_duration_example": "    book {node} {duration} (排队等候{node}节点{duration})\n",

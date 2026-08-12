@@ -267,8 +267,8 @@ def test_mixed_lockers_per_group_xpu():
     u1_row = next(r for r in rows if "u1" in r)
     u2_row = next(r for r in rows if "u2" in r)
     # 卡状态: device range + GPU-mem status (u1 avg 70 > 10 → BUSY, u2 avg 3 <= 10 → FREE).
-    assert "dev0-1 <font color=\"red\">BUSY</font>" in u1_row
-    assert "dev2-3 <font color=\"green\">FREE</font>" in u2_row
+    assert 'dev0-1 <font color="red">BUSY</font>' in u1_row
+    assert 'dev2-3 <font color="green">FREE</font>' in u2_row
     # per-group XPU%/MEM%
     assert "80.0%/70.0%" in u1_row
     assert "5.0%/3.0%" in u2_row
@@ -470,12 +470,7 @@ def test_single_group_mixed_cards_splits_card_status_and_xpu():
 def test_all_idle_partial_node_expands_to_per_card_rows():
     # All cards unlocked, but GPU-mem mixed: dev0 BUSY (80% > 10), dev1-7 FREE (0%).
     # PARTIAL node → expand idle group into per-GPU-run rows.
-    state = {
-        "node1": [
-            {"dev_id": i, "status": "idle", "dev_model": "a800", "current_users": []}
-            for i in range(8)
-        ]
-    }
+    state = {"node1": [{"dev_id": i, "status": "idle", "dev_model": "a800", "current_users": []} for i in range(8)]}
     cfg = Config(
         {
             "BOT_TYPE": "DEVICE",

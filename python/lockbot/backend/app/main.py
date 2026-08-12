@@ -137,14 +137,12 @@ def _migrate_occupancy_records():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE occupancy_records ADD COLUMN {name} {ddl}"))
                 logger.info("Migrated occupancy_records: added %s", name)
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_occupancy_records_event_id "
-            "ON occupancy_records(event_id)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_occupancy_records_day_key_cn "
-            "ON occupancy_records(day_key_cn)"
-        ))
+        conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS uq_occupancy_records_event_id ON occupancy_records(event_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_occupancy_records_day_key_cn ON occupancy_records(day_key_cn)")
+        )
     _migrate_existing_occupancy_records_to_cn_time()
 
 

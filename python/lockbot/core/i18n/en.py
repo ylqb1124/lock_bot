@@ -68,8 +68,12 @@ MESSAGES = {
     # ── Query ──
     "query.cluster_usage_title": "ℹ️ Cluster Usage Details\n",
     "query.invalid_nodes": "⚠️ Unrecognized nodes: {node_keys}; showing valid node results below.\n",
-    "query.idle_summary_node": '<font color="blue">**Unlocked nodes: {unlocked_nodes}; Current FREE nodes: {free_nodes}**</font>\n',
-    "query.idle_summary_device": '<font color="blue">**Unlocked cards: {unlocked_devs}; Current FREE cards: {free_devs}**</font>\n',
+    "query.idle_summary_node": (
+        '<font color="blue">**Unlocked nodes: {unlocked_nodes}; Current FREE nodes: {free_nodes}**</font>\n'
+    ),
+    "query.idle_summary_device": (
+        '<font color="blue">**Unlocked cards: {unlocked_devs}; Current FREE cards: {free_devs}**</font>\n'
+    ),
     "query.status_tip": "ℹ️ Node status (XPU mem): BUSY=all busy, PARTIAL=some busy, FREE=all idle.\n",
     "query.status_tip_node": "ℹ️ Node status (XPU & mem): BUSY=occupied  FREE=idle\n",
     "query.table_header": "| IP | Locked by | Node | Card | Remaining |\n| --- | --- | --- | --- | --- |\n",
@@ -83,7 +87,8 @@ MESSAGES = {
     ),
     "query.table_header_queue": "| IP | Locked by | Queued | Node | Remaining |\n| --- | --- | --- | --- | --- |\n",
     "query.table_header_queue_xpu": (
-        "| IP | Locked by | Queued | Node | Remaining | XPU%/MEM% | Container |\n| --- | --- | --- | --- | --- | --- | --- |\n"
+        "| IP | Locked by | Queued | Node | Remaining | XPU%/MEM% | Container |\n"
+        "| --- | --- | --- | --- | --- | --- | --- |\n"
     ),
     # ── Device usage ──
     "device_usage.hetero_warning": (
@@ -109,7 +114,9 @@ MESSAGES = {
     "help.query_at_bot": "    Just @ the bot\n",
     "help.max_duration_warning": "Note: consecutive lock/slock cannot exceed {max_duration}\n\n",
     "help.max_duration_warning_queue": "Note: lock, book, or take duration cannot exceed {max_duration}\n\n",
-    "help.current_limits": "Current limits: one user may hold up to {max_count} machines, maximum duration {max_duration}\n\n",
+    "help.current_limits": (
+        "Current limits: one user may hold up to {max_count} machines, maximum duration {max_duration}\n\n"
+    ),
     "help.unlimited": "unlimited",
     "help.bot_version": "Bot version: {version}\n",
     "help.bot_id": "Bot ID: {bot_id}\n",
@@ -155,8 +162,7 @@ MESSAGES = {
     "help.book_example": "    book {node} (book node {node})\n",
     "help.book_duration_example": "    book {node} {duration} (book node {node} for {duration})\n",
     "help.section_take_title": (
-        "3. Take (preempts immediately and returns the holder to the queue head; "
-        "default {default_duration})\n"
+        "3. Take (preempts immediately and returns the holder to the queue head; default {default_duration})\n"
     ),
     "help.take_example": "    take {node} (take node {node})\n",
     "help.section_release_title": "4. Release resource / cancel booking (unlock and free are interchangeable)\n",
@@ -180,8 +186,7 @@ MESSAGES = {
         "Your remaining lock time has been automatically shortened.\n"
     ),
     "notify.lock_policy_changed": (
-        "Policy changed: one user may hold/book up to {max_count} machines, "
-        "maximum duration {max_duration}\n"
+        "Policy changed: one user may hold/book up to {max_count} machines, maximum duration {max_duration}\n"
     ),
     "notify.lock_policy_upcoming": (
         "Policy reminder: in 1 hour one user may hold/book up to {max_count} machines, "
