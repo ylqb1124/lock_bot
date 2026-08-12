@@ -127,13 +127,9 @@ def validate_lock_policies(value: object) -> list[dict]:
         if start == end:
             raise LockPolicyValidationError(f"LOCK_POLICIES[{index}] must not cover an empty interval")
         count = _validate_limit(raw["max_lock_count"], f"LOCK_POLICIES[{index}].max_lock_count", count=True)
-        duration = _validate_limit(
-            raw["max_lock_duration"], f"LOCK_POLICIES[{index}].max_lock_duration", count=False
-        )
+        duration = _validate_limit(raw["max_lock_duration"], f"LOCK_POLICIES[{index}].max_lock_duration", count=False)
         weekdays = (
-            _validate_weekdays(raw["weekdays"], f"LOCK_POLICIES[{index}].weekdays")
-            if "weekdays" in raw
-            else None
+            _validate_weekdays(raw["weekdays"], f"LOCK_POLICIES[{index}].weekdays") if "weekdays" in raw else None
         )
         current_parts = _coverage_parts(start, end, _policy_weekdays({"weekdays": weekdays}))
         for previous_parts in intervals:
@@ -193,9 +189,7 @@ def next_lock_policy_boundary(
     return min(future) if future else None
 
 
-def next_lock_policy_start(
-    policies: list[dict] | None, now: datetime | int | float | None = None
-) -> datetime | None:
+def next_lock_policy_start(policies: list[dict] | None, now: datetime | int | float | None = None) -> datetime | None:
     """Return the next configured policy start in Beijing time."""
     if not policies:
         return None
@@ -296,3 +290,44 @@ def policy_crossing_duration_limit(
     if end_timestamp - current.timestamp() > allowed_duration:
         return allowed_duration
     return None
+
+
+def parse_quiet_hours(value: object) -> tuple[int, int] | None:
+    """Parse a ``"HH:MM-HH:MM"`` quiet-hours window into ``(start_min, end_min)``.
+
+    Returns ``None`` when disabled (empty/blank) or malformed, so callers can
+    treat an unparsable config as "no suppression" rather than raising.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    parts = text.split("-")
+    if len(parts) != 2:
+        return None
+    try:
+        start = _parse_time(parts[0].strip(), "quiet_hours.start")
+        end = _parse_time(parts[1].strip(), "quiet_hours.end")
+    except LockPolicyValidationError:
+        return None
+    if start == end:
+        return None
+    return start, end
+
+
+def in_quiet_hours(value: object, when: datetime | int | float | None = None) -> bool:
+    """Return True when *when* (Beijing time) falls inside the quiet window.
+
+    The window is half-open ``[start, end)`` and may wrap past midnight
+    (e.g. ``"22:00-06:00"``).
+    """
+    window = parse_quiet_hours(value)
+    if window is None:
+        return False
+    start, end = window
+    local = _as_beijing_datetime(when)
+    minute_of_day = local.hour * 60 + local.minute
+    if start < end:
+        return start <= minute_of_day < end
+    return minute_of_day >= start or minute_of_day < end

@@ -4,7 +4,9 @@ import pytest
 from lockbot.core.config import Config, ConfigValidationError
 from lockbot.core.lock_policy import (
     BEIJING_TZ,
+    in_quiet_hours,
     next_lock_policy_boundary,
+    parse_quiet_hours,
     policy_crossing_duration_limit,
     resolve_lock_policy,
     validate_lock_policies,
@@ -148,9 +150,7 @@ def test_crossing_policy_duration_uses_two_hour_grace_when_boundary_is_near():
     )
     at_fifteen_thirty = datetime(2024, 1, 1, 15, 30, tzinfo=BEIJING_TZ)
     assert (
-        policy_crossing_duration_limit(
-            policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=4)
-        )
+        policy_crossing_duration_limit(policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=4))
         == 2 * 3600
     )
 
@@ -164,15 +164,11 @@ def test_crossing_policy_duration_stops_at_next_start_even_when_it_is_more_permi
     )
     at_fifteen_thirty = datetime(2024, 1, 1, 15, 30, tzinfo=BEIJING_TZ)
     assert (
-        policy_crossing_duration_limit(
-            policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=3)
-        )
+        policy_crossing_duration_limit(policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=3))
         == 2 * 3600 + 30 * 60
     )
     assert (
-        policy_crossing_duration_limit(
-            policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=2.5)
-        )
+        policy_crossing_duration_limit(policies, (16, -1), at_fifteen_thirty, at_fifteen_thirty + timedelta(hours=2.5))
         is None
     )
 
@@ -321,6 +317,7 @@ def test_policy_preview_and_transition_notify_each_group_once(tmp_path, monkeypa
             "MAX_LOCK_DURATION": -1,
             "LOCK_POLICIES": policies,
             "GROUP_ID": "2002, 1001",
+            "POLICY_NOTIFY_QUIET_HOURS": "",  # disable suppression for this notify-path test
         }
     )
     adapter = RecordingAdapter()
@@ -345,6 +342,83 @@ def test_policy_preview_and_transition_notify_each_group_once(tmp_path, monkeypa
     assert [message["group_id"] for message in adapter.sent] == [1001, 2002, 1001, 2002]
     assert all(message["at_all"] for message in adapter.sent)
     assert all(
-        "策略转换：当前单用户最多可锁定/预约2台，最大时长2h" in message["content"]
-        for message in adapter.sent[2:]
+        "策略转换：当前单用户最多可锁定/预约2台，最大时长2h" in message["content"] for message in adapter.sent[2:]
     )
+
+
+def test_parse_quiet_hours_handles_valid_blank_and_malformed():
+    assert parse_quiet_hours("06:00-12:00") == (6 * 60, 12 * 60)
+    assert parse_quiet_hours("  22:30 - 06:15 ") == (22 * 60 + 30, 6 * 60 + 15)
+    assert parse_quiet_hours("") is None
+    assert parse_quiet_hours("   ") is None
+    assert parse_quiet_hours(None) is None
+    assert parse_quiet_hours("06:00") is None  # missing separator
+    assert parse_quiet_hours("6-12") is None  # not HH:MM
+    assert parse_quiet_hours("25:00-12:00") is None  # invalid hour
+    assert parse_quiet_hours("08:00-08:00") is None  # empty window
+
+
+def test_in_quiet_hours_is_half_open_in_beijing_time():
+    at = lambda h, m=0: datetime(2024, 1, 1, h, m, tzinfo=BEIJING_TZ)  # noqa: E731
+    assert in_quiet_hours("06:00-12:00", at(6, 0)) is True  # start inclusive
+    assert in_quiet_hours("06:00-12:00", at(8, 30)) is True
+    assert in_quiet_hours("06:00-12:00", at(12, 0)) is False  # end exclusive
+    assert in_quiet_hours("06:00-12:00", at(5, 59)) is False
+    assert in_quiet_hours("06:00-12:00", at(13, 0)) is False
+    # Disabled / malformed → never suppress.
+    assert in_quiet_hours("", at(8, 0)) is False
+    assert in_quiet_hours("bogus", at(8, 0)) is False
+    # A UTC timestamp is interpreted in Beijing time (UTC 00:00 == 08:00 CST).
+    utc_midnight = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc).timestamp()
+    assert in_quiet_hours("06:00-12:00", utc_midnight) is True
+
+
+def test_in_quiet_hours_supports_overnight_wrap():
+    at = lambda h, m=0: datetime(2024, 1, 1, h, m, tzinfo=BEIJING_TZ)  # noqa: E731
+    assert in_quiet_hours("22:00-06:00", at(23, 0)) is True
+    assert in_quiet_hours("22:00-06:00", at(2, 0)) is True
+    assert in_quiet_hours("22:00-06:00", at(6, 0)) is False
+    assert in_quiet_hours("22:00-06:00", at(12, 0)) is False
+
+
+def test_morning_policy_switch_and_preview_are_suppressed_by_default_quiet_hours(tmp_path, monkeypatch):
+    from lockbot.core import base_bot
+
+    class RecordingAdapter:
+        def __init__(self):
+            self.sent = []
+
+        def build_reply(self, content, user_ids, group_id=None, markdown=False, at_all=False):
+            return {"content": content, "group_id": group_id, "at_all": at_all}
+
+        def send(self, reply):
+            self.sent.append(reply)
+            return [(200, '{"errcode": 0}')]
+
+    # 08:00 switch lands inside the default 06:00-12:00 quiet window.
+    policies = [_policy("08:00", "09:00", count=2, duration=7200)]
+    bot = NodeBot(
+        config_dict={
+            "BOT_ID": "policy-quiet-morning",
+            "DATA_DIR": str(tmp_path),
+            "BOT_TYPE": "NODE",
+            "CLUSTER_CONFIGS": ["node1"],
+            "MAX_LOCK_COUNT": 16,
+            "MAX_LOCK_DURATION": -1,
+            "LOCK_POLICIES": policies,
+            "GROUP_ID": "1001",
+            # POLICY_NOTIFY_QUIET_HOURS left at its "06:00-12:00" default.
+        }
+    )
+    bot.adapter = RecordingAdapter()
+
+    baseline = datetime(2024, 1, 1, 6, 59, tzinfo=BEIJING_TZ).timestamp()
+    monkeypatch.setattr(base_bot.time, "time", lambda: baseline)
+    bot._check_and_notify_lock_policy()  # baseline
+
+    for hour, minute in [(7, 0), (8, 0), (9, 0)]:  # preview, start switch, end switch
+        stamp = datetime(2024, 1, 1, hour, minute, tzinfo=BEIJING_TZ).timestamp()
+        monkeypatch.setattr(base_bot.time, "time", lambda s=stamp: s)
+        bot._check_and_notify_lock_policy()
+
+    assert bot.adapter.sent == []  # every morning notification suppressed

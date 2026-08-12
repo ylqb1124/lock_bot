@@ -79,6 +79,11 @@ _CONFIG_SCHEMA = {
         "description": "Beijing-time resource limits; unmatched times use MAX_LOCK_COUNT/MAX_LOCK_DURATION",
         "env": False,
     },
+    "POLICY_NOTIFY_QUIET_HOURS": {
+        "default": "06:00-12:00",
+        "description": "Beijing-time 'HH:MM-HH:MM'; mutes policy notifications by their switch time; empty disables",
+        "env": False,
+    },
     "FORBID_RELOCK": {
         "default": True,
         "description": "QUEUE only: forbid the current holder from re-locking (续锁) or booking the same node",
@@ -142,7 +147,9 @@ _CONFIG_SCHEMA = {
     },
     "CONTAINER_MIN_MEM_PCT": {
         "default": 0.02,
-        "description": "Minimum GPU memory utilization %% to show container name; below this the container column is blank",
+        "description": (
+            "Minimum GPU memory utilization %% to show container name; below this the container column is blank"
+        ),
         "env": True,
     },
 }

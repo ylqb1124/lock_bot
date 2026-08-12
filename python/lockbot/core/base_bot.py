@@ -12,6 +12,7 @@ from importlib.metadata import version as _pkg_version
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
 from lockbot.core.lock_policy import (
+    in_quiet_hours,
     iter_lock_policy_changes,
     lock_policy_limits,
     next_lock_policy_change,
@@ -185,11 +186,7 @@ class BaseLockBot:
 
         # Include the next hour so a check that lands inside a preview window
         # can send it even when the scheduler was delayed past its exact time.
-        changes = list(
-            iter_lock_policy_changes(
-                policies, fallback_limits, previous_check, now + 3600
-            )
-        )
+        changes = list(iter_lock_policy_changes(policies, fallback_limits, previous_check, now + 3600))
         transitioned_now = any(boundary.timestamp() == now for boundary, _new, _old in changes)
         for boundary, new_limits, _old_limits in changes:
             boundary_ts = boundary.timestamp()
@@ -198,10 +195,7 @@ class BaseLockBot:
                 self._send_policy_event(event_id, "transition", new_limits)
             else:
                 preview_ts = boundary_ts - 3600
-                if (
-                    previous_check < preview_ts <= now < boundary_ts
-                    and not (preview_ts == now and transitioned_now)
-                ):
+                if previous_check < preview_ts <= now < boundary_ts and not (preview_ts == now and transitioned_now):
                     self._send_policy_event(event_id, "preview", new_limits)
 
         return self._next_policy_notification_delay(now, policies, fallback_limits)
@@ -217,6 +211,19 @@ class BaseLockBot:
     def _send_policy_event(self, event_id: str, phase: str, limits: tuple[int, int]) -> None:
         key = f"{event_id}:{phase}"
         if key in self._policy_notification_events:
+            return
+
+        # Suppress preview + switch notifications whose switch moment (event_id
+        # is the boundary Unix timestamp) falls inside the Beijing-time quiet
+        # window. Not recorded in _policy_notification_events: the check is
+        # naturally one-shot per boundary and stays skippable if config changes.
+        if in_quiet_hours(self.config.get_val("POLICY_NOTIFY_QUIET_HOURS", ""), int(event_id)):
+            self.logger.info(
+                "Policy %s notification suppressed (quiet hours): bot=%s boundary=%s",
+                phase,
+                self.config.get_val("BOT_NAME"),
+                event_id,
+            )
             return
 
         count_text = t("help.unlimited", config=self.config) if limits[0] < 0 else str(limits[0])
