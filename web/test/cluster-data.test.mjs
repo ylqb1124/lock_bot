@@ -80,6 +80,63 @@ test('new nodes enter the cluster scope at Beijing midnight on August 6', () => 
   assert.equal(totalCardsAt(timeline, clusterScope.cardsPerNode, effectiveFrom), 568);
 });
 
+test('new August 6 nodes stay out of the lock usage denominator and numerator', async (t) => {
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2026-08-07T00:00:00+08:00').getTime();
+  t.after(() => { Date.now = originalDateNow; });
+
+  const beforeActivation = Math.floor(new Date('2026-08-05T23:55:00+08:00').getTime() / 1000);
+  const atActivation = Math.floor(new Date('2026-08-06T00:00:00+08:00').getTime() / 1000);
+  const { buildLockUsageScopeTimeline, buildLockUsageTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+  const timeline = buildLockUsageScopeTimeline(clusterScope, clusterScope.nodeIds);
+  const countTimeline = buildLockUsageTimeline(clusterScope, clusterScope.nodeIds);
+  const excludedIds = [13, 80, 81, 85, 86];
+  const beforeIds = nodeIdsAt(timeline, beforeActivation);
+  const activeIds = nodeIdsAt(timeline, atActivation);
+
+  assert.equal(beforeIds.length, 63);
+  assert.equal(activeIds.length, 63);
+  assert.deepEqual(activeIds.filter(nodeId => excludedIds.includes(nodeId)), []);
+  assert.equal(totalCardsAt(countTimeline, clusterScope.cardsPerNode, beforeActivation), 504);
+  assert.equal(totalCardsAt(countTimeline, clusterScope.cardsPerNode, atActivation), 504);
+
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'NODE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      response.end(JSON.stringify([
+        { node_key: 'node1', dev_id: 0, start_time: beforeActivation, end_time: atActivation + 24 * 60 * 60 },
+        { node_key: 'node80', dev_id: 0, start_time: beforeActivation, end_time: atActivation + 24 * 60 * 60 },
+      ]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(beforeActivation, atActivation, 'Bearer test', null, 300);
+
+    assert.equal(result.lock[0], 1 / 504 * 100);
+    assert.equal(result.lock[result.times.indexOf(atActivation)], 1 / 504 * 100);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 test('cluster node average usage card averages valid lock trend points in the selected range', () => {
   const stats = buildClusterStats([{}, {}], {
     lock: [10, null, 30],
@@ -1441,7 +1498,7 @@ test('lock rate adds node83 and node84 at their 2026-08-12 18:00 China-time boun
   const activeTotalCards = (priorNodeCount + activationNodeCount) * clusterScope.cardsPerNode;
 
   assert.deepEqual(activation.nodeIds, [83, 84]);
-  assert.equal(priorNodeCount, 68);
+  assert.equal(priorNodeCount, 63);
   assert.equal(activationNodeCount, 2);
 
   const upstream = createServer((request, response) => {
