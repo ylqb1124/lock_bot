@@ -16,6 +16,31 @@ export function botType(bot) {
   return String(bot?.bot_type || bot?.type || 'NODE').toUpperCase();
 }
 
+export function botDisplayName(bot) {
+  const name = [bot?.name, bot?.bot_name, bot?.display_name, bot?.alias, bot?.label]
+    .find(value => String(value || '').trim());
+  return name ? String(name).trim() : `Bot #${bot?.id ?? '?'}`;
+}
+
+export function buildBotGroups(bots = [], stateResults = []) {
+  const statesById = new Map((stateResults || []).map(result => [String(result?.bot?.id ?? result?.botId), result]));
+  return (bots || []).map((bot, index) => {
+    const result = statesById.get(String(bot?.id));
+    const nodeNames = new Set();
+    for (const rawName of Object.keys(result?.state || {})) {
+      const name = nodeName(rawName);
+      if (name && MONITORED_NODE_SET.has(name)) nodeNames.add(name);
+    }
+    return {
+      id: String(bot?.id ?? `index-${index}`),
+      name: botDisplayName(bot),
+      type: botType(bot),
+      nodeNames: [...nodeNames].sort((left, right) => Number(left.slice(4)) - Number(right.slice(4))),
+      available: result?.ok !== false,
+    };
+  });
+}
+
 function isActiveLock(state) {
   return state?.status !== 'idle' && Array.isArray(state?.current_users) && state.current_users.length > 0;
 }

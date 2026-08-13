@@ -5,7 +5,7 @@ import { adaptNodeData } from '../services/adapter.js';
 import { nextAutoRefreshDelay, shouldAutoRefresh } from '../services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../services/chart-data.js';
 import { averageFinite, buildClusterStats } from '../services/cluster-stats.js';
-import { CARD_COUNT, mergeLockBotStates } from '../services/cluster-state.js';
+import { CARD_COUNT, buildBotGroups, mergeLockBotStates } from '../services/cluster-state.js';
 import { now, syncServerTimeOffset } from '../services/server-time.js';
 import {
   chinaSlotIndex,
@@ -55,23 +55,27 @@ const ALL_NODE_NAMES = clusterScope.nodeIds.map(id => `node${id}`);
 const CHINA_UTC_OFFSET_SECONDS = 8 * 60 * 60;
 const CURRENT_METRICS_LOOKBACK_MS = 3 * 60 * 60 * 1000;
 const NODE_SELECTION_STORAGE_KEY = 'cluster-dashboard-selected-nodes';
+const FILTER_SELECTION_STORAGE_KEY = 'cluster-dashboard-filter-selection';
 
 function loadStoredNodeSelection() {
   try {
-    const raw = localStorage.getItem(NODE_SELECTION_STORAGE_KEY);
-    if (!raw) return [];
+    const raw = localStorage.getItem(FILTER_SELECTION_STORAGE_KEY) || localStorage.getItem(NODE_SELECTION_STORAGE_KEY);
+    if (!raw) return { botIds: [], nodes: [] };
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
     const validNames = new Set(ALL_NODE_NAMES);
-    return parsed.filter(name => validNames.has(name));
+    if (Array.isArray(parsed)) return { botIds: [], nodes: parsed.filter(name => validNames.has(name)) };
+    return {
+      botIds: Array.isArray(parsed.botIds) ? parsed.botIds.map(String) : [],
+      nodes: Array.isArray(parsed.nodes) ? parsed.nodes.filter(name => validNames.has(name)) : [],
+    };
   } catch {
-    return [];
+    return { botIds: [], nodes: [] };
   }
 }
 
-function persistNodeSelection(names) {
+function persistNodeSelection(selection) {
   try {
-    localStorage.setItem(NODE_SELECTION_STORAGE_KEY, JSON.stringify(names));
+    localStorage.setItem(FILTER_SELECTION_STORAGE_KEY, JSON.stringify(selection));
   } catch {
     // 存储不可用（如隐私模式）时静默忽略，不影响筛选功能本身
   }
@@ -87,6 +91,8 @@ const draftEnd = ref('');
 const quickSearch = ref('');
 const selectedNodes = ref([]);
 const draftSelectedNodes = ref([]);
+const selectedBotIds = ref([]);
+const draftSelectedBotIds = ref([]);
 const nodeSearch = ref('');
 const panelCollapsed = ref(true);
 const meanVisible = ref(true);
@@ -98,6 +104,7 @@ const error = ref('');
 const toast = ref('');
 const nodes = ref([]);
 const bots = ref([]);
+const botGroups = ref([]);
 const series = ref({ times: [], xpu: [], memory: [], lock: [] });
 const lockTrendComplete = ref(true);
 const lockTrendFailureCount = ref(0);
@@ -125,11 +132,17 @@ const filteredNodeOptions = computed(() => {
   const filter = nodeSearch.value.trim().toLowerCase();
   return ALL_NODE_NAMES.filter(name => !filter || name.toLowerCase().includes(filter));
 });
+const filteredBotGroups = computed(() => {
+  const filter = nodeSearch.value.trim().toLowerCase();
+  return botGroups.value.filter(group => !filter
+    || group.name.toLowerCase().includes(filter)
+    || group.nodeNames.some(name => name.toLowerCase().includes(filter)));
+});
 const timeLabel = computed(() => {
   return QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label || '自定义时间范围';
 });
 const nodeRangeLabel = computed(() => selectedNodes.value.length
-  ? `已筛选 ${selectedNodes.value.length} 个节点`
+  ? `${selectedBotIds.value.length ? `${selectedBotIds.value.length} 个 Bot · ` : ''}已筛选 ${selectedNodes.value.length} 个节点`
   : '全部节点');
 const filteredCurrentNodes = computed(() => selectedNodes.value.length
   ? nodes.value.filter(node => selectedNodes.value.includes(node.name))
@@ -137,7 +150,11 @@ const filteredCurrentNodes = computed(() => selectedNodes.value.length
 const nodeSelectionPending = computed(() => {
   const applied = new Set(selectedNodes.value);
   const draft = draftSelectedNodes.value;
-  return applied.size !== draft.length || draft.some(name => !applied.has(name));
+  const appliedBots = new Set(selectedBotIds.value);
+  return applied.size !== draft.length
+    || draft.some(name => !applied.has(name))
+    || appliedBots.size !== draftSelectedBotIds.value.length
+    || draftSelectedBotIds.value.some(id => !appliedBots.has(id));
 });
 function formatClock(value) {
   if (!value) return '--:--';
@@ -345,13 +362,55 @@ function resetRange() {
   setQuickRange(QUICK_RANGES.find(range => range.id === '24h'));
   selectedNodes.value = [];
   draftSelectedNodes.value = [];
-  persistNodeSelection([]);
+  selectedBotIds.value = [];
+  draftSelectedBotIds.value = [];
+  persistNodeSelection({ botIds: [], nodes: [] });
   load();
 }
 
 function commitNodeSelection() {
   selectedNodes.value = [...draftSelectedNodes.value];
-  persistNodeSelection(selectedNodes.value);
+  selectedBotIds.value = [...draftSelectedBotIds.value];
+  persistNodeSelection({ botIds: selectedBotIds.value, nodes: selectedNodes.value });
+}
+
+function botGroupSelected(group) {
+  return group.nodeNames.length > 0 && group.nodeNames.every(name => draftSelectedNodes.value.includes(name));
+}
+
+function botGroupPartiallySelected(group) {
+  const selectedCount = group.nodeNames.filter(name => draftSelectedNodes.value.includes(name)).length;
+  return selectedCount > 0 && selectedCount < group.nodeNames.length;
+}
+
+function toggleBotGroup(group) {
+  const selected = new Set(draftSelectedNodes.value);
+  const botIds = new Set(draftSelectedBotIds.value);
+  const groupSelected = botGroupSelected(group);
+  if (groupSelected) {
+    botIds.delete(group.id);
+    const remainingGroups = botGroups.value.filter(candidate => botIds.has(candidate.id));
+    group.nodeNames.forEach(name => {
+      if (!remainingGroups.some(candidate => candidate.nodeNames.includes(name))) selected.delete(name);
+    });
+  } else {
+    botIds.add(group.id);
+    group.nodeNames.forEach(name => selected.add(name));
+  }
+  draftSelectedNodes.value = ALL_NODE_NAMES.filter(name => selected.has(name));
+  draftSelectedBotIds.value = [...botIds];
+}
+
+function clearNodeSelection() {
+  draftSelectedNodes.value = [];
+  draftSelectedBotIds.value = [];
+}
+
+function syncDraftBotIds() {
+  const selected = new Set(draftSelectedNodes.value);
+  draftSelectedBotIds.value = botGroups.value
+    .filter(group => group.nodeNames.some(name => selected.has(name)))
+    .map(group => group.id);
 }
 
 function invertNodeSelection() {
@@ -359,6 +418,7 @@ function invertNodeSelection() {
   const selected = new Set(draftSelectedNodes.value);
   draftSelectedNodes.value = visible.filter(name => !selected.has(name))
     .concat(draftSelectedNodes.value.filter(name => !visible.includes(name)));
+  syncDraftBotIds();
 }
 
 function applyRange() {
@@ -496,6 +556,16 @@ async function load() {
       currentMetricsError.value = currentOutcome.caught?.message || '当前 Monquery 指标请求失败';
     }
     const currentNodes = adaptStates(stateResults, currentOutcome.ok ? currentOutcome.data : [], currentSlotAtRequest);
+    botGroups.value = buildBotGroups(bots.value, stateResults);
+    const validBotIds = new Set(botGroups.value.map(group => group.id));
+    draftSelectedBotIds.value = draftSelectedBotIds.value.filter(id => validBotIds.has(id));
+    selectedBotIds.value = selectedBotIds.value.filter(id => validBotIds.has(id));
+    if (!draftSelectedNodes.value.length && draftSelectedBotIds.value.length) {
+      draftSelectedNodes.value = ALL_NODE_NAMES.filter(name => botGroups.value
+        .filter(group => draftSelectedBotIds.value.includes(group.id))
+        .some(group => group.nodeNames.includes(name)));
+      selectedNodes.value = [...draftSelectedNodes.value];
+    }
     lastRefreshAt.value = Date.now();
     nodes.value = currentNodes;
     currentStatsReady.value = true;
@@ -718,9 +788,11 @@ function scheduleAutoRefresh() {
 onMounted(async () => {
   await syncServerTimeOffset();
   setQuickRange(QUICK_RANGES.find(range => range.id === '24h'));
-  const storedNodes = loadStoredNodeSelection();
-  selectedNodes.value = storedNodes;
-  draftSelectedNodes.value = [...storedNodes];
+  const storedSelection = loadStoredNodeSelection();
+  selectedNodes.value = storedSelection.nodes;
+  draftSelectedNodes.value = [...storedSelection.nodes];
+  selectedBotIds.value = storedSelection.botIds;
+  draftSelectedBotIds.value = [...storedSelection.botIds];
   scheduleAutoRefresh();
   resizeHandler = () => { if (series.value.xpu.length || series.value.lock.length) drawAllCharts(); };
   window.addEventListener('resize', resizeHandler);
@@ -777,19 +849,28 @@ onBeforeUnmount(() => {
             <div class="cluster-range-actions"><button type="button" class="cluster-icon-btn" title="重置为最近 24 小时" @click="resetRange">默认筛选</button><button type="button" class="cluster-apply-btn" :disabled="loading" @click="applyRange">筛选</button></div>
           </div>
           <div class="cluster-range-nodes">
-            <div class="cluster-range-title">节点筛选</div>
+            <div class="cluster-range-title">Bot 分组与节点筛选</div>
             <div class="cluster-node-toolbar">
               <label class="cluster-node-all">
-                <input type="checkbox" :checked="draftSelectedNodes.length === 0" @change="draftSelectedNodes = []" />
+                <input type="checkbox" :checked="draftSelectedNodes.length === 0" @change="clearNodeSelection" />
                 全部节点（{{ ALL_NODE_NAMES.length }}）
               </label>
               <button type="button" class="cluster-icon-btn cluster-node-invert" title="反选当前可见节点" @click="invertNodeSelection">反选</button>
             </div>
-            <input v-model="nodeSearch" class="cluster-node-search" type="search" placeholder="搜索节点，如 node5" />
-            <div class="cluster-node-list">
-              <label v-for="name in filteredNodeOptions" :key="name" class="cluster-node-item">
-                <input type="checkbox" :value="name" v-model="draftSelectedNodes" />{{ name }}
-              </label>
+            <input v-model="nodeSearch" class="cluster-node-search" type="search" placeholder="搜索 Bot 或节点，如 node5" />
+            <div class="cluster-bot-list">
+              <div v-for="group in filteredBotGroups" :key="group.id" class="cluster-bot-group">
+                <label class="cluster-bot-item" :class="{ empty: !group.nodeNames.length }">
+                  <input type="checkbox" :checked="botGroupSelected(group)" :indeterminate="botGroupPartiallySelected(group)" :disabled="!group.nodeNames.length" @change="toggleBotGroup(group)" />
+                  <span class="cluster-bot-name">{{ group.name }}</span>
+                  <span class="cluster-bot-count">{{ group.nodeNames.length }} 节点</span>
+                </label>
+                <div v-if="group.nodeNames.length" class="cluster-node-list cluster-bot-node-list">
+                  <label v-for="name in group.nodeNames" :key="`${group.id}-${name}`" v-show="!nodeSearch.trim() || name.includes(nodeSearch.trim().toLowerCase()) || group.name.toLowerCase().includes(nodeSearch.trim().toLowerCase())" class="cluster-node-item">
+                    <input type="checkbox" :value="name" v-model="draftSelectedNodes" @change="syncDraftBotIds" />{{ name }}
+                  </label>
+                </div>
+              </div>
             </div>
             <div class="cluster-node-summary">
               {{ draftSelectedNodes.length

@@ -12,7 +12,7 @@ import { adaptNodeData } from '../src/services/adapter.js';
 import { AUTO_REFRESH_INTERVAL_MS, nextAutoRefreshDelay, shouldAutoRefresh } from '../src/services/auto-refresh.js';
 import { hasFiniteSamples, nearestFiniteIndex, resolveYAxis } from '../src/services/chart-data.js';
 import { buildClusterStats } from '../src/services/cluster-stats.js';
-import { CARD_COUNT, mergeLockBotStates } from '../src/services/cluster-state.js';
+import { CARD_COUNT, buildBotGroups, botDisplayName, mergeLockBotStates } from '../src/services/cluster-state.js';
 import { CURRENT_MONQUERY_TIMEOUT_MS, DEFAULT_MONQUERY_TIMEOUT_MS, metricNodeIdsAt } from '../src/services/api.js';
 import { currentOffsetMs, now, syncServerTimeOffset } from '../src/services/server-time.js';
 import { formatAverageUserCount } from '../src/services/team-metrics.js';
@@ -48,6 +48,22 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   const groupIds = clusterScope.nodeGroups.flatMap(group => group.nodeIds).slice().sort((a, b) => a - b);
   const flatIds = [...clusterScope.nodeIds].sort((a, b) => a - b);
   assert.deepEqual(groupIds, flatIds);
+});
+
+test('Bot groups use readable names and only include monitored nodes from current states', () => {
+  assert.equal(botDisplayName({ id: 7, name: '主力 Bot' }), '主力 Bot');
+  assert.equal(botDisplayName({ id: 8 }), 'Bot #8');
+  const groups = buildBotGroups([
+    { id: 1, name: '主力 Bot', bot_type: 'DEVICE' },
+    { id: 2, bot_type: 'NODE' },
+  ], [
+    { bot: { id: 1 }, ok: true, state: { node1: [], node999: {}, 'gpu-node13': [] } },
+    { bot: { id: 2 }, ok: true, state: { node13: {}, node1: {} } },
+  ]);
+
+  assert.deepEqual(groups.map(group => group.name), ['主力 Bot', 'Bot #2']);
+  assert.deepEqual(groups[0].nodeNames, ['node1', 'node13']);
+  assert.deepEqual(groups[1].nodeNames, ['node1', 'node13']);
 });
 
 test('metric monitoring keeps the 73-node scope but excludes node38, node68, and node69 from Beijing 08:00', () => {
