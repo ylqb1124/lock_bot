@@ -30,10 +30,10 @@ function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
 }
 
-test('cluster scope uses the current 68-node, 544-card computation denominator', () => {
-  assert.equal(clusterScope.nodeIds.length, 68);
+test('cluster scope uses the current 73-node, 584-card computation denominator', () => {
+  assert.equal(clusterScope.nodeIds.length, 73);
   assert.equal(clusterScope.cardsPerNode, 8);
-  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 544);
+  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 584);
   assert.equal(clusterScope.nodeIds.includes(15), false);
   assert.equal(clusterScope.nodeIds.includes(16), false);
   assert.equal(clusterScope.nodeIds.includes(60), true);
@@ -50,23 +50,34 @@ test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', (
   assert.deepEqual(groupIds, flatIds);
 });
 
-test('metric monitoring keeps 68 assets but excludes node38, node68, and node69 from Beijing 08:00', () => {
+test('metric monitoring keeps the 73-node scope but excludes node38, node68, and node69 from Beijing 08:00', () => {
   const { buildMetricUsageScopeTimeline, nodeIdsAt } = require('../shared/cluster-scope-timeline.cjs');
   const before = Math.floor(new Date('2026-08-11T07:59:59+08:00').getTime() / 1000);
   const effectiveFrom = Math.floor(new Date('2026-08-11T08:00:00+08:00').getTime() / 1000);
   const timeline = buildMetricUsageScopeTimeline(clusterScope, clusterScope.nodeIds);
 
-  assert.equal(clusterScope.nodeIds.length, 68);
+  assert.equal(clusterScope.nodeIds.length, 73);
   assert.deepEqual(clusterScope.metricUsageExclusions, [{
     effectiveFrom: '2026-08-11T08:00:00+08:00',
     nodeIds: [38, 68, 69],
   }]);
-  // node83、node84 于 2026-08-12 才生效，08-11 的历史时间点仍是 66 节点。
-  assert.equal(nodeIdsAt(timeline, before).length, 66);
-  assert.equal(nodeIdsAt(timeline, effectiveFrom).length, 63);
+  // node83、node84 于 2026-08-12 才生效，08-11 的历史时间点仍不包含这两台节点。
+  assert.equal(nodeIdsAt(timeline, before).length, 71);
+  assert.equal(nodeIdsAt(timeline, effectiveFrom).length, 68);
   assert.deepEqual(nodeIdsAt(timeline, effectiveFrom).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
-  assert.equal(metricNodeIdsAt(new Date('2026-08-11T07:59:59+08:00')).length, 68);
+  assert.equal(metricNodeIdsAt(new Date('2026-08-11T07:59:59+08:00')).length, 73);
   assert.deepEqual(metricNodeIdsAt(new Date('2026-08-11T08:00:00+08:00')).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
+});
+
+test('new nodes enter the cluster scope at Beijing midnight on August 6', () => {
+  const { buildNodeTimeline, nodeCountAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+  const timeline = buildNodeTimeline(clusterScope, clusterScope.nodeIds);
+  const before = Math.floor(new Date('2026-08-05T23:59:59+08:00').getTime() / 1000);
+  const effectiveFrom = Math.floor(new Date('2026-08-06T00:00:00+08:00').getTime() / 1000);
+  assert.equal(nodeCountAt(timeline, before), 66);
+  assert.equal(totalCardsAt(timeline, clusterScope.cardsPerNode, before), 528);
+  assert.equal(nodeCountAt(timeline, effectiveFrom), 71);
+  assert.equal(totalCardsAt(timeline, clusterScope.cardsPerNode, effectiveFrom), 568);
 });
 
 test('cluster node average usage card averages valid lock trend points in the selected range', () => {
@@ -110,7 +121,7 @@ test('cluster dashboard uses a six-minute trend interval for the 24-hour range',
   assert.match(proxy, /new Set\(\[60, 120, 240, 300, 360, 480/);
 });
 
-test('legacy static dashboard requests the same 68-node scope and namespaces as the Vue dashboard', () => {
+test('legacy static dashboard requests the same 73-node scope and namespaces as the Vue dashboard', () => {
   const legacyApi = fs.readFileSync(path.join(PROJECT_ROOT, 'api.js'), 'utf8');
   const monitored = legacyApi.match(/const MONITORED_NODES = \[([\s\S]*?)\];/);
   const nonBackup = legacyApi.match(/const NON_BACKUP_NODES = \[([\s\S]*?)\];/);
@@ -120,7 +131,7 @@ test('legacy static dashboard requests the same 68-node scope and namespaces as 
   const nonBackupNodeIds = nonBackup[1].match(/\d+/g).map(Number);
 
   assert.deepEqual(nodeIds, clusterScope.nodeIds);
-  assert.deepEqual(nonBackupNodeIds.filter(nodeId => nodeId >= 70), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 83, 84]);
+  assert.deepEqual(nonBackupNodeIds.filter(nodeId => nodeId >= 70), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 83, 84, 85, 86]);
 });
 
 test('legacy node view uses the application login and keeps its filter, rankings, and expandable card details', () => {
@@ -277,7 +288,7 @@ test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {
     },
   ]);
 
-  assert.equal(Object.keys(merged.deviceState).length, 68);
+  assert.equal(Object.keys(merged.deviceState).length, 73);
   assert.equal(merged.lockStateComplete, true);
   assert.equal(merged.deviceState.node1.length, CARD_COUNT);
   assert.equal(merged.deviceState.node1[0].current_users.length, 1);
@@ -1039,7 +1050,7 @@ test('Lock Bot BDC cards are excluded from the computation-node trend', async ()
     }, { lockHistoryCache: { read: () => null, save: () => {} } });
     const result = await service.query(0, 300, 'Bearer test', null, 300);
 
-    assert.equal(result.targetNodes.length, 68);
+    assert.equal(result.targetNodes.length, 73);
     assert.equal(result.targetNodes.includes('bdc9'), false);
     assert.equal(result.targetNodes.includes('node70'), true);
     assert.equal(result.targetNodes.includes('node83'), true);
@@ -1430,7 +1441,7 @@ test('lock rate adds node83 and node84 at their 2026-08-12 18:00 China-time boun
   const activeTotalCards = (priorNodeCount + activationNodeCount) * clusterScope.cardsPerNode;
 
   assert.deepEqual(activation.nodeIds, [83, 84]);
-  assert.equal(priorNodeCount, 63);
+  assert.equal(priorNodeCount, 68);
   assert.equal(activationNodeCount, 2);
 
   const upstream = createServer((request, response) => {
