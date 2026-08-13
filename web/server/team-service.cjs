@@ -34,6 +34,7 @@ const MONQUERY_ITEMS = Array.from({ length: CARD_COUNT }, (_, card) => [
   `XPU${card}_MEM_UTILIZATION`,
 ]).flat();
 const MEMBERSHIP_PATH = path.join(__dirname, '..', '.devdata', 'team-membership.json');
+const MEMBERSHIP_KEY_ENV = 'TEAM_MEMBERSHIP_KEY';
 const FALLBACK_TEAM_ID = 'general-research';
 const TEAM_DEFINITIONS = [
   { id: 'toolchain', label: '工具链组' },
@@ -658,23 +659,58 @@ function scopeDashboardPayload(payload, access, scopedTeamIds = access.mode === 
   };
 }
 
+function membershipKey(getEnvironment = name => process.env[name]) {
+  const raw = String(getEnvironment(MEMBERSHIP_KEY_ENV) || '').trim();
+  if (!raw) return null;
+  const key = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
+  if (key.length !== 32) throw new Error(`${MEMBERSHIP_KEY_ENV} must be a 32-byte key in hex or base64`);
+  return key;
+}
+
+// The roster maps real people to teams, so it is stored as AES-256-GCM at rest.
+// Plaintext files stay readable to keep existing deployments working.
+function encryptMembership(value, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const payload = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  return {
+    format: 'aes-256-gcm',
+    iv: iv.toString('base64'),
+    tag: cipher.getAuthTag().toString('base64'),
+    payload: payload.toString('base64'),
+  };
+}
+
+function decryptMembership(envelope, key) {
+  if (!key) throw new Error(`${MEMBERSHIP_KEY_ENV} is required to read the encrypted roster`);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+  const plain = Buffer.concat([decipher.update(Buffer.from(envelope.payload, 'base64')), decipher.final()]);
+  return JSON.parse(plain.toString('utf8'));
+}
+
 function defaultMembership() {
   return { version: 1, classifierVersion: 'workload-v1', generatedAt: null, window: null, lastError: null, assignments: {} };
 }
 
-function readMembership(filePath = MEMBERSHIP_PATH) {
+function readMembership(filePath = MEMBERSHIP_PATH, options = {}) {
+  const key = options.key !== undefined ? options.key : membershipKey();
+  let raw;
   try {
-    const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    if (value && typeof value === 'object' && value.assignments && typeof value.assignments === 'object') return value;
+    raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
-    // The initial empty mapping is a valid state.
+    return defaultMembership();
   }
+  const value = raw?.format === 'aes-256-gcm' ? decryptMembership(raw, key) : raw;
+  if (value && typeof value === 'object' && value.assignments && typeof value.assignments === 'object') return value;
   return defaultMembership();
 }
 
-function writeMembership(value, filePath = MEMBERSHIP_PATH) {
-  const content = `${JSON.stringify(value, null, 2)}\n`;
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+function writeMembership(value, filePath = MEMBERSHIP_PATH, options = {}) {
+  const key = options.key !== undefined ? options.key : membershipKey();
+  const stored = key ? encryptMembership(value, key) : value;
+  const content = `${JSON.stringify(stored, null, 2)}\n`;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   fs.writeFileSync(temporary, content, { mode: 0o600 });
   fs.renameSync(temporary, filePath);
@@ -1039,6 +1075,10 @@ module.exports = {
     mergeAutoAssignments,
     readMembership,
     writeMembership,
+    membershipKey,
+    encryptMembership,
+    decryptMembership,
+    MEMBERSHIP_KEY_ENV,
     millisecondsUntilNextHour,
     currentSampleSeconds,
     fetchOccupancyDay,

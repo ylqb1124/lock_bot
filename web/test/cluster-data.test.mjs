@@ -582,6 +582,75 @@ test('team live state expands a node lock to all cards within the requested rang
   assert.equal(intervals[0].end, 600);
 });
 
+test('the roster is encrypted at rest and stays readable through the same key', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'team-crypto-'));
+  const membershipPath = path.join(directory, 'membership.json');
+  const key = Buffer.alloc(32, 7);
+  const roster = {
+    version: 1,
+    generatedAt: '2026-08-12T00:00:00.000Z',
+    assignments: { zhangshaokun: { team: 'group-arch', source: 'manual', pending: false, confidence: 1 } },
+  };
+  try {
+    teamPrivate.writeMembership(roster, membershipPath, { key });
+    const onDisk = JSON.parse(fs.readFileSync(membershipPath, 'utf8'));
+
+    assert.equal(onDisk.format, 'aes-256-gcm');
+    assert.equal(onDisk.assignments, undefined, 'no plaintext assignment may remain on disk');
+    assert.equal(fs.readFileSync(membershipPath, 'utf8').includes('zhangshaokun'), false);
+    assert.equal((fs.statSync(membershipPath).mode & 0o777), 0o600);
+
+    assert.deepEqual(teamPrivate.readMembership(membershipPath, { key }), roster);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('an encrypted roster refuses a wrong key and a tampered payload instead of failing open', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'team-crypto-bad-'));
+  const membershipPath = path.join(directory, 'membership.json');
+  const key = Buffer.alloc(32, 7);
+  const roster = { version: 1, assignments: { lisi: { team: 'qa', source: 'manual', pending: false } } };
+  try {
+    teamPrivate.writeMembership(roster, membershipPath, { key });
+
+    assert.throws(() => teamPrivate.readMembership(membershipPath, { key: Buffer.alloc(32, 9) }));
+    assert.throws(() => teamPrivate.readMembership(membershipPath, { key: null }), /TEAM_MEMBERSHIP_KEY/);
+
+    const envelope = JSON.parse(fs.readFileSync(membershipPath, 'utf8'));
+    const payload = Buffer.from(envelope.payload, 'base64');
+    payload[0] ^= 0xff;
+    envelope.payload = payload.toString('base64');
+    fs.writeFileSync(membershipPath, JSON.stringify(envelope));
+
+    assert.throws(() => teamPrivate.readMembership(membershipPath, { key }));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a plaintext roster keeps working so existing deployments survive the upgrade', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'team-plain-'));
+  const membershipPath = path.join(directory, 'membership.json');
+  const roster = { version: 1, assignments: { lisi: { team: 'qa', source: 'manual', pending: false } } };
+  try {
+    fs.writeFileSync(membershipPath, `${JSON.stringify(roster)}\n`);
+
+    assert.deepEqual(teamPrivate.readMembership(membershipPath, { key: null }), roster);
+    assert.deepEqual(teamPrivate.readMembership(membershipPath, { key: Buffer.alloc(32, 7) }), roster);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('the roster key accepts hex and base64 but rejects a wrong length', () => {
+  assert.equal(teamPrivate.membershipKey(() => undefined), null);
+  assert.equal(teamPrivate.membershipKey(() => '   '), null);
+  assert.equal(teamPrivate.membershipKey(() => 'ab'.repeat(32)).length, 32);
+  assert.equal(teamPrivate.membershipKey(() => Buffer.alloc(32, 3).toString('base64')).length, 32);
+  assert.throws(() => teamPrivate.membershipKey(() => Buffer.alloc(16, 3).toString('base64')), /32-byte/);
+});
+
 test('manual roster entries are left untouched while unlisted users are refreshed as auto', () => {
   const samples = Array.from({ length: 40 }, (_, index) => ({ timestamp: index * 300, xpu: 75, memory: 80 }));
   const buildUser = userId => ({
