@@ -232,6 +232,13 @@ function formatCardHours(value) {
   return Number.isFinite(value) ? `${value.toFixed(1)} 卡时` : '暂无有效样本';
 }
 
+// 低效卡时 = 总卡时 × (1 − XPU 利用率)，衡量锁定却未被利用的卡时。
+// XPU 无有效样本时无法判断利用率，返回 null 以显示占位文案。
+function idleCardHours(team) {
+  if (!Number.isFinite(team?.cardHours) || !Number.isFinite(team?.xpu)) return null;
+  return team.cardHours * Math.max(0, 1 - team.xpu / 100);
+}
+
 function formatTrendTime(point) {
   return point?.timestamp ? formatChinaDateTime(new Date(point.timestamp * 1000)).slice(5, 16) : '';
 }
@@ -667,12 +674,23 @@ onBeforeUnmount(() => {
           <div class="team-panel-title">区间范围资源统计</div>
           <div class="team-table-wrap team-efficiency-table-wrap">
             <table>
-              <thead><tr><th>团队</th><th>总卡时</th><th>XPU 利用率</th><th>显存利用率</th></tr></thead>
+              <thead><tr>
+                <th>团队</th>
+                <th>Lock总卡时</th>
+                <th class="team-th-tip" :class="{ 'tip-open': openMetricTip === 'idle-hours' }">
+                  <span>低效卡时</span>
+                  <button type="button" class="team-tip-icon" aria-label="低效卡时说明" :aria-describedby="openMetricTip === 'idle-hours' ? 'team-th-tip-idle-hours' : undefined" @pointerenter="showMetricTip('idle-hours')" @pointerleave="hideMetricTip('idle-hours')" @focus="showMetricTip('idle-hours')" @blur="hideMetricTip('idle-hours')" @keydown.esc="hideMetricTip('idle-hours')">?</button>
+                  <div v-if="openMetricTip === 'idle-hours'" id="team-th-tip-idle-hours" class="team-metric-tooltip" role="tooltip">低效卡时 = Lock总卡时 × (1 − XPU 利用率)，衡量锁定却未被有效利用的卡时。</div>
+                </th>
+                <th>平均活跃人数</th>
+                <th>XPU 利用率</th>
+                <th>显存利用率</th>
+              </tr></thead>
               <tbody>
                 <tr v-for="team in teams" :key="team.id" :class="{ selected: team.id === selectedTeamId }" tabindex="0" :aria-selected="team.id === selectedTeamId" @click="selectedTeamId = team.id" @keydown.enter.prevent="selectedTeamId = team.id" @keydown.space.prevent="selectedTeamId = team.id">
-                  <td>{{ team.label }}</td><td>{{ formatCardHours(team.cardHours) }}</td><td>{{ formatPercent(team.xpu) }}</td><td>{{ formatPercent(team.memory) }}</td>
+                  <td>{{ team.label }}</td><td>{{ formatCardHours(team.cardHours) }}</td><td>{{ formatCardHours(idleCardHours(team)) }}</td><td>{{ formatAverageUserCount(team.averages?.activeUsers) }}</td><td>{{ formatPercent(team.xpu) }}</td><td>{{ formatPercent(team.memory) }}</td>
                 </tr>
-                <tr v-if="!loading && !teams.length"><td colspan="4">暂无团队数据</td></tr>
+                <tr v-if="!loading && !teams.length"><td colspan="6">暂无团队数据</td></tr>
               </tbody>
             </table>
           </div>
