@@ -24,10 +24,10 @@ export function botDisplayName(bot) {
 
 export function buildBotGroups(bots = [], stateResults = []) {
   const statesById = new Map((stateResults || []).map(result => [String(result?.bot?.id ?? result?.botId), result]));
-  return (bots || []).map((bot, index) => {
+  const groups = (bots || []).map((bot, index) => {
     const result = statesById.get(String(bot?.id));
     const nodeNames = new Set();
-    for (const rawName of Object.keys(result?.state || {})) {
+    for (const rawName of Object.keys(result?.ok === false ? {} : (result?.state || {}))) {
       const name = nodeName(rawName);
       if (name && MONITORED_NODE_SET.has(name)) nodeNames.add(name);
     }
@@ -37,8 +37,22 @@ export function buildBotGroups(bots = [], stateResults = []) {
       type: botType(bot),
       nodeNames: [...nodeNames].sort((left, right) => Number(left.slice(4)) - Number(right.slice(4))),
       available: result?.ok !== false,
+      isUnassigned: false,
     };
   });
+  const assignedNodes = new Set(groups.flatMap(group => group.nodeNames));
+  const unassignedNodes = MONITORED_NODE_NAMES
+    .filter(name => !assignedNodes.has(name))
+    .sort((left, right) => Number(left.slice(4)) - Number(right.slice(4)));
+  groups.push({
+    id: 'unassigned',
+    name: '未分组',
+    type: 'UNASSIGNED',
+    nodeNames: unassignedNodes,
+    available: true,
+    isUnassigned: true,
+  });
+  return groups;
 }
 
 function isActiveLock(state) {

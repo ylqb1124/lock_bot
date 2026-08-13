@@ -93,7 +93,8 @@ const selectedNodes = ref([]);
 const draftSelectedNodes = ref([]);
 const selectedBotIds = ref([]);
 const draftSelectedBotIds = ref([]);
-const nodeSearch = ref('');
+const expandedGroupIds = ref([]);
+const expandedGroupsInitialized = ref(false);
 const panelCollapsed = ref(true);
 const meanVisible = ref(true);
 const openTip = ref('');
@@ -127,16 +128,6 @@ const listenerCleanup = [];
 const filteredQuickRanges = computed(() => {
   const filter = quickSearch.value.trim().toLowerCase();
   return QUICK_RANGES.filter(range => !filter || range.label.toLowerCase().includes(filter));
-});
-const filteredNodeOptions = computed(() => {
-  const filter = nodeSearch.value.trim().toLowerCase();
-  return ALL_NODE_NAMES.filter(name => !filter || name.toLowerCase().includes(filter));
-});
-const filteredBotGroups = computed(() => {
-  const filter = nodeSearch.value.trim().toLowerCase();
-  return botGroups.value.filter(group => !filter
-    || group.name.toLowerCase().includes(filter)
-    || group.nodeNames.some(name => name.toLowerCase().includes(filter)));
 });
 const timeLabel = computed(() => {
   return QUICK_RANGES.find(range => range.id === quickRangeId.value)?.label || '自定义时间范围';
@@ -383,18 +374,32 @@ function botGroupPartiallySelected(group) {
   return selectedCount > 0 && selectedCount < group.nodeNames.length;
 }
 
+function isGroupExpanded(group) {
+  return expandedGroupIds.value.includes(group.id);
+}
+
+function toggleBotGroupExpanded(group) {
+  expandedGroupIds.value = isGroupExpanded(group)
+    ? expandedGroupIds.value.filter(id => id !== group.id)
+    : [...expandedGroupIds.value, group.id];
+}
+
 function toggleBotGroup(group) {
   const selected = new Set(draftSelectedNodes.value);
   const botIds = new Set(draftSelectedBotIds.value);
   const groupSelected = botGroupSelected(group);
   if (groupSelected) {
-    botIds.delete(group.id);
-    const remainingGroups = botGroups.value.filter(candidate => botIds.has(candidate.id));
-    group.nodeNames.forEach(name => {
-      if (!remainingGroups.some(candidate => candidate.nodeNames.includes(name))) selected.delete(name);
-    });
+    if (!group.isUnassigned) {
+      botIds.delete(group.id);
+      const remainingGroups = botGroups.value.filter(candidate => !candidate.isUnassigned && botIds.has(candidate.id));
+      group.nodeNames.forEach(name => {
+        if (!remainingGroups.some(candidate => candidate.nodeNames.includes(name))) selected.delete(name);
+      });
+    } else {
+      group.nodeNames.forEach(name => selected.delete(name));
+    }
   } else {
-    botIds.add(group.id);
+    if (!group.isUnassigned) botIds.add(group.id);
     group.nodeNames.forEach(name => selected.add(name));
   }
   draftSelectedNodes.value = ALL_NODE_NAMES.filter(name => selected.has(name));
@@ -409,16 +414,8 @@ function clearNodeSelection() {
 function syncDraftBotIds() {
   const selected = new Set(draftSelectedNodes.value);
   draftSelectedBotIds.value = botGroups.value
-    .filter(group => group.nodeNames.some(name => selected.has(name)))
+    .filter(group => !group.isUnassigned && group.nodeNames.some(name => selected.has(name)))
     .map(group => group.id);
-}
-
-function invertNodeSelection() {
-  const visible = filteredNodeOptions.value;
-  const selected = new Set(draftSelectedNodes.value);
-  draftSelectedNodes.value = visible.filter(name => !selected.has(name))
-    .concat(draftSelectedNodes.value.filter(name => !visible.includes(name)));
-  syncDraftBotIds();
 }
 
 function applyRange() {
@@ -557,12 +554,16 @@ async function load() {
     }
     const currentNodes = adaptStates(stateResults, currentOutcome.ok ? currentOutcome.data : [], currentSlotAtRequest);
     botGroups.value = buildBotGroups(bots.value, stateResults);
-    const validBotIds = new Set(botGroups.value.map(group => group.id));
+    if (!expandedGroupsInitialized.value) {
+      expandedGroupIds.value = botGroups.value.filter(group => group.isUnassigned).map(group => group.id);
+      expandedGroupsInitialized.value = true;
+    }
+    const validBotIds = new Set(botGroups.value.filter(group => !group.isUnassigned).map(group => group.id));
     draftSelectedBotIds.value = draftSelectedBotIds.value.filter(id => validBotIds.has(id));
     selectedBotIds.value = selectedBotIds.value.filter(id => validBotIds.has(id));
     if (!draftSelectedNodes.value.length && draftSelectedBotIds.value.length) {
       draftSelectedNodes.value = ALL_NODE_NAMES.filter(name => botGroups.value
-        .filter(group => draftSelectedBotIds.value.includes(group.id))
+        .filter(group => !group.isUnassigned && draftSelectedBotIds.value.includes(group.id))
         .some(group => group.nodeNames.includes(name)));
       selectedNodes.value = [...draftSelectedNodes.value];
     }
@@ -852,21 +853,22 @@ onBeforeUnmount(() => {
             <div class="cluster-range-title">Bot 分组与节点筛选</div>
             <div class="cluster-node-toolbar">
               <label class="cluster-node-all">
-                <input type="checkbox" :checked="draftSelectedNodes.length === 0" @change="clearNodeSelection" />
+                <input type="checkbox" :checked="draftSelectedNodes.length === 0 || draftSelectedNodes.length === ALL_NODE_NAMES.length" :indeterminate="draftSelectedNodes.length > 0 && draftSelectedNodes.length < ALL_NODE_NAMES.length" @change="clearNodeSelection" />
                 全部节点（{{ ALL_NODE_NAMES.length }}）
               </label>
-              <button type="button" class="cluster-icon-btn cluster-node-invert" title="反选当前可见节点" @click="invertNodeSelection">反选</button>
             </div>
-            <input v-model="nodeSearch" class="cluster-node-search" type="search" placeholder="搜索 Bot 或节点，如 node5" />
             <div class="cluster-bot-list">
-              <div v-for="group in filteredBotGroups" :key="group.id" class="cluster-bot-group">
-                <label class="cluster-bot-item" :class="{ empty: !group.nodeNames.length }">
+              <div v-for="group in botGroups" :key="group.id" class="cluster-bot-group" :class="{ expanded: isGroupExpanded(group), unassigned: group.isUnassigned }">
+                <div class="cluster-bot-item" :class="{ empty: !group.nodeNames.length }">
                   <input type="checkbox" :checked="botGroupSelected(group)" :indeterminate="botGroupPartiallySelected(group)" :disabled="!group.nodeNames.length" @change="toggleBotGroup(group)" />
-                  <span class="cluster-bot-name">{{ group.name }}</span>
-                  <span class="cluster-bot-count">{{ group.nodeNames.length }} 节点</span>
-                </label>
-                <div v-if="group.nodeNames.length" class="cluster-node-list cluster-bot-node-list">
-                  <label v-for="name in group.nodeNames" :key="`${group.id}-${name}`" v-show="!nodeSearch.trim() || name.includes(nodeSearch.trim().toLowerCase()) || group.name.toLowerCase().includes(nodeSearch.trim().toLowerCase())" class="cluster-node-item">
+                  <button type="button" class="cluster-bot-label" :disabled="!group.nodeNames.length" @click="toggleBotGroupExpanded(group)">
+                    <span class="cluster-bot-name">{{ group.name }}</span>
+                    <span class="cluster-bot-count">{{ group.nodeNames.length }} 节点</span>
+                  </button>
+                  <button type="button" class="cluster-bot-expand" :disabled="!group.nodeNames.length" :aria-label="isGroupExpanded(group) ? `收起${group.name}` : `展开${group.name}`" :aria-expanded="isGroupExpanded(group)" @click="toggleBotGroupExpanded(group)"><span aria-hidden="true">{{ isGroupExpanded(group) ? '▴' : '▾' }}</span></button>
+                </div>
+                <div v-if="group.nodeNames.length && isGroupExpanded(group)" class="cluster-node-list cluster-bot-node-list">
+                  <label v-for="name in group.nodeNames" :key="`${group.id}-${name}`" class="cluster-node-item">
                     <input type="checkbox" :value="name" v-model="draftSelectedNodes" @change="syncDraftBotIds" />{{ name }}
                   </label>
                 </div>

@@ -61,9 +61,48 @@ test('Bot groups use readable names and only include monitored nodes from curren
     { bot: { id: 2 }, ok: true, state: { node13: {}, node1: {} } },
   ]);
 
-  assert.deepEqual(groups.map(group => group.name), ['主力 Bot', 'Bot #2']);
+  assert.deepEqual(groups.map(group => group.name), ['主力 Bot', 'Bot #2', '未分组']);
   assert.deepEqual(groups[0].nodeNames, ['node1', 'node13']);
   assert.deepEqual(groups[1].nodeNames, ['node1', 'node13']);
+  assert.equal(groups[2].id, 'unassigned');
+  assert.equal(groups[2].isUnassigned, true);
+  assert.equal(groups[2].nodeNames.includes('node1'), false);
+  assert.equal(groups[2].nodeNames.includes('node13'), false);
+  assert.equal(groups[2].nodeNames.includes('node2'), true);
+  assert.equal(groups[2].nodeNames.includes('node999'), false);
+  assert.equal(groups[2].nodeNames.length + 2, clusterScope.nodeIds.length);
+});
+
+test('unassigned Bot group covers every monitored node outside the current Bot state union', () => {
+  const groups = buildBotGroups([
+    { id: 1, name: '甲', bot_type: 'NODE' },
+    { id: 2, name: '乙', bot_type: 'DEVICE' },
+  ], [
+    { bot: { id: 1 }, ok: true, state: { node1: {}, node2: {}, bdc8: {} } },
+    { bot: { id: 2 }, ok: true, state: { 'gpu-node2': [], node3: [], node999: [] } },
+  ]);
+  const unassigned = groups.find(group => group.isUnassigned);
+  const groupedNodes = new Set(groups.filter(group => !group.isUnassigned).flatMap(group => group.nodeNames));
+
+  assert.deepEqual(groups[0].nodeNames, ['node1', 'node2']);
+  assert.deepEqual(groups[1].nodeNames, ['node2', 'node3']);
+  assert.equal(unassigned.id, 'unassigned');
+  assert.equal(unassigned.nodeNames.includes('node1'), false);
+  assert.equal(unassigned.nodeNames.includes('node2'), false);
+  assert.equal(unassigned.nodeNames.includes('node3'), false);
+  assert.equal(unassigned.nodeNames.includes('node4'), true);
+  assert.deepEqual([...groupedNodes, ...unassigned.nodeNames].sort(), clusterScope.nodeIds.map(id => `node${id}`).sort());
+});
+
+test('failed Bot state does not remove monitored nodes from the unassigned group', () => {
+  const groups = buildBotGroups([{ id: 1, name: '失败 Bot' }], [
+    { bot: { id: 1 }, ok: false, state: { node1: {} } },
+  ]);
+  const unassigned = groups.find(group => group.isUnassigned);
+
+  assert.deepEqual(groups[0].nodeNames, []);
+  assert.equal(unassigned.nodeNames.length, clusterScope.nodeIds.length);
+  assert.equal(unassigned.nodeNames.includes('node1'), true);
 });
 
 test('metric monitoring keeps the 73-node scope but excludes node38, node68, and node69 from Beijing 08:00', () => {
