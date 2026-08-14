@@ -186,7 +186,7 @@ function normalizeOccupancy(records, startAt, endAt) {
 }
 
 function namespace(nodeId) {
-  const nonBackup = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 83, 84]);
+  const nonBackup = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 53, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 83, 84]);
   const prefix = nonBackup.has(nodeId) ? 'wxtky02-p800-8nic-vd' : 'wxtky02-p800-backup-8nic-vd';
   return `${prefix}-node${nodeId}.wxtky02`;
 }

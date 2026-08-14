@@ -30,10 +30,10 @@ function emptyDeviceState() {
   return Array.from({ length: CARD_COUNT }, (_, devId) => ({ dev_id: devId, status: 'idle', current_users: [] }));
 }
 
-test('cluster scope uses the current 73-node, 584-card computation denominator', () => {
-  assert.equal(clusterScope.nodeIds.length, 73);
+test('cluster scope uses the current 74-node, 592-card computation denominator', () => {
+  assert.equal(clusterScope.nodeIds.length, 74);
   assert.equal(clusterScope.cardsPerNode, 8);
-  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 584);
+  assert.equal(clusterScope.nodeIds.length * clusterScope.cardsPerNode, 592);
   assert.equal(clusterScope.nodeIds.includes(15), false);
   assert.equal(clusterScope.nodeIds.includes(16), false);
   assert.equal(clusterScope.nodeIds.includes(60), true);
@@ -42,6 +42,7 @@ test('cluster scope uses the current 73-node, 584-card computation denominator',
   assert.equal(clusterScope.nodeIds.includes(79), true);
   assert.equal(clusterScope.nodeIds.includes(83), true);
   assert.equal(clusterScope.nodeIds.includes(84), true);
+  assert.equal(clusterScope.nodeIds.includes(53), true);
 });
 
 test('nodeGroups in cluster scope stay consistent with the flat nodeIds list', () => {
@@ -105,13 +106,13 @@ test('failed Bot state does not remove monitored nodes from the unassigned group
   assert.equal(unassigned.nodeNames.includes('node1'), true);
 });
 
-test('metric monitoring keeps the 73-node scope but excludes node38, node68, and node69 from Beijing 08:00', () => {
+test('metric monitoring keeps the 74-node scope but excludes node38, node68, and node69 from Beijing 08:00', () => {
   const { buildMetricUsageScopeTimeline, nodeIdsAt } = require('../shared/cluster-scope-timeline.cjs');
   const before = Math.floor(new Date('2026-08-11T07:59:59+08:00').getTime() / 1000);
   const effectiveFrom = Math.floor(new Date('2026-08-11T08:00:00+08:00').getTime() / 1000);
   const timeline = buildMetricUsageScopeTimeline(clusterScope, clusterScope.nodeIds);
 
-  assert.equal(clusterScope.nodeIds.length, 73);
+  assert.equal(clusterScope.nodeIds.length, 74);
   assert.deepEqual(clusterScope.metricUsageExclusions, [{
     effectiveFrom: '2026-08-11T08:00:00+08:00',
     nodeIds: [38, 68, 69],
@@ -120,7 +121,7 @@ test('metric monitoring keeps the 73-node scope but excludes node38, node68, and
   assert.equal(nodeIdsAt(timeline, before).length, 71);
   assert.equal(nodeIdsAt(timeline, effectiveFrom).length, 68);
   assert.deepEqual(nodeIdsAt(timeline, effectiveFrom).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
-  assert.equal(metricNodeIdsAt(new Date('2026-08-11T07:59:59+08:00')).length, 73);
+  assert.equal(metricNodeIdsAt(new Date('2026-08-11T07:59:59+08:00')).length, 74);
   assert.deepEqual(metricNodeIdsAt(new Date('2026-08-11T08:00:00+08:00')).filter(nodeId => [38, 68, 69].includes(nodeId)), []);
 });
 
@@ -233,7 +234,7 @@ test('cluster dashboard uses a six-minute trend interval for the 24-hour range',
   assert.match(proxy, /new Set\(\[60, 120, 240, 300, 360, 480/);
 });
 
-test('legacy static dashboard requests the same 73-node scope and namespaces as the Vue dashboard', () => {
+test('legacy static dashboard requests the same 74-node scope and namespaces as the Vue dashboard', () => {
   const legacyApi = fs.readFileSync(path.join(PROJECT_ROOT, 'api.js'), 'utf8');
   const monitored = legacyApi.match(/const MONITORED_NODES = \[([\s\S]*?)\];/);
   const nonBackup = legacyApi.match(/const NON_BACKUP_NODES = \[([\s\S]*?)\];/);
@@ -243,6 +244,7 @@ test('legacy static dashboard requests the same 73-node scope and namespaces as 
   const nonBackupNodeIds = nonBackup[1].match(/\d+/g).map(Number);
 
   assert.deepEqual(nodeIds, clusterScope.nodeIds);
+  assert.equal(nonBackupNodeIds.includes(53), true);
   assert.deepEqual(nonBackupNodeIds.filter(nodeId => nodeId >= 70), [70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 83, 84, 85, 86]);
 });
 
@@ -274,6 +276,67 @@ test('node70 through node79 are active from 10:00 China time with no pending dup
   const activation = clusterScope.nodeGroups.find(group => group.effectiveFrom === '2026-07-29T10:00:00+08:00');
   assert.deepEqual(activation.nodeIds, [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]);
   assert.deepEqual(clusterScope.pendingNodeGroups, []);
+});
+
+test('node53 enters the lock trend denominator at 18:00 China time on August 14', async (t) => {
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2026-08-15T00:00:00+08:00').getTime();
+  t.after(() => { Date.now = originalDateNow; });
+
+  const beforeActivation = Math.floor(new Date('2026-08-14T17:55:00+08:00').getTime() / 1000);
+  const atActivation = Math.floor(new Date('2026-08-14T18:00:00+08:00').getTime() / 1000);
+  const activation = clusterScope.nodeGroups.find(group => group.effectiveFrom === '2026-08-14T18:00:00+08:00');
+  const { buildLockUsageScopeTimeline, buildLockUsageTimeline, nodeIdsAt, totalCardsAt } = require('../shared/cluster-scope-timeline.cjs');
+  const timeline = buildLockUsageScopeTimeline(clusterScope, clusterScope.nodeIds);
+  const countTimeline = buildLockUsageTimeline(clusterScope, clusterScope.nodeIds);
+  const activeBefore = nodeIdsAt(timeline, beforeActivation);
+  const activeAt = nodeIdsAt(timeline, atActivation);
+
+  assert.deepEqual(activation.nodeIds, [53]);
+  assert.equal(activeBefore.length, 65);
+  assert.equal(activeAt.length, 66);
+  assert.equal(totalCardsAt(countTimeline, clusterScope.cardsPerNode, beforeActivation), 520);
+  assert.equal(totalCardsAt(countTimeline, clusterScope.cardsPerNode, atActivation), 528);
+
+  const monqueryNamespaces = [];
+  const upstream = createServer((request, response) => {
+    if (request.url.startsWith('/monquery/getHistoryitemdata')) {
+      monqueryNamespaces.push(new URL(request.url, 'http://localhost').searchParams.get('namespaces'));
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (request.url === '/api/bots') {
+      response.end(JSON.stringify([{ id: 1, bot_type: 'NODE' }]));
+      return;
+    }
+    if (request.url.startsWith('/api/bots/1/occupancy')) {
+      response.end(JSON.stringify([
+        { node_key: 'node1', dev_id: 0, start_time: beforeActivation, end_time: atActivation + 24 * 60 * 60 },
+        { node_key: 'node53', dev_id: 0, start_time: beforeActivation, end_time: atActivation + 24 * 60 * 60 },
+      ]));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address();
+  try {
+    const service = createTrendService({
+      backend: {
+        lockbot: { host: '127.0.0.1', port },
+        monquery: { host: '127.0.0.1', port },
+      },
+    }, { lockHistoryCache: { read: () => null, save: () => {} } });
+    const result = await service.query(beforeActivation, atActivation, 'Bearer test', null, 300);
+
+    assert.equal(result.lock[0], 1 / 520 * 100);
+    assert.equal(result.lock[result.times.indexOf(atActivation)], 2 / 528 * 100);
+    assert.equal(monqueryNamespaces.some(value => value.includes('wxtky02-p800-8nic-vd-node53.wxtky02')), true);
+    assert.equal(monqueryNamespaces.some(value => value.includes('wxtky02-p800-backup-8nic-vd-node53.wxtky02')), false);
+  } finally {
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
 });
 
 test('current Monquery timeout is shorter than the general request timeout', () => {
@@ -400,7 +463,7 @@ test('Lock Bot states merge aliases and NODE/DEVICE locks by card', () => {
     },
   ]);
 
-  assert.equal(Object.keys(merged.deviceState).length, 73);
+  assert.equal(Object.keys(merged.deviceState).length, 74);
   assert.equal(merged.lockStateComplete, true);
   assert.equal(merged.deviceState.node1.length, CARD_COUNT);
   assert.equal(merged.deviceState.node1[0].current_users.length, 1);
@@ -1162,7 +1225,7 @@ test('Lock Bot BDC cards are excluded from the computation-node trend', async ()
     }, { lockHistoryCache: { read: () => null, save: () => {} } });
     const result = await service.query(0, 300, 'Bearer test', null, 300);
 
-    assert.equal(result.targetNodes.length, 73);
+    assert.equal(result.targetNodes.length, 74);
     assert.equal(result.targetNodes.includes('bdc9'), false);
     assert.equal(result.targetNodes.includes('node70'), true);
     assert.equal(result.targetNodes.includes('node83'), true);

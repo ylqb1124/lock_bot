@@ -22,7 +22,8 @@ const emit = defineEmits(['expired']);
 const CARD_COUNT = 8;
 const TREND_NODE_NAMES = Array.from({ length: 51 }, (_, index) => index + 1)
   .filter(node => ![13, 14, 17].includes(node))
-  .map(node => `node${node}`);
+  .map(node => `node${node}`)
+  .concat('node53');
 const AVG_MARGIN = { top: 10, right: 16, bottom: 20, left: 48 };
 const XPU_TICKS = [0, 5, 10, 15, 20, 25, 30, 35];
 const MEM_TICKS = [0, 10, 20, 30, 40, 50, 60, 70];

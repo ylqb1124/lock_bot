@@ -18,7 +18,7 @@ const clusterScope = JSON.parse(
 
 const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
-const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
+const NON_BACKUP_NODES = new Set([32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 53, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
 const MONITORED_NODES = clusterScope.nodeIds;
 const CARDS_PER_NODE = clusterScope.cardsPerNode;
 const CST_OFFSET_SECONDS = 8 * 60 * 60;

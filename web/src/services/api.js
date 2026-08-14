@@ -11,7 +11,7 @@ const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
 
 // 非 backup namespace 的节点
-const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 83, 84, 85, 86];
+const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 53, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 83, 84, 85, 86];
 
 import clusterScope from '../../shared/cluster-scope.json' with { type: 'json' };
 

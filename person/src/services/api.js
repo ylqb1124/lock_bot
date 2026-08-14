@@ -11,12 +11,13 @@ const CLUSTER_BACKUP = 'wxtky02-p800-backup-8nic-vd';
 const CLUSTER_NON_BACKUP = 'wxtky02-p800-8nic-vd';
 
 // 非 backup namespace 的节点
-const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69];
+const NON_BACKUP_NODES = [32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 53, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69];
 
 // 有监控数据的节点（排除 node13、14、15、16、17 为故障机，与 web/shared/cluster-scope.json 保持一致）
 const MONITORED_NODES = [
   ...Array.from({ length: 51 }, (_, i) => i + 1).filter(n => ![13, 14, 15, 16, 17].includes(n)),
   60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+  53,
 ];
 
 function buildNamespace(nodeNum) {

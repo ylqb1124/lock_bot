@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-The current production dashboard is `web/`, a Vue 3/Vite app. `web/src/views/ClusterDashboard.vue` orchestrates the UI; `src/services/` owns API calls, data adaptation, time handling, charts, refresh policy, and Lock Bot state merging. `web/server/` provides the Node proxy plus persisted cluster trends and Lock Bot history cache. `web/shared/cluster-scope.json` is the source of truth for the current 68-node, 8-card scope and its China-time `nodeGroups` rollout history.
+The current production dashboard is `web/`, a Vue 3/Vite app. `web/src/views/ClusterDashboard.vue` orchestrates the UI; `src/services/` owns API calls, data adaptation, time handling, charts, refresh policy, and Lock Bot state merging. `web/server/` provides the Node proxy plus persisted cluster trends and Lock Bot history cache. `web/shared/cluster-scope.json` is the source of truth for the current 74-node, 8-card scope and its China-time `nodeGroups` rollout history.
 
 The repository root retains the legacy static dashboard (`index.html`, `api.js`, `adapter.js`, `timeline.js`, `proxy.js`). `person/` is a separate personal Vue dashboard. Deployment files include `web/pm2.config.cjs` and `web/xpu-monitor.service`.
 
