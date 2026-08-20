@@ -192,6 +192,12 @@
               </el-tag>
             </el-descriptions-item>
             <el-descriptions-item
+              v-if="botConfig.MIN_LOCK_COUNT !== 1"
+              :label="$t('botCreate.minLockCount')"
+            >
+              {{ botConfig.MIN_LOCK_COUNT }}
+            </el-descriptions-item>
+            <el-descriptions-item
               v-if="botConfig.MAX_LOCK_COUNT !== 16"
               :label="$t('botCreate.maxLockCount')"
             >
@@ -586,6 +592,7 @@ const storedBotConfig = computed(() => {
       MAX_LOCK_DURATION: overrides.MAX_LOCK_DURATION ?? -1,
       TIME_ALERT: overrides.TIME_ALERT ?? 300,
       EARLY_NOTIFY: overrides.EARLY_NOTIFY ?? false,
+      MIN_LOCK_COUNT: overrides.MIN_LOCK_COUNT ?? 1,
       MAX_LOCK_COUNT: overrides.MAX_LOCK_COUNT ?? 16,
       LOCK_POLICIES: Array.isArray(overrides.LOCK_POLICIES) ? overrides.LOCK_POLICIES : [],
     }
@@ -595,6 +602,7 @@ const storedBotConfig = computed(() => {
       MAX_LOCK_DURATION: -1,
       TIME_ALERT: 300,
       EARLY_NOTIFY: false,
+      MIN_LOCK_COUNT: 1,
       MAX_LOCK_COUNT: 16,
       LOCK_POLICIES: [],
     }
@@ -655,6 +663,7 @@ const hasAdvancedConfig = computed(() => {
     c.MAX_LOCK_DURATION !== -1 ||
     c.TIME_ALERT !== 300 ||
     c.EARLY_NOTIFY !== false ||
+    c.MIN_LOCK_COUNT !== 1 ||
     c.MAX_LOCK_COUNT !== 16 ||
     c.LOCK_POLICIES.length > 0
   )

@@ -162,6 +162,10 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
+        min_count_error = self._minimum_lock_count_error(user_id, node_keys)
+        if min_count_error:
+            return min_count_error
+
         timestamp = int(time.time())
         max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
         if max_lock_count >= 0 and len(node_keys) > max_lock_count:
@@ -239,6 +243,10 @@ class NodeBot(BaseLockBot):
         parse_ok, error_reply, node_keys, duration = self.parse_command(user_id, "slock", command, True)
         if not parse_ok:
             return error_reply
+
+        min_count_error = self._minimum_lock_count_error(user_id, node_keys)
+        if min_count_error:
+            return min_count_error
 
         timestamp = int(time.time())
         max_lock_count, max_dur = self.config.get_lock_limits(timestamp)

@@ -31,6 +31,7 @@ MESSAGES = {
     "error.slock_max_duration_exceeded": "【注意: 目前禁止连续slock超过{max_duration}】\n\n",
     "error.duration_limit_reason": "计算：取当前上限与跨策略上限的较小值；跨策略上限=max(距下次切换时长, 2h)。\n",
     "error.max_lock_count_exceeded": "最多同时lock/预约 {max_count} 台机器",
+    "error.min_lock_count_not_met": "【本次申请{count}台机器，不能少于{min_count}台】\n",
     "error.node_not_requested": "【你并未申请过该节点资源】\n",
     "error.unrecognized_command": "❌【未识别的命令】{command}",
     "error.unknown_error": "❌【未知错误】{command}",
@@ -107,7 +108,9 @@ MESSAGES = {
     "help.query_at_bot": "    直接at机器人\n",
     "help.max_duration_warning": "【注意: 目前禁止连续lock/slock超过{max_duration}】\n\n",
     "help.max_duration_warning_queue": "【注意: lock、book 或 take 的时长不能超过{max_duration}】\n\n",
-    "help.current_limits": "【当前限制】单个用户最多同时占用{max_count}台机器，最长{max_duration}\n\n",
+    "help.current_limits": (
+        "【当前限制】单次至少申请{min_count}台机器，最多同时占用{max_count}台机器，最长{max_duration}\n\n"
+    ),
     "help.unlimited": "不限制",
     "help.bot_version": "机器人版本: {version}\n",
     "help.bot_id": "机器人ID: {bot_id}\n",

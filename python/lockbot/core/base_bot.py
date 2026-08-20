@@ -399,6 +399,21 @@ class BaseLockBot:
         message += t("error.duration_limit_reason", config=self.config)
         return self.show_error(user_id, message)
 
+    def _minimum_lock_count_error(self, user_id, node_keys):
+        """Return an error reply when a request targets too few nodes, otherwise None."""
+        min_count = self.config.get_val("MIN_LOCK_COUNT")
+        if len(node_keys) < min_count:
+            return self.show_error(
+                user_id,
+                t(
+                    "error.min_lock_count_not_met",
+                    config=self.config,
+                    count=len(node_keys),
+                    min_count=min_count,
+                ),
+            )
+        return None
+
     # ------------------------------------------------------ _msg_with_usage
     def _msg_with_usage(self, msg_key, *, node_key=None, sep="", **kwargs):
         """Return ``t(msg_key, ...) + sep + self._current_usage(node_key)``."""
@@ -528,6 +543,7 @@ class BaseLockBot:
         return t(
             "help.current_limits",
             config=self.config,
+            min_count=self.config.get_val("MIN_LOCK_COUNT"),
             max_count=count_text,
             max_duration=duration_text,
         )

@@ -157,6 +157,43 @@ class TestUpdateBot:
         assert resp.status_code == 200
         assert json.loads(resp.json()["config_overrides"])["MAX_LOCK_COUNT"] == 1
 
+    def test_update_config_overrides_accepts_min_lock_count(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"MIN_LOCK_COUNT": 2, "MAX_LOCK_COUNT": 4}},
+            headers=admin_header,
+        )
+
+        assert resp.status_code == 200
+        assert json.loads(resp.json()["config_overrides"])["MIN_LOCK_COUNT"] == 2
+
+    def test_update_config_overrides_rejects_min_lock_count_above_max(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"MIN_LOCK_COUNT": 3, "MAX_LOCK_COUNT": 2}},
+            headers=admin_header,
+        )
+
+        assert resp.status_code == 422
+
+    def test_update_config_overrides_rejects_min_count_with_malformed_policy(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"MIN_LOCK_COUNT": 2, "LOCK_POLICIES": [{}]}},
+            headers=admin_header,
+        )
+
+        assert resp.status_code == 422
+
     def test_update_config_overrides_accepts_scheduled_lock_policies(self, client, admin_header):
         create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
         bot_id = create_resp.json()["id"]
@@ -230,6 +267,19 @@ class TestUpdateBot:
                         }
                     ]
                 },
+            },
+            headers=admin_header,
+        )
+        assert resp.status_code == 422
+
+    def test_device_bot_rejects_min_lock_count(self, client, admin_header):
+        resp = client.post(
+            "/api/bots",
+            json={
+                **_sample_bot("device-min-count"),
+                "bot_type": "DEVICE",
+                "cluster_configs": {"h1": ["A100"]},
+                "config_overrides": {"MIN_LOCK_COUNT": 2},
             },
             headers=admin_header,
         )

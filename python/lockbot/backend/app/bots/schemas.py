@@ -15,6 +15,7 @@ _CFG_RULES: dict[str, tuple[int, int] | None] = {
     "TIME_ALERT": (30, 3600),  # 30 s – 1 h
     "MAX_LOCK_DURATION": None,  # -1 (unlimited) or 300–604800
     "MAX_LOCK_COUNT": (1, 16),
+    "MIN_LOCK_COUNT": (1, 16),
     "LOCK_POLICIES": None,
 }
 
@@ -48,6 +49,28 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     default_dur = v.get("DEFAULT_DURATION")
     if isinstance(max_dur, int) and isinstance(default_dur, int) and max_dur != -1 and default_dur > max_dur:
         errors.append("DEFAULT_DURATION must not exceed MAX_LOCK_DURATION")
+
+    min_count = v.get("MIN_LOCK_COUNT", 1)
+    max_count = v.get("MAX_LOCK_COUNT", 16)
+    if (
+        isinstance(min_count, int)
+        and not isinstance(min_count, bool)
+        and isinstance(max_count, int)
+        and not isinstance(max_count, bool)
+        and min_count > max_count
+    ):
+        errors.append("MIN_LOCK_COUNT must not exceed MAX_LOCK_COUNT")
+    policies = v.get("LOCK_POLICIES", [])
+    if isinstance(min_count, int) and not isinstance(min_count, bool) and isinstance(policies, list):
+        for index, policy in enumerate(policies):
+            policy_max_count = policy.get("max_lock_count", -1) if isinstance(policy, dict) else None
+            if (
+                isinstance(policy_max_count, int)
+                and not isinstance(policy_max_count, bool)
+                and policy_max_count >= 0
+                and min_count > policy_max_count
+            ):
+                errors.append(f"MIN_LOCK_COUNT must not exceed LOCK_POLICIES[{index}].max_lock_count")
 
     if errors:
         raise ValueError("; ".join(errors))

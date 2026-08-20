@@ -74,6 +74,11 @@ _CONFIG_SCHEMA = {
         "description": "Max number of machines a single user can lock/book at once (1-16)",
         "env": True,
     },
+    "MIN_LOCK_COUNT": {
+        "default": 1,
+        "description": "Min number of machines a user must lock/book in one command (1-16)",
+        "env": True,
+    },
     "LOCK_POLICIES": {
         "default": [],
         "description": "Beijing-time resource limits; unmatched times use MAX_LOCK_COUNT/MAX_LOCK_DURATION",
@@ -210,6 +215,22 @@ class Config:
             self._data["LOCK_POLICIES"] = validate_lock_policies(self._data.get("LOCK_POLICIES"))
         except LockPolicyValidationError as exc:
             raise ConfigValidationError(str(exc)) from exc
+        self._validate_lock_count_bounds(self._data)
+
+    @staticmethod
+    def _validate_lock_count_bounds(config_data):
+        min_count = config_data.get("MIN_LOCK_COUNT")
+        max_count = config_data.get("MAX_LOCK_COUNT")
+        if isinstance(min_count, bool) or not isinstance(min_count, int) or not 1 <= min_count <= 16:
+            raise ConfigValidationError("MIN_LOCK_COUNT must be between 1 and 16")
+        if isinstance(max_count, bool) or not isinstance(max_count, int) or not 1 <= max_count <= 16:
+            raise ConfigValidationError("MAX_LOCK_COUNT must be between 1 and 16")
+        if min_count > max_count:
+            raise ConfigValidationError("MIN_LOCK_COUNT must not exceed MAX_LOCK_COUNT")
+        for index, policy in enumerate(config_data.get("LOCK_POLICIES", [])):
+            policy_max_count = policy["max_lock_count"]
+            if policy_max_count >= 0 and min_count > policy_max_count:
+                raise ConfigValidationError(f"MIN_LOCK_COUNT must not exceed LOCK_POLICIES[{index}].max_lock_count")
 
     def get_val(self, key, default=None):
         """Instance-level get (same logic as classmethod get)."""
@@ -376,6 +397,7 @@ class Config:
             cls._config_data["LOCK_POLICIES"] = validate_lock_policies(cls._config_data.get("LOCK_POLICIES"))
         except LockPolicyValidationError as exc:
             raise ConfigValidationError(str(exc)) from exc
+        cls._validate_lock_count_bounds(cls._config_data)
 
     @classmethod
     def show_all(cls, as_json=False):

@@ -77,6 +77,10 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
+        min_count_error = self._minimum_lock_count_error(user_id, node_keys)
+        if min_count_error:
+            return min_count_error
+
         timestamp = int(time.time())
         max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
         forbid_relock = self.config.get_val("FORBID_RELOCK")
@@ -182,6 +186,10 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
+        min_count_error = self._minimum_lock_count_error(user_id, node_keys)
+        if min_count_error:
+            return min_count_error
+
         timestamp = int(time.time())
         max_lock_count, max_dur = self.config.get_lock_limits(timestamp)
         forbid_relock = self.config.get_val("FORBID_RELOCK")
@@ -249,6 +257,10 @@ class QueueBot(NodeBot):
         parse_ok, error_reply, node_keys, duration = self.parse_command(user_id, "take", command, True)
         if not parse_ok:
             return error_reply
+
+        min_count_error = self._minimum_lock_count_error(user_id, node_keys)
+        if min_count_error:
+            return min_count_error
 
         content = t("success.take_success_by", config=self.config, user_id=user_id)
         content += self._msg_with_usage("label.before_take", node_key=node_keys)

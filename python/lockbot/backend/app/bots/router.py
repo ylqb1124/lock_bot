@@ -59,6 +59,8 @@ def _reject_device_lock_policies(bot_type: str, config_overrides: dict | None) -
     """Scheduled node policies are intentionally unsupported by DEVICE bots."""
     if bot_type == "DEVICE" and config_overrides and config_overrides.get("LOCK_POLICIES"):
         raise HTTPException(status_code=422, detail="LOCK_POLICIES are supported only for NODE and QUEUE bots")
+    if bot_type == "DEVICE" and config_overrides and "MIN_LOCK_COUNT" in config_overrides:
+        raise HTTPException(status_code=422, detail="MIN_LOCK_COUNT is supported only for NODE and QUEUE bots")
 
 
 def _get_log_dir(bot_id: int) -> str:

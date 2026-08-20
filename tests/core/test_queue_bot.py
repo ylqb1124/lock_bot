@@ -332,6 +332,47 @@ def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
     assert "✅【资源申请成功】" in content or "🗓️【排队成功】" in content
 
 
+def test_min_lock_count_rejects_queue_lock_and_book(bot):
+    """QUEUE lock and book require the configured minimum number of nodes."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.config.set_val("MIN_LOCK_COUNT", 2)
+    bot.state.bot_state = {
+        node_key: {
+            "status": "exclusive",
+            "current_users": [mock_user_info(f"holder-{node_key}", 3600)],
+            "booking_list": [],
+        }
+        for node_key in ("test", "test2")
+    }
+
+    for operation in ("lock", "book"):
+        rejected = getattr(bot, operation)("user1", f"{operation} test 1h")
+        assert "本次申请1台机器，不能少于2台" in rejected["message"]["body"][0]["content"]
+        assert not bot.state.bot_state["test"]["booking_list"]
+
+    accepted = bot.book("user1", "book test,test2 1h")
+    assert "🗓️【排队成功】" in accepted["message"]["body"][0]["content"]
+
+
+def test_min_lock_count_rejects_queue_take(bot):
+    """QUEUE take cannot bypass the same minimum request count."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.config.set_val("MIN_LOCK_COUNT", 2)
+    bot.state.bot_state = {
+        node_key: {
+            "status": "exclusive",
+            "current_users": [mock_user_info(f"holder-{node_key}", 3600)],
+            "booking_list": [],
+        }
+        for node_key in ("test", "test2")
+    }
+
+    rejected = bot.take("user1", "take test 1h")
+
+    assert "本次申请1台机器，不能少于2台" in rejected["message"]["body"][0]["content"]
+    assert bot.state.bot_state["test"]["current_users"][0]["user_id"] == "holder-test"
+
+
 def test_disallow_multi_lock_rejects_multiple_targets(bot):
     """MAX_LOCK_COUNT=1 rejects locking multiple queue nodes in one command."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
@@ -909,7 +950,7 @@ def test_print_help(bot):
     assert "当前使用者不可续锁或预约同一节点" in content
     assert "队首会在节点空闲时自动锁定" in content
     assert "slock" not in content
-    assert "当前限制】单个用户最多同时占用16台机器，最长3.0 小时" in content
+    assert "当前限制】单次至少申请1台机器，最多同时占用16台机器，最长3.0 小时" in content
 
 
 def test_print_help_respects_queue_notification_and_relock_config(bot):

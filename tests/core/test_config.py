@@ -166,6 +166,12 @@ def test_load_config_file_missing(tmp_path):
     assert Config.get("MAX_LOCK_COUNT") == 16
 
 
+def test_min_lock_count_must_not_exceed_max_lock_count():
+    """The runtime config rejects incompatible lock count bounds."""
+    with pytest.raises(ConfigValidationError, match="MIN_LOCK_COUNT must not exceed MAX_LOCK_COUNT"):
+        Config({"MIN_LOCK_COUNT": 2, "MAX_LOCK_COUNT": 1})
+
+
 def set_env_vars(env_vars):
     for key, value in env_vars.items():
         os.environ[key] = value

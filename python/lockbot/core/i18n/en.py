@@ -34,6 +34,7 @@ MESSAGES = {
         "max(time to next switch, 2h).\n"
     ),
     "error.max_lock_count_exceeded": "Cannot lock/book more than {max_count} machines at once",
+    "error.min_lock_count_not_met": "This request covers {count} machines; at least {min_count} are required\n",
     "error.node_not_requested": "You have not requested this node\n",
     "error.unrecognized_command": "❌ Unrecognized command: {command}",
     "error.unknown_error": "❌ Unknown error: {command}",
@@ -115,7 +116,8 @@ MESSAGES = {
     "help.max_duration_warning": "Note: consecutive lock/slock cannot exceed {max_duration}\n\n",
     "help.max_duration_warning_queue": "Note: lock, book, or take duration cannot exceed {max_duration}\n\n",
     "help.current_limits": (
-        "Current limits: one user may hold up to {max_count} machines, maximum duration {max_duration}\n\n"
+        "Current limits: each request must include at least {min_count} machines; one user may hold up to "
+        "{max_count} machines, maximum duration {max_duration}\n\n"
     ),
     "help.unlimited": "unlimited",
     "help.bot_version": "Bot version: {version}\n",

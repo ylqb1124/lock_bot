@@ -178,6 +178,23 @@ def test_allow_multi_lock_default_still_allows_multiple_targets(bot):
     assert "✅【资源申请成功】" in content, "Multi-node lock should stay allowed by default"
 
 
+@pytest.mark.parametrize("operation", ["lock", "slock"])
+def test_min_lock_count_rejects_single_node_requests(bot, operation):
+    """NODE lock modes must meet MIN_LOCK_COUNT before they mutate state."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})
+    bot.config.set_val("MIN_LOCK_COUNT", 2)
+    bot.state.bot_state["test2"] = {"status": "idle", "current_users": [], "booking_list": []}
+
+    rejected = getattr(bot, operation)("user1", f"{operation} test 1h")
+    content = rejected["message"]["body"][0]["content"]
+
+    assert "本次申请1台机器，不能少于2台" in content
+    assert all(node["status"] == "idle" for node in bot.state.bot_state.values())
+
+    accepted = getattr(bot, operation)("user1", f"{operation} test,test2 1h")
+    assert "✅【资源申请成功】" in accepted["message"]["body"][0]["content"]
+
+
 def test_disallow_multi_lock_rejects_multiple_targets(bot):
     """MAX_LOCK_COUNT=1 rejects locking multiple nodes in one command."""
     bot.config.set_val("CLUSTER_CONFIGS", {"test": "10.0.0.1", "test2": "10.0.0.2"})

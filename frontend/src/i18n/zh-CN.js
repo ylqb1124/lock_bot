@@ -166,6 +166,8 @@ export default {
     earlyNotifyOff: '到期释放',
     maxLockCount: '单用户最多锁定/预约台数',
     maxLockCountHelp: '单个用户在本机器人内可同时锁定(lock)/预约(book)的机器数量上限，范围 1-16，默认 16',
+    minLockCount: '单用户最少锁定/预约台数',
+    minLockCountHelp: '每条资源申请命令至少选择的机器数量，范围 1-16，默认 1',
     lockPolicies: '定时 Lock 策略',
     lockPoliciesHelp: '按北京时间和星期匹配。策略覆盖资源获取命令的数量和最长时长；跨午夜策略归属开始日，锁定不可超过下一条策略的起点，距离起点不足 2 小时时可使用短锁缓冲。未命中时使用上方全局限制。-1 表示不限制。',
     policyStartTime: '开始时间',

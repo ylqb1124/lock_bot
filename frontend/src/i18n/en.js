@@ -171,6 +171,9 @@ export default {
     maxLockCount: 'Max Locked/Booked Machines',
     maxLockCountHelp:
       'Max number of machines a single user can lock/book at once in this bot (1-16, default 16)',
+    minLockCount: 'Min Locked/Booked Machines',
+    minLockCountHelp:
+      'Minimum machines selected by each resource request command (1-16, default 1)',
     lockPolicies: 'Scheduled Lock Policies',
     lockPoliciesHelp:
       'Matched by Beijing time and weekday. Policies override resource command count and maximum duration; overnight policies belong to their start day, and locks cannot pass the next policy start unless covered by the two-hour short-lock grace period. Unmatched times use global limits. -1 means unlimited.',

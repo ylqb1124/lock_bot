@@ -255,6 +255,28 @@
             <el-col v-if="form.bot_type !== 'DEVICE'" :xs="24" :sm="12">
               <el-form-item>
                 <template #label>
+                  {{ $t('botCreate.minLockCount') }}
+                  <el-tooltip
+                    :content="$t('botCreate.minLockCountHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-input-number
+                  v-model="advancedConfig.MIN_LOCK_COUNT"
+                  :min="1"
+                  :max="advancedConfig.MAX_LOCK_COUNT"
+                  :step="1"
+                  :value-on-clear="1"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col v-if="form.bot_type !== 'DEVICE'" :xs="24" :sm="12">
+              <el-form-item>
+                <template #label>
                   {{ $t('botCreate.maxLockCount') }}
                   <el-tooltip
                     :content="$t('botCreate.maxLockCountHelp')"
@@ -266,7 +288,7 @@
                 </template>
                 <el-input-number
                   v-model="advancedConfig.MAX_LOCK_COUNT"
-                  :min="1"
+                  :min="advancedConfig.MIN_LOCK_COUNT"
                   :max="16"
                   :step="1"
                   :value-on-clear="16"
@@ -373,6 +395,7 @@ const advancedConfig = reactive({
   MAX_LOCK_DURATION: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
+  MIN_LOCK_COUNT: 1,
   MAX_LOCK_COUNT: 16,
   LOCK_POLICIES: [],
   FORBID_RELOCK: true,
@@ -444,6 +467,8 @@ onMounted(async () => {
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
+        if (overrides.MIN_LOCK_COUNT != null)
+          advancedConfig.MIN_LOCK_COUNT = overrides.MIN_LOCK_COUNT
         if (overrides.MAX_LOCK_COUNT != null)
           advancedConfig.MAX_LOCK_COUNT = overrides.MAX_LOCK_COUNT
         if (Array.isArray(overrides.LOCK_POLICIES))
@@ -517,6 +542,7 @@ async function handleSubmit() {
     // Always include advanced config_overrides
     data.config_overrides = { ...advancedConfig }
     if (form.bot_type === 'DEVICE') {
+      delete data.config_overrides.MIN_LOCK_COUNT
       delete data.config_overrides.MAX_LOCK_COUNT
       delete data.config_overrides.LOCK_POLICIES
     }

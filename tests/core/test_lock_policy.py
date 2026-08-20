@@ -285,6 +285,7 @@ def test_help_uses_current_lock_limits(tmp_path):
     )
     bot.config.get_lock_limits = lambda now=None: (2, 7200)
     content = bot.print_help("u1")["message"]["body"][0]["content"]
+    assert "单次至少申请1台机器" in content
     assert "最多同时占用2台机器" in content
     assert "最长2.0 小时" in content
 
