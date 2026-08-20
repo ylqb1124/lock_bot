@@ -526,23 +526,16 @@ test('chart helpers skip empty points, expand the scale, and cap percentage axes
   });
 });
 
-test('roster lookup resolves Lock Bot user ids with numeric suffixes to their bare pinyin key', () => {
-  assert.equal(teamPrivate.pinyinFromUserId('zhangshaokun02'), 'zhangshaokun');
-  assert.equal(teamPrivate.pinyinFromUserId('zhangshaokun'), 'zhangshaokun');
-  assert.equal(teamPrivate.pinyinFromUserId('ZhangShaoKun02'), 'zhangshaokun');
-  assert.equal(teamPrivate.pinyinFromUserId('lisi_01'), 'lisi');
-  assert.equal(teamPrivate.pinyinFromUserId('lisi-3'), 'lisi');
-});
-
-test('roster assignment matches exact id before falling back to the pinyin key', () => {
+test('roster assignment matches the user id exactly after case normalization', () => {
   const assignments = {
-    zhangshaokun: { team: 'group-arch', source: 'manual', pending: false },
-    lisi02: { team: 'qa', source: 'manual', pending: false },
+    zhangshaokun02: { team: 'group-arch', source: 'manual', pending: false },
+    lisi: { team: 'qa', source: 'manual', pending: false },
   };
 
   assert.equal(teamPrivate.assignmentForUser(assignments, 'zhangshaokun02').team, 'group-arch');
-  assert.equal(teamPrivate.assignmentForUser(assignments, 'zhangshaokun').team, 'group-arch');
-  assert.equal(teamPrivate.assignmentForUser(assignments, 'lisi02').team, 'qa');
+  assert.equal(teamPrivate.assignmentForUser(assignments, 'ZhangShaoKun02').team, 'group-arch');
+  assert.equal(teamPrivate.assignmentForUser(assignments, 'lisi').team, 'qa');
+  assert.equal(teamPrivate.assignmentForUser(assignments, 'zhangshaokun'), null, 'a bare pinyin id must no longer match a suffixed roster entry');
   assert.equal(teamPrivate.assignmentForUser(assignments, 'unlisted07'), null);
 });
 
@@ -568,11 +561,11 @@ test('unmapped users are grouped into general research in both ownership and ran
   assert.equal(payload.rankings[0].source, 'unlisted');
 });
 
-test('roster-mapped users are counted under their organization team via the pinyin key', () => {
+test('roster-mapped users are counted under their organization team by exact id', () => {
   const timestamp = Math.floor(new Date('2026-07-20T00:00:00+08:00').getTime() / 1000);
   const cards = Array.from({ length: CARD_COUNT }, () => ({}));
   cards[0] = { xpu: 52, memory: 72 };
-  const assignments = { zhangshaokun: { team: 'group-arch', source: 'manual', pending: false, confidence: 1 } };
+  const assignments = { zhangshaokun02: { team: 'group-arch', source: 'manual', pending: false, confidence: 1 } };
   const ownership = teamPrivate.aggregateOwnership([
     { userId: 'zhangshaokun02', node: 'node1', cards: [0], start: timestamp - 1, end: timestamp + 1 },
   ], new Map([['node1', new Map([[timestamp, cards]])]]), assignments, timestamp - 1, timestamp + 1, 300);
@@ -856,7 +849,8 @@ test('manual roster entries are left untouched while unlisted users are refreshe
 
   assert.equal(result.assignments.manualuser.team, 'inference-product');
   assert.equal(result.assignments.manualuser.source, 'manual');
-  assert.equal(result.assignments.manualuser02, undefined, 'a suffixed id must not shadow its manual roster entry');
+  assert.equal(result.assignments.manualuser02.source, 'auto', 'an id that is not an exact roster entry is treated as unlisted');
+  assert.equal(result.assignments.manualuser02.team, 'general-research');
   assert.equal(result.assignments['unlisted-user'].team, 'general-research');
   assert.equal(result.assignments['unlisted-user'].source, 'auto');
 });

@@ -473,18 +473,13 @@ function normalizeUserKey(userId) {
   return String(userId || '').trim().toLowerCase();
 }
 
-// Lock Bot user ids are "pinyin + optional suffix" (zhangshaokun02, lisi), while the
-// roster is keyed by bare pinyin. Strip the trailing digits to recover the roster key.
-function pinyinFromUserId(userId) {
-  return normalizeUserKey(userId).replace(/[\s_-]*\d+$/, '');
-}
-
+// The roster is keyed by the Lock Bot user id itself (the email prefix, e.g.
+// zhangshaokun02), so matching is exact apart from case normalization.
 function assignmentForUser(assignments, userId) {
   if (!assignments) return null;
   const raw = String(userId || '').trim();
   return assignments[raw]
     || assignments[normalizeUserKey(raw)]
-    || assignments[pinyinFromUserId(raw)]
     || null;
 }
 
@@ -1068,7 +1063,6 @@ module.exports = {
     mergeTeamDefinitions,
     mergeMembership,
     classifyUser,
-    pinyinFromUserId,
     assignmentForUser,
     effectiveTeamForUser,
     userEvidence,
