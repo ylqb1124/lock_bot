@@ -157,6 +157,58 @@ class TestUpdateBot:
         assert resp.status_code == 200
         assert json.loads(resp.json()["config_overrides"])["MAX_LOCK_COUNT"] == 1
 
+    def test_device_node_lock_override_is_persisted(self, client, admin_header, db_session):
+        from lockbot.backend.app.bots.models import Bot
+        from lockbot.backend.app.bots.router import _build_config_dict
+
+        create_resp = client.post(
+            "/api/bots",
+            json={
+                **_sample_bot("device-node-lock"),
+                "bot_type": "DEVICE",
+                "cluster_configs": {"h1": ["A100"] * 8},
+            },
+            headers=admin_header,
+        )
+        bot_id = create_resp.json()["id"]
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"DEVICE_ALLOW_NODE_LOCK": True}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 200
+        assert json.loads(resp.json()["config_overrides"])["DEVICE_ALLOW_NODE_LOCK"] is True
+        bot = db_session.get(Bot, bot_id)
+        assert _build_config_dict(bot)["DEVICE_ALLOW_NODE_LOCK"] is True
+
+    def test_device_node_lock_override_rejected_for_node_bot(self, client, admin_header):
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"DEVICE_ALLOW_NODE_LOCK": True}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 422
+
+    def test_device_node_lock_override_requires_boolean(self, client, admin_header):
+        create_resp = client.post(
+            "/api/bots",
+            json={
+                **_sample_bot("device-node-lock-type"),
+                "bot_type": "DEVICE",
+                "cluster_configs": {"h1": ["A100"]},
+            },
+            headers=admin_header,
+        )
+        bot_id = create_resp.json()["id"]
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"DEVICE_ALLOW_NODE_LOCK": "true"}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 422
+
     def test_update_config_overrides_accepts_min_lock_count(self, client, admin_header):
         create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
         bot_id = create_resp.json()["id"]

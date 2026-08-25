@@ -55,12 +55,14 @@ def _run_webhook_serialized(bot_id: int, callback):
         return callback()
 
 
-def _reject_device_lock_policies(bot_type: str, config_overrides: dict | None) -> None:
-    """Scheduled node policies are intentionally unsupported by DEVICE bots."""
+def _reject_device_only_config(bot_type: str, config_overrides: dict | None) -> None:
+    """Reject settings that only apply to one bot type."""
     if bot_type == "DEVICE" and config_overrides and config_overrides.get("LOCK_POLICIES"):
         raise HTTPException(status_code=422, detail="LOCK_POLICIES are supported only for NODE and QUEUE bots")
     if bot_type == "DEVICE" and config_overrides and "MIN_LOCK_COUNT" in config_overrides:
         raise HTTPException(status_code=422, detail="MIN_LOCK_COUNT is supported only for NODE and QUEUE bots")
+    if bot_type != "DEVICE" and config_overrides and "DEVICE_ALLOW_NODE_LOCK" in config_overrides:
+        raise HTTPException(status_code=422, detail="DEVICE_ALLOW_NODE_LOCK is supported only for DEVICE bots")
 
 
 def _get_log_dir(bot_id: int) -> str:
@@ -220,7 +222,7 @@ def create_bot(
     bot_type = body.bot_type.upper()
     if bot_type not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
-    _reject_device_lock_policies(bot_type, body.config_overrides)
+    _reject_device_only_config(bot_type, body.config_overrides)
 
     exists = (
         db.query(Bot)
@@ -417,7 +419,7 @@ def update_bot(
                 changes["cluster_configs"] = {"from": old_configs, "to": body.cluster_configs}
         bot.cluster_configs = new_json
     if body.config_overrides is not None:
-        _reject_device_lock_policies(bot.bot_type, body.config_overrides)
+        _reject_device_only_config(bot.bot_type, body.config_overrides)
         old_overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}
         diff = {}
         for k, v in body.config_overrides.items():

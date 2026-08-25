@@ -168,6 +168,9 @@ export default {
       'On: warn before expiry without releasing; Off (default): release and notify on expiry',
     earlyNotifyOn: 'Early Warning',
     earlyNotifyOff: 'Release on Expiry',
+    deviceAllowNodeLock: 'Allow Node-Level Locking',
+    deviceAllowNodeLockHelp:
+      'DEVICE bots only. When enabled, lock <node> locks every card on the node; when disabled, a dev selector is required. Node-level locks are exempt from the 7-card limit.',
     maxLockCount: 'Max Locked/Booked Machines',
     maxLockCountHelp:
       'Max number of machines a single user can lock/book at once in this bot (1-16, default 16)',

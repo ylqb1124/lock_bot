@@ -35,6 +35,8 @@ def bot(tmp_path):
         "EARLY_NOTIFY": True,
         "TIME_ALERT": 300,
         "BOT_TYPE": "DEVICE",
+        # Existing tests exercise legacy whole-node lock behavior explicitly.
+        "DEVICE_ALLOW_NODE_LOCK": True,
         "WEBHOOK_URL": "",
     }
 
@@ -114,6 +116,48 @@ def test_parse_command(bot):
     assert nodes == ["test", "test2", "test3"]
     assert dev_lists == [[0, 1, 2, 3], [0, 1], [0, 1, 2]]
     assert dur == 10800
+
+
+def test_node_lock_is_disabled_by_default(tmp_path):
+    bot = DeviceBot(
+        config_dict={
+            "BOT_ID": "device_default",
+            "DATA_DIR": str(tmp_path),
+            "BOT_TYPE": "DEVICE",
+            "CLUSTER_CONFIGS": {"node1": ["A100"] * 8},
+        }
+    )
+
+    ok, err, nodes, devs, _ = bot.parse_command("user1", "lock", "lock node1", True)
+    assert not ok
+    assert nodes == ["node1"] and not devs
+    assert "节点锁定" in err["message"]["body"][0]["content"]
+
+
+def test_device_lock_limit_and_node_lock_exception(bot):
+    bot.config.set_val("CLUSTER_CONFIGS", {"big": ["A100"] * 8})
+
+    ok, err, nodes, devs, _ = bot.parse_command("user1", "lock", "lock big dev0-6", True)
+    assert ok and nodes == ["big"] and devs == [list(range(7))]
+
+    ok, err, _, _, _ = bot.parse_command("user1", "lock", "lock big dev0-7", True)
+    assert not ok and "最多申请7张卡" in err["message"]["body"][0]["content"]
+
+    ok, err, nodes, devs, _ = bot.parse_command("user1", "lock", "lock big", True)
+    assert ok and nodes == ["big"] and devs == [list(range(8))]
+
+    node_bot = DeviceBot(
+        config_dict={
+            "BOT_ID": "device_node_lock",
+            "DATA_DIR": str(bot.config.get_val("DATA_DIR")),
+            "BOT_TYPE": "DEVICE",
+            "DEVICE_ALLOW_NODE_LOCK": True,
+            "CLUSTER_CONFIGS": {"big": ["A100"] * 8},
+        }
+    )
+    reply = node_bot.lock("user1", "lock big 1h")
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+    assert all(device["status"] == "exclusive" for device in node_bot.state.bot_state["big"])
 
 
 def test_query(bot):

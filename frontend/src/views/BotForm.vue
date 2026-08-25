@@ -252,6 +252,21 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
+            <el-col v-if="form.bot_type === 'DEVICE'" :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.deviceAllowNodeLock') }}
+                  <el-tooltip
+                    :content="$t('botCreate.deviceAllowNodeLockHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch v-model="advancedConfig.DEVICE_ALLOW_NODE_LOCK" />
+              </el-form-item>
+            </el-col>
             <el-col v-if="form.bot_type !== 'DEVICE'" :xs="24" :sm="12">
               <el-form-item>
                 <template #label>
@@ -395,6 +410,7 @@ const advancedConfig = reactive({
   MAX_LOCK_DURATION: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
+  DEVICE_ALLOW_NODE_LOCK: false,
   MIN_LOCK_COUNT: 1,
   MAX_LOCK_COUNT: 16,
   LOCK_POLICIES: [],
@@ -467,6 +483,8 @@ onMounted(async () => {
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
+        if (overrides.DEVICE_ALLOW_NODE_LOCK != null)
+          advancedConfig.DEVICE_ALLOW_NODE_LOCK = overrides.DEVICE_ALLOW_NODE_LOCK
         if (overrides.MIN_LOCK_COUNT != null)
           advancedConfig.MIN_LOCK_COUNT = overrides.MIN_LOCK_COUNT
         if (overrides.MAX_LOCK_COUNT != null)
@@ -545,6 +563,8 @@ async function handleSubmit() {
       delete data.config_overrides.MIN_LOCK_COUNT
       delete data.config_overrides.MAX_LOCK_COUNT
       delete data.config_overrides.LOCK_POLICIES
+    } else {
+      delete data.config_overrides.DEVICE_ALLOW_NODE_LOCK
     }
     if (isEdit.value) {
       if (!data.aes_key) delete data.aes_key

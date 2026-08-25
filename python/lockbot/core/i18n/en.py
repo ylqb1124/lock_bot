@@ -44,6 +44,10 @@ MESSAGES = {
     "error.dev_id_range_invalid": "Invalid dev_id\n\nmin<=dev_id<=max, but min({dev_min}) > max({dev_max})\n",
     "error.dev_id_out_of_range": "Invalid dev_id\n\n{node_key} requires 0<=dev_id<{num_devs}\n",
     "error.device_not_requested": "You have not requested this device\n",
+    "error.device_node_lock_disabled": "Node-level locking is disabled\n\nSpecify device IDs with dev\n",
+    "error.device_lock_count_exceeded": (
+        "A single {command} can request at most {max_count} cards (requested {count})\n"
+    ),
     # ── Queue-specific errors ──
     "error.node_in_use_or_not_your_turn": "Node is in use by others, or it is not your turn yet",
     "error.already_locked": "You are already using or have already booked",
@@ -136,6 +140,7 @@ MESSAGES = {
     "help.query_multi_node_example": "    query {node1},{node2} (query multiple nodes)\n",
     # ── Help text (DEVICE) command examples ──
     "help.lock_all_devices_example": "    lock {node} (lock all devices on node)\n",
+    "help.device_lock_limit": "    Card-level lock/slock requests are limited to {max_count} cards\n",
     "help.lock_device_example": "    lock {node} dev0 (lock device 0 on {node})\n",
     "help.lock_device_duration_example": "    lock {node} dev0 2h (lock device 0 on {node} for 2h)\n",
     "help.lock_device_range_example": "    lock {node} dev0-3 (lock devices 0-3 on {node})\n",

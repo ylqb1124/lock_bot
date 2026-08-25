@@ -49,6 +49,11 @@ _CONFIG_SCHEMA = {
         "description": "Bot type: NODE / DEVICE / QUEUE",
         "env": True,
     },
+    "DEVICE_ALLOW_NODE_LOCK": {
+        "default": False,
+        "description": "DEVICE only: allow lock/slock without a dev selector to lock all cards on a node",
+        "env": False,
+    },
     "DEFAULT_DURATION": {
         "default": 2 * 60 * 60,
         "description": "Default lock duration in seconds (default 7200 = 2h)",

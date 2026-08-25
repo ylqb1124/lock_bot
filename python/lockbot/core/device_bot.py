@@ -28,6 +28,7 @@ from lockbot.core.xpu_collector import collect_node_usage
 _DEV_NODE_LIST = r"([\w\d]+)((\s*[,，、]\s*([\w\d])+)*)"  # node1,node2,...
 _DEV_SPEC = r"(\s+dev\s*((([0-9]+(\s*[,，、]\s*[0-9]+)*)|([0-9]+-[0-9]+))))"  # dev 0,1,2 or dev 0-3
 _DURATION = r"([0-9]+\.?[0-9]*)([dhm])"  # e.g. 3d, 2.5h, 30m
+_MAX_DEVICE_LOCK_COUNT = 7
 
 
 def _node_devices(cluster_configs, node_key):
@@ -101,7 +102,8 @@ class DeviceBot(BaseLockBot):
                 )
                 return _get_return_values()
 
-        if m[7]:
+        has_device_spec = bool(m[7])
+        if has_device_spec:
             dev_str = m[7].strip()
             if "-" in dev_str:
                 dev_min_max = dev_str.split("-")
@@ -124,7 +126,12 @@ class DeviceBot(BaseLockBot):
                 dev_ids = list(set(dev_ids))
             dev_ids_list = [dev_ids] * len(node_key_list)
         else:
-            # When dev is not specified, lock all devices on the node
+            if command_key in {"lock", "slock"} and not self.config.get_val("DEVICE_ALLOW_NODE_LOCK", False):
+                error_reply = self.show_error(user_id, t("error.device_node_lock_disabled", config=self.config))
+                return _get_return_values()
+
+            # Node-level locking expands to all devices. Release and kickout keep
+            # their existing no-selector behavior regardless of this setting.
             for node_key in node_key_list:
                 dev_ids = list(range(len(_node_devices(cluster_configs, node_key))))
                 dev_ids_list.append(dev_ids)
@@ -134,6 +141,21 @@ class DeviceBot(BaseLockBot):
             if not (all([dev_id >= 0 for dev_id in dev_ids]) and all([dev_id < num_devs for dev_id in dev_ids])):
                 error_reply = self.show_error(
                     user_id, t("error.dev_id_out_of_range", config=self.config, node_key=node_key, num_devs=num_devs)
+                )
+                return _get_return_values()
+
+        if command_key in {"lock", "slock"} and has_device_spec:
+            device_count = sum(len(dev_ids) for dev_ids in dev_ids_list)
+            if device_count > _MAX_DEVICE_LOCK_COUNT:
+                error_reply = self.show_error(
+                    user_id,
+                    t(
+                        "error.device_lock_count_exceeded",
+                        config=self.config,
+                        command=command_key,
+                        count=device_count,
+                        max_count=_MAX_DEVICE_LOCK_COUNT,
+                    ),
                 )
                 return _get_return_values()
 
@@ -491,7 +513,9 @@ class DeviceBot(BaseLockBot):
         example_node2 = next(iter(list(cluster_configs)[1:]), None)
 
         text = t("help.rule3_lock_modes", config=self.config)
-        text += t("help.lock_all_devices_example", config=self.config, node=example_node)
+        if self.config.get_val("DEVICE_ALLOW_NODE_LOCK", False):
+            text += t("help.lock_all_devices_example", config=self.config, node=example_node)
+        text += t("help.device_lock_limit", config=self.config, max_count=_MAX_DEVICE_LOCK_COUNT)
         text += t("help.lock_device_example", config=self.config, node=example_node)
         text += t("help.lock_device_duration_example", config=self.config, node=example_node)
         text += t("help.lock_device_range_example", config=self.config, node=example_node)

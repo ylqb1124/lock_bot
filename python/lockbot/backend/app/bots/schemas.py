@@ -17,6 +17,7 @@ _CFG_RULES: dict[str, tuple[int, int] | None] = {
     "MAX_LOCK_COUNT": (1, 16),
     "MIN_LOCK_COUNT": (1, 16),
     "LOCK_POLICIES": None,
+    "DEVICE_ALLOW_NODE_LOCK": None,
 }
 
 
@@ -28,6 +29,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
         if key not in v:
             continue
         val = v[key]
+        if key == "DEVICE_ALLOW_NODE_LOCK":
+            if not isinstance(val, bool):
+                errors.append("DEVICE_ALLOW_NODE_LOCK must be a boolean")
+            continue
         if key == "LOCK_POLICIES":
             try:
                 v[key] = validate_lock_policies(val)

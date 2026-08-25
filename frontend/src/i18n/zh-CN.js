@@ -164,6 +164,8 @@ export default {
     earlyNotifyHelp: '开启：到期前发预警但不释放；关闭（默认）：到期后立即释放并通知',
     earlyNotifyOn: '提前预警',
     earlyNotifyOff: '到期释放',
+    deviceAllowNodeLock: '允许节点级锁定',
+    deviceAllowNodeLockHelp: '仅 DEVICE bot 生效。开启后可使用 lock 节点名直接占用该节点全部卡；关闭时必须指定 dev 卡号。节点级锁定不受单次 7 张卡限制。',
     maxLockCount: '单用户最多锁定/预约台数',
     maxLockCountHelp: '单个用户在本机器人内可同时锁定(lock)/预约(book)的机器数量上限，范围 1-16，默认 16',
     minLockCount: '单用户最少锁定/预约台数',
