@@ -39,6 +39,7 @@ Thumbs.db
 # Environment / secrets
 *.env
 .lockbot_config
+config.json
 
 # Test / Coverage
 .coverage

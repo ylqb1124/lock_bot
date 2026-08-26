@@ -338,7 +338,15 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'Invalid trend nodes' }));
     }
     return appAuth.authorize(req.headers.authorization)
-      .then(() => appAuth.getLockBotAuthorization())
+      .then(access => {
+        // 集群总览面向全体节点，只有 admin 账号（mode: 'all'）可见；团队账号只能看团队视图。
+        if (access.mode !== 'all') {
+          const error = new Error('当前账号无权访问集群总览');
+          error.statusCode = 403;
+          throw error;
+        }
+        return appAuth.getLockBotAuthorization();
+      })
       .then(authorization => trendService.query(startAt, endAt, authorization, nodes, intervalSeconds))
       .then(data => {
         sendJson(res, 200, data);

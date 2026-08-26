@@ -1812,6 +1812,7 @@ test('application login keeps the Lock Bot service credential on the server and 
   const alice = await auth.login('alice', 'alice-password');
   const aliceAccess = await auth.authorize(`Bearer ${alice.token}`);
   assert.deepEqual(aliceAccess.teamIds, ['team-a']);
+  assert.equal(aliceAccess.mode, 'team', 'a team account must not report mode "all", which is what gates cluster overview access');
   assert.deepEqual((await auth.resolveMembership(['Alice', 'unlisted'])).assignments, {
     Alice: { team: 'team-a', source: 'whitelist', pending: false, confidence: 1 },
   });
