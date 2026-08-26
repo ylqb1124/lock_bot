@@ -42,6 +42,7 @@ MESSAGES = {
     "error.dev_id_out_of_range": "【dev_id有误】\n\n{node_key}应保证0<=dev_id<{num_devs}\n",
     "error.device_not_requested": "【你并未申请过该设备资源】\n",
     "error.device_node_lock_disabled": "【当前不支持节点锁定】\n\n请指定 dev 设备编号进行申请\n",
+    "error.device_full_node_claim_disabled": "【不支持通过多次dev申请占满节点】\n\n{node_key}共有{num_devs}张卡，请释放部分设备后再申请\n",
     "error.device_lock_count_exceeded": "【单次{command}最多申请{max_count}张卡，当前为{count}张】\n",
     # ── Queue-specific errors ──
     "error.node_in_use_or_not_your_turn": "节点正在被他人使用，或未到排队顺序",

@@ -160,6 +160,71 @@ def test_device_lock_limit_and_node_lock_exception(bot):
     assert all(device["status"] == "exclusive" for device in node_bot.state.bot_state["big"])
 
 
+def test_device_requests_cannot_cumulatively_claim_whole_node(bot):
+    """Disabling node locks also blocks a same-user multi-command workaround."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"big": ["A100"] * 8})
+    bot.config.set_val("DEVICE_ALLOW_NODE_LOCK", False)
+    bot.state.bot_state = {
+        "big": [{"dev_id": i, "dev_model": "A100", "status": "idle", "current_users": []} for i in range(8)]
+    }
+
+    first = bot.lock("user1", "lock big dev0 1h")
+    second = bot.lock("user1", "lock big dev1-7 1h")
+
+    assert "资源申请成功" in first["message"]["body"][0]["content"]
+    assert "占满节点" in second["message"]["body"][0]["content"]
+    assert [device["status"] for device in bot.state.bot_state["big"]] == ["exclusive"] + ["idle"] * 7
+
+
+def test_device_full_node_claim_limit_applies_to_shared_locks(bot):
+    """slock must not provide a second way to cumulatively claim every card."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"big": ["A100"] * 4})
+    bot.config.set_val("DEVICE_ALLOW_NODE_LOCK", False)
+    bot.state.bot_state = {
+        "big": [{"dev_id": i, "dev_model": "A100", "status": "idle", "current_users": []} for i in range(4)]
+    }
+
+    bot.slock("user1", "slock big dev0 1h")
+    second = bot.slock("user1", "slock big dev1-3 1h")
+
+    assert "占满节点" in second["message"]["body"][0]["content"]
+    assert [device["status"] for device in bot.state.bot_state["big"]] == ["shared"] + ["idle"] * 3
+
+
+def test_expired_device_does_not_count_toward_full_node_claim(bot):
+    """Expired, unselected devices are cleaned before cumulative ownership is checked."""
+    from unittest.mock import patch
+
+    bot.config.set_val("CLUSTER_CONFIGS", {"big": ["A100"] * 8})
+    bot.config.set_val("DEVICE_ALLOW_NODE_LOCK", False)
+    bot.state.bot_state = {
+        "big": [{"dev_id": i, "dev_model": "A100", "status": "idle", "current_users": []} for i in range(8)]
+    }
+
+    with patch("lockbot.core.device_bot.time.time", return_value=1_000):
+        bot.lock("user1", "lock big dev0 1h")
+    with patch("lockbot.core.device_bot.time.time", return_value=5_000):
+        reply = bot.lock("user1", "lock big dev1-7 1h")
+
+    assert "资源申请成功" in reply["message"]["body"][0]["content"]
+    assert bot.state.bot_state["big"][0]["status"] == "idle"
+    assert all(device["status"] == "exclusive" for device in bot.state.bot_state["big"][1:])
+
+
+def test_different_users_can_still_share_cards_across_a_node(bot):
+    """The cumulative guard is per user, preserving DEVICE card-level sharing."""
+    bot.config.set_val("CLUSTER_CONFIGS", {"big": ["A100"] * 4})
+    bot.config.set_val("DEVICE_ALLOW_NODE_LOCK", False)
+    bot.state.bot_state = {
+        "big": [{"dev_id": i, "dev_model": "A100", "status": "idle", "current_users": []} for i in range(4)]
+    }
+
+    bot.lock("user1", "lock big dev0 1h")
+    reply = bot.lock("user2", "lock big dev1-3 1h")
+
+    assert "资源申请成功" in reply["message"]["body"][0]["content"]
+
+
 def test_query(bot):
     """Test query."""
     result = bot.query("user1")

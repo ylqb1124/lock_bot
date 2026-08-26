@@ -61,6 +61,9 @@ def test_queue_booking_is_not_occupancy_and_take_ends_preempted_session(tmp_path
 
 def test_device_events_are_card_granular(tmp_path):
     bot = DeviceBot(_config(tmp_path, "device", "DEVICE", {"n1": ["A", "A"]}))
+    # This test exercises occupancy event granularity, independent of the
+    # cumulative full-node claim guard used by DEVICE bots by default.
+    bot.config.set_val("DEVICE_ALLOW_NODE_LOCK", True)
     events = _events(bot)
     with patch("lockbot.core.device_bot.time.time", return_value=1_000):
         bot.lock("u1", "lock n1 dev0,1 1h")

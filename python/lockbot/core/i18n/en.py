@@ -45,6 +45,10 @@ MESSAGES = {
     "error.dev_id_out_of_range": "Invalid dev_id\n\n{node_key} requires 0<=dev_id<{num_devs}\n",
     "error.device_not_requested": "You have not requested this device\n",
     "error.device_node_lock_disabled": "Node-level locking is disabled\n\nSpecify device IDs with dev\n",
+    "error.device_full_node_claim_disabled": (
+        "Whole-node claims are disabled for DEVICE bots\n\n"
+        "Your request would occupy all {num_devs} devices on {node_key}; release a device before trying again\n"
+    ),
     "error.device_lock_count_exceeded": (
         "A single {command} can request at most {max_count} cards (requested {count})\n"
     ),

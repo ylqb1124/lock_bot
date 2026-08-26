@@ -219,6 +219,40 @@ class DeviceBot(BaseLockBot):
                 result[node_key] = ip
         return result
 
+    def _full_node_claim_error(self, user_id, node_key, requested_dev_ids):
+        """Reject cumulative device requests that amount to a whole-node lock.
+
+        DEVICE bots retain card-level locking, but disabling the node-lock command
+        must not be bypassable by issuing multiple device requests.  The check is
+        deliberately scoped to one user so different users can still share a node
+        through separate card locks.
+        """
+        if self.config.get_val("DEVICE_ALLOW_NODE_LOCK", False):
+            return None
+
+        devices = self.state.bot_state[node_key]
+        all_dev_ids = {device["dev_id"] for device in devices}
+        claimed_dev_ids = {
+            device["dev_id"]
+            for device in devices
+            if any(user_info["user_id"] == user_id for user_info in device["current_users"])
+        }
+        requested_dev_ids = set(requested_dev_ids)
+        if requested_dev_ids <= claimed_dev_ids:
+            return None
+        if (claimed_dev_ids | requested_dev_ids) != all_dev_ids:
+            return None
+
+        return self.show_error(
+            user_id,
+            t(
+                "error.device_full_node_claim_disabled",
+                config=self.config,
+                node_key=node_key,
+                num_devs=len(devices),
+            ),
+        )
+
     def lock(self, user_id, command):
         """
         Lock specified devices and record the current user's usage. Returns an error if
@@ -250,6 +284,14 @@ class DeviceBot(BaseLockBot):
             state_changed = False
             seen = set()
 
+            if not self.config.get_val("DEVICE_ALLOW_NODE_LOCK", False):
+                # Clean every device on each target node before evaluating cumulative
+                # ownership; otherwise an expired, unselected device could block a
+                # legitimate request.
+                for node_key, _dev_ids in zip(node_key_list, dev_ids_list, strict=True):
+                    for device in self.state.bot_state[node_key]:
+                        state_changed |= self._cleanup_expired_current_users(node_key, device, seen=seen)
+
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
@@ -267,6 +309,15 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_in_use_or_shared", node_key=node_key)
                     )
 
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
+                full_node_error = self._full_node_claim_error(user_id, node_key, dev_ids)
+                if full_node_error:
+                    if state_changed:
+                        self._save_and_notify()
+                    return full_node_error
+
+                node_status = self.state.bot_state[node_key]
+                devices = [node_status[dev_id] for dev_id in dev_ids]
                 if max_dur > 0:
                     for device in devices:
                         total_duration = duration
@@ -323,6 +374,12 @@ class DeviceBot(BaseLockBot):
             timestamp = int(time.time())
             state_changed = False
             seen = set()
+
+            if not self.config.get_val("DEVICE_ALLOW_NODE_LOCK", False):
+                for node_key, _dev_ids in zip(node_key_list, dev_ids_list, strict=True):
+                    for device in self.state.bot_state[node_key]:
+                        state_changed |= self._cleanup_expired_current_users(node_key, device, seen=seen)
+
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
@@ -336,6 +393,15 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_exclusive_mode", node_key=node_key)
                     )
 
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
+                full_node_error = self._full_node_claim_error(user_id, node_key, dev_ids)
+                if full_node_error:
+                    if state_changed:
+                        self._save_and_notify()
+                    return full_node_error
+
+                node_status = self.state.bot_state[node_key]
+                devices = [node_status[dev_id] for dev_id in dev_ids]
                 if max_dur > 0:
                     for device in devices:
                         user_info = find_user_info(device["current_users"], user_id)
