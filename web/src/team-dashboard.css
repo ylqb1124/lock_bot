@@ -80,6 +80,11 @@
 .team-th-tip { position: relative; }
 .team-th-tip span { margin-right: 4px; }
 .team-th-tip .team-metric-tooltip { top: calc(100% + 5px); left: 0; }
+.team-efficiency-table-wrap tr.locked { cursor: not-allowed; color: #64748b; }
+.team-denied-backdrop { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 23, 42, .45); }
+.team-denied-dialog { max-width: 380px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px; background: #fff; box-shadow: 0 12px 32px rgba(15, 23, 42, .22); }
+.team-denied-dialog h2 { margin: 0 0 9px; color: #b91c1c; font-size: 15px; }
+.team-denied-dialog p { margin: 0 0 14px; color: #334155; font-size: 13px; line-height: 1.6; }
 .team-metric-card strong { display: block; margin-top: 9px; color: #111827; font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 20px; line-height: 1; overflow-wrap: anywhere; }
 .team-metric-card.node-util::before { background: #ea580c; }.team-metric-card.node-util strong { color: #ea580c; }
 .team-metric-card.xpu::before { background: #7c3aed; }.team-metric-card.xpu strong { color: #7c3aed; }

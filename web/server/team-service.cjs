@@ -638,10 +638,30 @@ function buildDashboardPayload(ownership, membership, startAt, endAt, sampleSeco
   };
 }
 
-function scopeDashboardPayload(payload, access, scopedTeamIds = access.mode === 'all' ? null : access.teamIds || []) {
-  const visibleTeamIds = scopedTeamIds === null ? null : new Set(scopedTeamIds);
-  const teams = visibleTeamIds ? payload.teams.filter(team => visibleTeamIds.has(team.id)) : payload.teams;
-  const rankings = visibleTeamIds ? payload.rankings.filter(row => visibleTeamIds.has(row.team)) : payload.rankings;
+// Other teams only feed the efficiency table, so keep the columns that table reads and drop
+// everything else instead of shipping their trend series and member counts to the browser.
+function summarizeForeignTeam(team) {
+  return {
+    id: team.id,
+    label: team.label,
+    cardHours: team.cardHours,
+    xpu: team.xpu,
+    memory: team.memory,
+    averages: { activeUsers: team.averages?.activeUsers ?? null },
+  };
+}
+
+// `rankingTeamIds` limits the per-person rankings, which stay private to each team. The
+// team-level rows stay visible to everyone so a team can compare itself against the others.
+function scopeDashboardPayload(payload, access, rankingTeamIds = access.mode === 'all' ? null : access.teamIds || []) {
+  const visibleRankingTeamIds = rankingTeamIds === null ? null : new Set(rankingTeamIds);
+  const rankings = visibleRankingTeamIds
+    ? payload.rankings.filter(row => visibleRankingTeamIds.has(row.team))
+    : payload.rankings;
+  const ownTeamIds = access.mode === 'all' ? null : new Set(access.teamIds || []);
+  const teams = ownTeamIds
+    ? payload.teams.map(team => ownTeamIds.has(team.id) ? team : summarizeForeignTeam(team))
+    : payload.teams;
   return {
     ...payload,
     teams,
@@ -649,7 +669,7 @@ function scopeDashboardPayload(payload, access, scopedTeamIds = access.mode === 
     access: {
       enabled: access.enabled,
       mode: access.mode,
-      teamIds: visibleTeamIds ? [...visibleTeamIds] : teams.map(team => team.id),
+      teamIds: ownTeamIds ? [...ownTeamIds] : teams.map(team => team.id),
     },
   };
 }
@@ -862,7 +882,9 @@ function createTeamService(config, options = {}) {
     if (access.enabled) {
       const rawOwnership = aggregateOwnership(intervals, metrics, {}, startAt, endAt, sampleSeconds);
       const resolvedMembership = await teamAccess.resolveMembership([...rawOwnership.userSamples.keys()]);
-      membership = access.membershipSource === 'whitelist' && access.mode === 'all'
+      // Team-scoped accounts need the roster too: every account now sees the team-level
+      // efficiency rows, and without the roster nobody maps to a team at all.
+      membership = access.membershipSource === 'whitelist'
         ? mergeMembership(membership, resolvedMembership)
         : resolvedMembership;
       teamDefinitions = access.membershipSource === 'whitelist'
@@ -892,7 +914,7 @@ function createTeamService(config, options = {}) {
     const sampleSeconds = sampleSecondsForRange(endAt - startAt);
     const { intervals, occupancy, stateFailureCount } = await collectOccupancy(authorization, startAt, endAt);
     const resolvedMembership = await teamAccess.resolveMembership([...new Set(intervals.map(interval => interval.userId))]);
-    const membership = access.membershipSource === 'whitelist' && access.mode === 'all'
+    const membership = access.membershipSource === 'whitelist'
       ? mergeMembership(readMembership(membershipPath), resolvedMembership)
       : resolvedMembership;
     const teamDefinitions = access.membershipSource === 'whitelist'
@@ -918,32 +940,30 @@ function createTeamService(config, options = {}) {
         stateFailureCount,
       },
     }, access, initialTeamId ? [initialTeamId] : []);
-    const complete = access.mode === 'team';
-    let bootstrapId = null;
-    if (!complete) {
-      purgePhaseContexts();
-      bootstrapId = crypto.randomBytes(18).toString('base64url');
-      phaseContexts.set(bootstrapId, {
-        authorizationHash: authorizationHash(authorization),
-        accessKey: access.cacheKey,
-        startAt,
-        endAt,
-        sampleSeconds,
-        expiresAt: nowMs() + phaseContextTtlMs,
-        intervals,
-        membership,
-        teamDefinitions,
-        initialMetrics,
-        initialNodeNames,
-        occupancyFailureCount: occupancy.failures.length,
-        stateFailureCount,
-        initialTeamId,
-        fullPromise: null,
-      });
-    }
+    // Team-scoped accounts also need the second phase now that they see the team-level
+    // efficiency rows, which require card metrics for every node in the range.
+    purgePhaseContexts();
+    const bootstrapId = crypto.randomBytes(18).toString('base64url');
+    phaseContexts.set(bootstrapId, {
+      authorizationHash: authorizationHash(authorization),
+      accessKey: access.cacheKey,
+      startAt,
+      endAt,
+      sampleSeconds,
+      expiresAt: nowMs() + phaseContextTtlMs,
+      intervals,
+      membership,
+      teamDefinitions,
+      initialMetrics,
+      initialNodeNames,
+      occupancyFailureCount: occupancy.failures.length,
+      stateFailureCount,
+      initialTeamId,
+      fullPromise: null,
+    });
     return {
       ...payload,
-      progressive: { phase: 'initial', complete, initialTeamId, bootstrapId },
+      progressive: { phase: 'initial', complete: false, initialTeamId, bootstrapId },
       cache: { hit: false, expiresAt: null },
     };
   }

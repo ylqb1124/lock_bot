@@ -1864,15 +1864,51 @@ test('organization membership retains the Lock Bot user id while grouping by org
   assert.deepEqual(membership.teams.map(team => team.id), ['team-a', 'team-b']);
 });
 
-test('team dashboard payload removes every non-authorized team and ranking', () => {
+test('team dashboard payload keeps every team row but removes non-authorized rankings', () => {
   const payload = teamPrivate.scopeDashboardPayload({
     teams: [{ id: 'team-a' }, { id: 'team-b' }],
     rankings: [{ userId: 'alice', team: 'team-a' }, { userId: 'bob', team: 'team-b' }],
   }, { enabled: true, mode: 'team', teamIds: ['team-a'] });
 
-  assert.deepEqual(payload.teams.map(team => team.id), ['team-a']);
-  assert.deepEqual(payload.rankings.map(row => row.userId), ['alice']);
+  assert.deepEqual(payload.teams.map(team => team.id), ['team-a', 'team-b']);
+  assert.deepEqual(payload.rankings.map(row => row.userId), ['alice'], 'a team account must never receive another team members');
   assert.deepEqual(payload.access, { enabled: true, mode: 'team', teamIds: ['team-a'] });
+});
+
+test('team dashboard payload strips every foreign team field the efficiency table does not read', () => {
+  const foreign = {
+    id: 'team-b',
+    label: 'Bravo',
+    cardHours: 12,
+    xpu: 30,
+    memory: 40,
+    userCount: 7,
+    pendingUserCount: 2,
+    trend: [{ timestamp: 1, lockedUsers: 7 }],
+    current: { timestamp: 1, lockedUsers: 7 },
+    averages: { lockRate: 5, xpu: 30, memory: 40, activeUsers: 3, lockedCardsPerUser: 2 },
+  };
+  const payload = teamPrivate.scopeDashboardPayload({
+    teams: [{ ...foreign, id: 'team-a', label: 'Alpha' }, foreign],
+    rankings: [],
+  }, { enabled: true, mode: 'team', teamIds: ['team-a'] });
+  const [own, other] = payload.teams;
+
+  assert.deepEqual(own.trend, foreign.trend, 'the own team keeps the fields that drive its cards and trend chart');
+  assert.deepEqual(Object.keys(other).sort(), ['averages', 'cardHours', 'id', 'label', 'memory', 'xpu']);
+  assert.deepEqual(Object.keys(other.averages), ['activeUsers']);
+  assert.equal(other.averages.activeUsers, 3);
+});
+
+test('admin accounts keep every team field intact', () => {
+  const payload = teamPrivate.scopeDashboardPayload({
+    teams: [{ id: 'team-a', trend: [1], userCount: 3 }, { id: 'team-b', trend: [2], userCount: 4 }],
+    rankings: [{ userId: 'alice', team: 'team-a' }, { userId: 'bob', team: 'team-b' }],
+  }, { enabled: true, mode: 'all', teamIds: null });
+
+  assert.deepEqual(payload.teams.map(team => team.userCount), [3, 4]);
+  assert.deepEqual(payload.rankings.map(row => row.userId), ['alice', 'bob']);
+  assert.deepEqual(payload.access.teamIds, ['team-a', 'team-b']);
 });
 
 test('organization-scoped team queries bypass the full-dashboard cache', async () => {
@@ -2042,9 +2078,15 @@ test('team dashboard phases return one team first, reuse occupancy, and bind boo
     assert.deepEqual(retainedTeam.teams.map(team => team.id), ['team-b']);
 
     const leader = await service.queryDashboard('Bearer leader', startAt, endAt, { phase: 'initial' });
-    assert.equal(leader.progressive.complete, true);
-    assert.equal(leader.progressive.bootstrapId, null);
+    assert.equal(leader.progressive.complete, false, 'a team account needs the second phase to fill in the other team rows');
+    assert.ok(leader.progressive.bootstrapId);
     assert.deepEqual(leader.teams.map(team => team.id), ['team-a']);
+
+    const leaderFull = await service.queryDashboard('Bearer leader', startAt, endAt, { phase: 'full', bootstrapId: leader.progressive.bootstrapId });
+    assert.deepEqual(leaderFull.teams.map(team => team.id), ['team-a', 'team-b']);
+    assert.deepEqual(leaderFull.access.teamIds, ['team-a']);
+    assert.deepEqual(leaderFull.rankings.map(row => row.team), ['team-a'], 'the other team members must stay out of the response');
+    assert.equal(leaderFull.teams[1].trend, undefined, 'the other team ships only the efficiency columns');
 
     const expiring = await service.queryDashboard('Bearer boss', startAt, endAt, { phase: 'initial', initialTeamId: 'team-b' });
     clock = 1_001;

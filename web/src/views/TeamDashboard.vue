@@ -61,6 +61,7 @@ const visibleTrendFields = ref(TREND_SERIES.map(series => series.field));
 const hoveredTrendIndex = ref(null);
 const hoveredPieSegmentId = ref(null);
 const openMetricTip = ref(null);
+const deniedTeamLabel = ref('');
 const trendCanvas = ref(null);
 const trendTooltip = ref(null);
 const trendTooltipStyle = ref({});
@@ -76,7 +77,18 @@ let requestSequence = 0;
 let resizeHandler;
 
 const teams = computed(() => dashboard.value?.teams || []);
-const selectedTeam = computed(() => teams.value.find(team => team.id === selectedTeamId.value) || teams.value.at(-1) || null);
+// A team-scoped account only receives its own rankings, so selecting another team would show
+// an empty member list. Restrict the selection to the teams the account is authorized for.
+const allowedTeamIds = computed(() => {
+  const granted = dashboard.value?.access?.teamIds;
+  return Array.isArray(granted) && dashboard.value?.access?.mode === 'team' ? granted : null;
+});
+const allowedTeams = computed(() => allowedTeamIds.value
+  ? teams.value.filter(team => allowedTeamIds.value.includes(team.id))
+  : teams.value);
+const selectedTeam = computed(() => allowedTeams.value.find(team => team.id === selectedTeamId.value)
+  || allowedTeams.value.at(-1)
+  || null);
 const selectedTrend = computed(() => selectedTeam.value?.trend || []);
 const selectedTrendSeries = computed(() => TREND_SERIES.filter(series => visibleTrendFields.value.includes(series.field)));
 const selectedRankings = computed(() => (dashboard.value?.rankings || []).filter(row => row.team === selectedTeamId.value));
@@ -155,11 +167,13 @@ function resetRange() {
 
 function applyDashboard(result, preferredTeamId = null) {
   dashboard.value = result;
+  const granted = result.access?.mode === 'team' && Array.isArray(result.access?.teamIds) ? result.access.teamIds : null;
+  const selectable = granted ? result.teams?.filter(team => granted.includes(team.id)) : result.teams;
   const initialTeamId = preferredTeamId || result.progressive?.initialTeamId;
-  if (initialTeamId && result.teams?.some(team => team.id === initialTeamId)) {
+  if (initialTeamId && selectable?.some(team => team.id === initialTeamId)) {
     selectedTeamId.value = initialTeamId;
-  } else if (!result.teams?.some(team => team.id === selectedTeamId.value)) {
-    selectedTeamId.value = result.teams?.[0]?.id || 'general-research';
+  } else if (!selectable?.some(team => team.id === selectedTeamId.value)) {
+    selectedTeamId.value = selectable?.[0]?.id || 'general-research';
   }
 }
 
@@ -237,6 +251,19 @@ function formatCardHours(value) {
 function idleCardHours(team) {
   if (!Number.isFinite(team?.cardHours) || !Number.isFinite(team?.xpu)) return null;
   return team.cardHours * Math.max(0, 1 - team.xpu / 100);
+}
+
+function canSelectTeam(teamId) {
+  return !allowedTeamIds.value || allowedTeamIds.value.includes(teamId);
+}
+
+// 团队账号点击其他团队时保持当前选择不变，仅提示无权访问，避免切到一个没有排名数据的空视图。
+function selectTeam(teamId) {
+  if (canSelectTeam(teamId)) {
+    selectedTeamId.value = teamId;
+    return;
+  }
+  deniedTeamLabel.value = teams.value.find(team => team.id === teamId)?.label || '该团队';
 }
 
 function formatTrendTime(point) {
@@ -687,7 +714,7 @@ onBeforeUnmount(() => {
                 <th>显存利用率</th>
               </tr></thead>
               <tbody>
-                <tr v-for="team in teams" :key="team.id" :class="{ selected: team.id === selectedTeamId }" tabindex="0" :aria-selected="team.id === selectedTeamId" @click="selectedTeamId = team.id" @keydown.enter.prevent="selectedTeamId = team.id" @keydown.space.prevent="selectedTeamId = team.id">
+                <tr v-for="team in teams" :key="team.id" :class="{ selected: team.id === selectedTeamId, locked: !canSelectTeam(team.id) }" tabindex="0" :aria-selected="team.id === selectedTeamId" :aria-disabled="!canSelectTeam(team.id)" @click="selectTeam(team.id)" @keydown.enter.prevent="selectTeam(team.id)" @keydown.space.prevent="selectTeam(team.id)">
                   <td>{{ team.label }}</td><td>{{ formatCardHours(team.cardHours) }}</td><td>{{ formatCardHours(idleCardHours(team)) }}</td><td>{{ formatAverageUserCount(team.averages?.activeUsers) }}</td><td>{{ formatPercent(team.xpu) }}</td><td>{{ formatPercent(team.memory) }}</td>
                 </tr>
                 <tr v-if="!loading && !teams.length"><td colspan="6">暂无团队数据</td></tr>
@@ -720,10 +747,18 @@ onBeforeUnmount(() => {
     <section class="team-team-control" aria-label="当前团队选择">
       <label for="team-select">选择团队</label>
       <select id="team-select" v-model="selectedTeamId" :disabled="loading || !teams.length">
-        <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.label }}</option>
+        <option v-for="team in teams" :key="team.id" :value="team.id" :disabled="!canSelectTeam(team.id)">{{ team.label }}</option>
       </select>
       <span>历史平均指标截至 {{ dataAsOfLabel }}</span>
     </section>
+
+    <div v-if="deniedTeamLabel" class="team-denied-backdrop" role="presentation" @click="deniedTeamLabel = ''">
+      <div class="team-denied-dialog" role="alertdialog" aria-labelledby="team-denied-title" aria-describedby="team-denied-body" @click.stop>
+        <h2 id="team-denied-title">该账号暂时无法访问</h2>
+        <p id="team-denied-body">当前账号只能查看本团队的持锁人资源使用排名，无法打开「{{ deniedTeamLabel }}」的成员明细。团队效率表格中的各组资源效率数据不受此限制。</p>
+        <button type="button" class="team-primary-button" autofocus @click="deniedTeamLabel = ''">知道了</button>
+      </div>
+    </div>
 
     <section class="team-snapshot-section" :aria-label="`${selectedTeam?.label || '团队'} ${averagePeriodLabel}历史平均指标`">
       <div class="team-snapshot-grid team-snapshot-primary">
