@@ -651,14 +651,60 @@ function summarizeForeignTeam(team) {
   };
 }
 
+// Reveal tokens are encrypted with a key generated at startup, so no extra configuration is
+// needed and every restart invalidates the tokens already sitting in open browser tabs.
+const REVEAL_KEY = crypto.randomBytes(32);
+const REVEAL_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+// Team accounts only receive the masked form: two leading characters and one trailing one, or
+// just the first character for short ids. The star count is fixed so the real length stays hidden.
+function maskUserId(userId) {
+  const value = String(userId ?? '').trim();
+  if (!value) return '';
+  return value.length > 3
+    ? `${value.slice(0, 2)}***${value.slice(-1)}`
+    : `${value.slice(0, 1)}***`;
+}
+
+function createRevealToken(userId, team, nowMs = Date.now()) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', REVEAL_KEY, iv);
+  const payload = JSON.stringify({ userId, team, expiresAt: nowMs + REVEAL_TOKEN_TTL_MS });
+  const body = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+}
+
+// Fails closed: a tampered, truncated or expired token is indistinguishable from a forged one.
+function readRevealToken(token, nowMs = Date.now()) {
+  const raw = Buffer.from(String(token || ''), 'base64url');
+  if (raw.length <= 28) throw createHttpError('展开令牌无效或已过期', 403);
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', REVEAL_KEY, raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    const claims = JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8'));
+    if (!claims?.userId || !(claims.expiresAt > nowMs)) throw new Error('expired');
+    return claims;
+  } catch {
+    throw createHttpError('展开令牌无效或已过期', 403);
+  }
+}
+
 // `rankingTeamIds` limits the per-person rankings, which stay private to each team. The
 // team-level rows stay visible to everyone so a team can compare itself against the others.
 function scopeDashboardPayload(payload, access, rankingTeamIds = access.mode === 'all' ? null : access.teamIds || []) {
   const visibleRankingTeamIds = rankingTeamIds === null ? null : new Set(rankingTeamIds);
-  const rankings = visibleRankingTeamIds
+  const scopedRankings = visibleRankingTeamIds
     ? payload.rankings.filter(row => visibleRankingTeamIds.has(row.team))
     : payload.rankings;
   const ownTeamIds = access.mode === 'all' ? null : new Set(access.teamIds || []);
+  // Team accounts never receive the plain id: they exchange a token for it one row at a time.
+  const rankings = ownTeamIds
+    ? scopedRankings.map(({ userId, ...row }) => ({
+      ...row,
+      userIdMasked: maskUserId(userId),
+      revealToken: createRevealToken(userId, row.team),
+    }))
+    : scopedRankings;
   const teams = ownTeamIds
     ? payload.teams.map(team => ownTeamIds.has(team.id) ? team : summarizeForeignTeam(team))
     : payload.teams;
@@ -1023,15 +1069,18 @@ function createTeamService(config, options = {}) {
 
   async function getMembership(authorization, accessOverride = null) {
     const access = accessOverride || await teamAccess.authorize(authorization);
+    // The roster is the only endpoint that returns real people by name, so it stays admin-only.
+    if (access.mode !== 'all') throw createHttpError('当前账号无权访问成员归属名单', 403);
     await fetchBots(config, authorization, liveLockBotCache);
-    const membership = readMembership(membershipPath);
-    if (access.mode === 'all') return membership;
-    const allowedTeams = new Set(access.teamIds || []);
-    return {
-      ...membership,
-      assignments: Object.fromEntries(Object.entries(membership.assignments || {}).filter(([, assignment]) => allowedTeams.has(assignment.team))),
-      access: { enabled: access.enabled, mode: access.mode, teamIds: [...allowedTeams] },
-    };
+    return readMembership(membershipPath);
+  }
+
+  // Exchanges one reveal token for the plain id, but only for a team the caller can already see.
+  function revealRankingUserId(access, token) {
+    const claims = readRevealToken(token);
+    const allowed = access.mode === 'all' || (access.teamIds || []).includes(claims.team);
+    if (!allowed) throw createHttpError('当前账号无权查看该持锁人 ID', 403);
+    return { userId: claims.userId, team: claims.team };
   }
 
   function schedule() {
@@ -1059,7 +1108,7 @@ function createTeamService(config, options = {}) {
     schedulerTimer = null;
   }
 
-  return { getMembership, queryDashboard, refresh, schedule, stop, warmLiveLockBotOccupancy };
+  return { getMembership, queryDashboard, refresh, revealRankingUserId, schedule, stop, warmLiveLockBotOccupancy };
 }
 
 module.exports = {
@@ -1080,6 +1129,10 @@ module.exports = {
     aggregateOwnership,
     buildDashboardPayload,
     scopeDashboardPayload,
+    maskUserId,
+    createRevealToken,
+    readRevealToken,
+    REVEAL_TOKEN_TTL_MS,
     mergeTeamDefinitions,
     mergeMembership,
     classifyUser,

@@ -390,6 +390,19 @@ const server = http.createServer((req, res) => {
       .then(data => sendJson(res, 200, data))
       .catch(error => sendApiError(res, error));
   }
+  if (requestUrl.pathname === '/api/team-ranking-identity') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+    const token = requestUrl.searchParams.get('token');
+    if (!token) return sendJson(res, 400, { error: 'Reveal token is required' });
+    return appAuth.authorize(req.headers.authorization)
+      .then(access => {
+        const revealed = teamService.revealRankingUserId(access, token);
+        // 每次展开都留痕：脱敏拦不住逐个点开收集，但要让收集行为可追溯。
+        console.info(`[audit] reveal-ranking-id viewer=${access.username || 'unknown'} mode=${access.mode} team=${revealed.team} target=${revealed.userId}`);
+        sendJson(res, 200, { userId: revealed.userId });
+      })
+      .catch(error => sendApiError(res, error));
+  }
   if (req.url.startsWith('/lockbot')) {
     if (!isAllowedLockBotReadRequest(req)) return sendJson(res, 403, { error: 'Lock Bot request is not allowed' });
     return appAuth.authorize(req.headers.authorization)

@@ -64,6 +64,21 @@ export function logoutDashboard(token) {
 }
 
 /**
+ * 用一次性令牌换取单个持锁人的完整 ID。团队账号的排名数据只带脱敏后的 ID，
+ * 完整值需要点击时按需向服务端申请，服务端会记录每次展开。
+ */
+export async function fetchRankingIdentity(revealToken, token) {
+  const resp = await fetchWithTimeout(`/api/team-ranking-identity?token=${encodeURIComponent(revealToken)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => null);
+    throw new Error(data?.error || `获取完整 ID 失败: ${resp.status}`);
+  }
+  return (await resp.json()).userId;
+}
+
+/**
  * 获取当前用户的所有 Bot 列表
  */
 export async function fetchLockBotList(token) {

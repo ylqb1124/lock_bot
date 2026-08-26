@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { fetchTeamDashboard } from '../services/api.js';
+import { fetchRankingIdentity, fetchTeamDashboard } from '../services/api.js';
 import { chinaTimeParts, formatChinaDatetimeLocal, formatChinaDateTime, isSameChinaDay, parseChinaDatetimeLocal } from '../services/china-time.js';
 import { formatAverageUserCount } from '../services/team-metrics.js';
 import '../team-dashboard.css';
@@ -62,6 +62,12 @@ const hoveredTrendIndex = ref(null);
 const hoveredPieSegmentId = ref(null);
 const openMetricTip = ref(null);
 const deniedTeamLabel = ref('');
+// 一次只允许一个持锁人处于明文状态：这三个 ref 一起描述"当前展开的是谁、拿到了什么、状态如何"，
+// 点开下一个会直接覆盖，上一个自动回到脱敏态。
+const revealedToken = ref(null);
+const revealedUserId = ref('');
+const revealError = ref('');
+let revealSequence = 0;
 const trendCanvas = ref(null);
 const trendTooltip = ref(null);
 const trendTooltipStyle = ref({});
@@ -255,6 +261,36 @@ function idleCardHours(team) {
 
 function canSelectTeam(teamId) {
   return !allowedTeamIds.value || allowedTeamIds.value.includes(teamId);
+}
+
+function displayUserId(row) {
+  if (!row.revealToken) return row.userId;
+  return revealedToken.value === row.revealToken && revealedUserId.value
+    ? revealedUserId.value
+    : row.userIdMasked;
+}
+
+// 完整 ID 不在看板响应里，点击时才用一次性令牌向服务端换取，服务端会记录每次展开。
+async function toggleRevealedUser(row) {
+  if (revealedToken.value === row.revealToken) {
+    revealedToken.value = null;
+    revealedUserId.value = '';
+    revealError.value = '';
+    return;
+  }
+  const sequence = ++revealSequence;
+  revealedToken.value = row.revealToken;
+  revealedUserId.value = '';
+  revealError.value = '';
+  try {
+    const userId = await fetchRankingIdentity(row.revealToken, props.token);
+    if (sequence !== revealSequence) return;
+    revealedUserId.value = userId;
+  } catch (caught) {
+    if (sequence !== revealSequence) return;
+    revealError.value = caught?.message || '获取完整 ID 失败';
+    revealedToken.value = null;
+  }
 }
 
 // 团队账号点击其他团队时保持当前选择不变，仅提示无权访问，避免切到一个没有排名数据的空视图。
@@ -804,11 +840,20 @@ onBeforeUnmount(() => {
         <table>
           <thead><tr><th>持锁人</th><th>区间总卡时</th><th>XPU 利用率</th><th>显存利用率</th></tr></thead>
           <tbody>
-            <tr v-for="row in selectedRankings" :key="row.userId"><td>{{ row.userId }}</td><td>{{ formatCardHours(row.cardHours) }}</td><td>{{ formatPercent(row.xpu) }}</td><td>{{ formatPercent(row.memory) }}</td></tr>
+            <tr v-for="row in selectedRankings" :key="row.revealToken || row.userId">
+              <td>
+                <span class="team-user-id">{{ displayUserId(row) }}</span>
+                <button v-if="row.revealToken" type="button" class="team-eye-button" :class="{ pending: revealedToken === row.revealToken && !revealedUserId }" :aria-pressed="revealedToken === row.revealToken" :aria-label="revealedToken === row.revealToken ? '隐藏完整持锁人 ID' : '显示完整持锁人 ID'" @click="toggleRevealedUser(row)">
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 4.5c-3.6 0-6.6 2.2-8 5.5 1.4 3.3 4.4 5.5 8 5.5s6.6-2.2 8-5.5c-1.4-3.3-4.4-5.5-8-5.5Zm0 9.2a3.7 3.7 0 1 1 0-7.4 3.7 3.7 0 0 1 0 7.4Zm0-1.9a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z" /><path v-if="revealedToken === row.revealToken" d="M3.2 3.2 16.8 16.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                </button>
+              </td>
+              <td>{{ formatCardHours(row.cardHours) }}</td><td>{{ formatPercent(row.xpu) }}</td><td>{{ formatPercent(row.memory) }}</td>
+            </tr>
             <tr v-if="!loading && !selectedRankings.length"><td colspan="4">所选团队在此范围内暂无持锁人有效样本</td></tr>
           </tbody>
         </table>
       </div>
+      <p v-if="revealError" class="team-range-error">{{ revealError }}</p>
     </section>
 
     <p v-if="dashboard?.dataQuality?.conflictCardSamples || dashboard?.dataQuality?.occupancyFailureCount || dashboard?.dataQuality?.stateFailureCount" class="team-quality-warning">已排除 {{ dashboard.dataQuality.conflictCardSamples }} 个多人冲突卡样本；{{ dashboard.dataQuality.occupancyFailureCount }} 个 Lock Bot 历史请求未完成；{{ dashboard.dataQuality.stateFailureCount }} 个当前状态请求未完成。</p>

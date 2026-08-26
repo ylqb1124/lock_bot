@@ -85,6 +85,11 @@
 .team-denied-dialog { max-width: 380px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px; background: #fff; box-shadow: 0 12px 32px rgba(15, 23, 42, .22); }
 .team-denied-dialog h2 { margin: 0 0 9px; color: #b91c1c; font-size: 15px; }
 .team-denied-dialog p { margin: 0 0 14px; color: #334155; font-size: 13px; line-height: 1.6; }
+.team-user-id { font-family: "SF Mono", "Cascadia Code", Consolas, monospace; }
+.team-eye-button { margin-left: 6px; padding: 0; border: 0; background: none; color: #94a3b8; vertical-align: -3px; cursor: pointer; }
+.team-eye-button:hover, .team-eye-button[aria-pressed="true"] { color: #4f46e5; }
+.team-eye-button.pending { color: #cbd5e1; cursor: progress; }
+.team-eye-button svg { width: 15px; height: 15px; fill: currentColor; }
 .team-metric-card strong { display: block; margin-top: 9px; color: #111827; font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 20px; line-height: 1; overflow-wrap: anywhere; }
 .team-metric-card.node-util::before { background: #ea580c; }.team-metric-card.node-util strong { color: #ea580c; }
 .team-metric-card.xpu::before { background: #7c3aed; }.team-metric-card.xpu strong { color: #7c3aed; }

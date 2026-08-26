@@ -1865,15 +1865,59 @@ test('organization membership retains the Lock Bot user id while grouping by org
   assert.deepEqual(membership.teams.map(team => team.id), ['team-a', 'team-b']);
 });
 
-test('team dashboard payload keeps every team row but removes non-authorized rankings', () => {
+test('masked lock holder ids keep two leading characters and one trailing character', () => {
+  const { maskUserId } = teamPrivate;
+  assert.equal(maskUserId('zhangshaokun02'), 'zh***2');
+  assert.equal(maskUserId('lisi'), 'li***i');
+  assert.equal(maskUserId('abc'), 'a***', 'ids of three characters or fewer only keep the first character');
+  assert.equal(maskUserId('ab'), 'a***');
+  assert.equal(maskUserId('a'), 'a***');
+  assert.equal(maskUserId(''), '');
+  assert.equal(maskUserId(null), '');
+  assert.equal(maskUserId('zhangshaokun02').includes('shaokun'), false, 'the masked form must not leak the middle of the id');
+  assert.equal(maskUserId('ab').length, maskUserId('abc').length, 'the star count is fixed so the real length stays hidden');
+});
+
+test('reveal tokens round-trip the id and fail closed when tampered or expired', () => {
+  const { createRevealToken, readRevealToken, REVEAL_TOKEN_TTL_MS } = teamPrivate;
+  const issuedAt = 1_000;
+  const token = createRevealToken('zhangshaokun02', 'qa', issuedAt);
+
+  assert.equal(readRevealToken(token, issuedAt + 1).userId, 'zhangshaokun02');
+  assert.equal(readRevealToken(token, issuedAt + 1).team, 'qa');
+  assert.equal(token.includes('zhangshaokun02'), false, 'the token must not carry the id in the clear');
+  assert.notEqual(token, createRevealToken('zhangshaokun02', 'qa', issuedAt), 'a fresh token每次都不同，避免被当作稳定指纹追踪同一个人');
+
+  assert.throws(() => readRevealToken(token, issuedAt + REVEAL_TOKEN_TTL_MS + 1), error => error.statusCode === 403);
+  assert.throws(() => readRevealToken(`${token.slice(0, -2)}aa`, issuedAt + 1), error => error.statusCode === 403);
+  assert.throws(() => readRevealToken('', issuedAt), error => error.statusCode === 403);
+  assert.throws(() => readRevealToken('not-a-token', issuedAt), error => error.statusCode === 403);
+});
+
+test('team dashboard rankings reach team accounts masked and with a reveal token instead of the id', () => {
   const payload = teamPrivate.scopeDashboardPayload({
     teams: [{ id: 'team-a' }, { id: 'team-b' }],
-    rankings: [{ userId: 'alice', team: 'team-a' }, { userId: 'bob', team: 'team-b' }],
+    rankings: [{ userId: 'alice02', team: 'team-a' }, { userId: 'bob', team: 'team-b' }],
   }, { enabled: true, mode: 'team', teamIds: ['team-a'] });
+  const [row] = payload.rankings;
 
   assert.deepEqual(payload.teams.map(team => team.id), ['team-a', 'team-b']);
-  assert.deepEqual(payload.rankings.map(row => row.userId), ['alice'], 'a team account must never receive another team members');
+  assert.equal(payload.rankings.length, 1, 'a team account must never receive another team members');
+  assert.equal(row.userId, undefined, 'the plain id must not ship with the dashboard payload');
+  assert.equal(row.userIdMasked, 'al***2');
+  assert.equal(teamPrivate.readRevealToken(row.revealToken).userId, 'alice02');
   assert.deepEqual(payload.access, { enabled: true, mode: 'team', teamIds: ['team-a'] });
+});
+
+test('team dashboard rankings reach admin accounts as plain ids with no reveal token', () => {
+  const payload = teamPrivate.scopeDashboardPayload({
+    teams: [{ id: 'team-a' }, { id: 'team-b' }],
+    rankings: [{ userId: 'alice02', team: 'team-a' }, { userId: 'bob', team: 'team-b' }],
+  }, { enabled: true, mode: 'all', teamIds: null });
+
+  assert.deepEqual(payload.rankings.map(row => row.userId), ['alice02', 'bob']);
+  assert.equal(payload.rankings[0].revealToken, undefined);
+  assert.equal(payload.rankings[0].userIdMasked, undefined);
 });
 
 test('team dashboard payload strips every foreign team field the efficiency table does not read', () => {
@@ -1976,7 +2020,8 @@ test('organization-scoped team queries bypass the full-dashboard cache', async (
     assert.equal(second.cache.hit, false);
     assert.equal(first.cache.expiresAt, null);
     assert.deepEqual(first.teams.map(team => team.id), ['team-a']);
-    assert.deepEqual(first.rankings.map(row => row.userId), ['alice']);
+    assert.deepEqual(first.rankings.map(row => row.userIdMasked), ['al***e']);
+    assert.deepEqual(first.rankings.map(row => teamPrivate.readRevealToken(row.revealToken).userId), ['alice']);
     assert.equal(occupancyCalls, 2);
   } finally {
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
