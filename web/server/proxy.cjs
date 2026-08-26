@@ -211,6 +211,11 @@ function serveLegacyStatic(req, res) {
 
 function serveStatic(req, res) {
   const pathname = new URL(req.url, 'http://localhost').pathname;
+  // 裸 IP（/）故意不落到这条 SPA 兜底：必须知道完整路径才能进入任何面板。
+  if (pathname === '/') {
+    res.writeHead(404);
+    return res.end('Not found');
+  }
   const relativePath = pathname === '/app/'
     ? 'index.html'
     : pathname.startsWith('/app/') ? pathname.slice('/app/'.length) : pathname.slice(1);
@@ -392,7 +397,8 @@ const server = http.createServer((req, res) => {
     return proxyTo(config.backend.monquery.host, config.backend.monquery.port, req, res);
   }
   const staticUrl = new URL(req.url, 'http://localhost');
-  if (staticUrl.pathname === '/' || staticUrl.pathname === '/app') {
+  // 裸 IP（/）故意不再跳转到 /app/：必须知道完整路径才能进入任何面板。
+  if (staticUrl.pathname === '/app') {
     res.writeHead(302, { location: `/app/${staticUrl.search}` });
     return res.end();
   }
