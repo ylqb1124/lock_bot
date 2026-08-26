@@ -389,6 +389,10 @@ export default {
     visualView: 'Visual',
     importConfirm: 'This will overwrite the current cluster state. Continue?',
     validationWarning: '{count} issue(s) found — the following will be auto-corrected on save:',
+    adjustDuration: 'Adjust Occupancy Duration',
+    remainingDuration: 'Set the remaining lock time for this user (minutes)',
+    bookingDuration: 'Set the lock duration for this booking when promoted (minutes)',
+    durationMinutes: 'Duration (minutes)',
   },
 
   // === Bot Form ===

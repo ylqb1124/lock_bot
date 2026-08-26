@@ -4,7 +4,7 @@ Bot Pydantic schemas
 
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from lockbot.core.lock_policy import LockPolicyValidationError, validate_lock_policies
 
@@ -153,6 +153,23 @@ class BotStatusOut(BaseModel):
     pid: int | None = None
     consecutive_failures: int = 0
     message: str = ""
+
+
+class OccupancyAdjust(BaseModel):
+    """Targeted runtime adjustment for one lock or queue booking."""
+
+    node_key: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=256)
+    kind: str = "lock"  # lock or book
+    duration_seconds: int = Field(ge=0, le=604800)
+    dev_id: int | None = Field(default=None, ge=0)
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, value: str) -> str:
+        if value not in {"lock", "book"}:
+            raise ValueError("kind must be 'lock' or 'book'")
+        return value
 
 
 class BotLogOut(BaseModel):

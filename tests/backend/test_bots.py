@@ -752,3 +752,87 @@ class TestUpdateBotState:
             client.post(f"/api/bots/{bot_id}/start", headers=admin_header)
         resp = client.put(f"/api/bots/{bot_id}/state", json={}, headers=admin_header)
         assert resp.status_code == 409
+
+
+class TestAdjustOccupancy:
+    def test_adjust_running_lock_uses_remaining_duration(self, client, admin_header):
+        import threading
+        import time
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        bot_id = client.post(
+            "/api/bots",
+            json={
+                "name": "runtime-adjust",
+                "bot_type": "QUEUE",
+                "webhook_url": "https://example.com/webhook",
+                "cluster_configs": ["n1"],
+            },
+            headers=admin_header,
+        ).json()["id"]
+        now = int(time.time())
+        state = {
+            "n1": {
+                "status": "exclusive",
+                "current_users": [{"user_id": "alice", "start_time": now - 100, "duration": 1000}],
+                "booking_list": [{"user_id": "bob", "start_time": now, "duration": 600}],
+            }
+        }
+        fake_bot = SimpleNamespace(
+            _lock=threading.Lock(),
+            state=SimpleNamespace(bot_state=state),
+            _save_and_notify=Mock(),
+        )
+        fake_instance = SimpleNamespace(bot=fake_bot, state=fake_bot.state)
+        with patch("lockbot.backend.app.bots.router.bot_manager") as manager:
+            manager.start_bot.return_value = 123
+            manager.get_instance.return_value = fake_instance
+            assert client.post(f"/api/bots/{bot_id}/start", headers=admin_header).status_code == 200
+
+            response = client.patch(
+                f"/api/bots/{bot_id}/occupancy",
+                json={"node_key": "n1", "user_id": "alice", "kind": "lock", "duration_seconds": 300},
+                headers=admin_header,
+            )
+
+        assert response.status_code == 200
+        assert state["n1"]["current_users"][0]["duration"] == 400
+        fake_bot._save_and_notify.assert_called_once()
+
+    def test_adjust_booking_duration(self, client, admin_header):
+        import threading
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        bot_id = client.post(
+            "/api/bots",
+            json={
+                "name": "runtime-book-adjust",
+                "bot_type": "QUEUE",
+                "webhook_url": "https://example.com/webhook",
+                "cluster_configs": ["n1"],
+            },
+            headers=admin_header,
+        ).json()["id"]
+        state = {
+            "n1": {
+                "status": "exclusive",
+                "current_users": [],
+                "booking_list": [{"user_id": "bob", "start_time": 0, "duration": 600}],
+            }
+        }
+        fake_bot = SimpleNamespace(
+            _lock=threading.Lock(), state=SimpleNamespace(bot_state=state), _save_and_notify=Mock()
+        )
+        with patch("lockbot.backend.app.bots.router.bot_manager") as manager:
+            manager.start_bot.return_value = 123
+            manager.get_instance.return_value = SimpleNamespace(bot=fake_bot, state=fake_bot.state)
+            assert client.post(f"/api/bots/{bot_id}/start", headers=admin_header).status_code == 200
+            response = client.patch(
+                f"/api/bots/{bot_id}/occupancy",
+                json={"node_key": "n1", "user_id": "bob", "kind": "book", "duration_seconds": 1800},
+                headers=admin_header,
+            )
+        assert response.status_code == 200
+        assert state["n1"]["booking_list"][0]["duration"] == 1800

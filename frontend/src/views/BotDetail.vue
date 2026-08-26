@@ -359,13 +359,17 @@
                   </div>
                   <div class="cluster-device-users">
                     <template v-if="dev.currentUsers && dev.currentUsers.length">
-                      <el-tag
-                        v-for="u in dev.currentUsers"
-                        :key="u.user_id || u"
-                        size="small"
-                        effect="plain"
-                        >{{ u.user_id || u.userId || u }}</el-tag
-                      >
+                      <template v-for="u in dev.currentUsers" :key="u.user_id || u">
+                        <el-tag size="small" effect="plain">{{ u.user_id || u.userId || u }}</el-tag>
+                        <el-button
+                          v-if="canAdjustOccupancy && bot.status === 'running'"
+                          text
+                          size="small"
+                          @click.stop="openDurationDialog(node.nodeName, u, 'lock', dev.devId)"
+                        >
+                          <el-icon><Edit /></el-icon>
+                        </el-button>
+                      </template>
                     </template>
                   </div>
                 </div>
@@ -395,11 +399,32 @@
                       effect="plain"
                       >{{ u.user_id || u.userId || u }}</el-tag
                     >
+                    <template v-for="u in row.currentUsers" :key="`edit-${u.user_id || u}`">
+                      <el-button
+                        v-if="canAdjustOccupancy && bot.status === 'running'"
+                        text
+                        size="small"
+                        @click.stop="openDurationDialog(row.nodeName, u, 'lock')"
+                      >
+                        <el-icon><Edit /></el-icon>
+                      </el-button>
+                    </template>
                   </template>
                   <span v-else class="cluster-empty-text">-</span>
                 </div>
-                <div v-if="botType === 'QUEUE' && row.bookingCount" class="cluster-node-booking">
-                  {{ $t('clusterState.bookingList') }}: {{ row.bookingCount }}
+                <div v-if="botType === 'QUEUE' && row.bookingUsers.length" class="cluster-node-booking">
+                  <span>{{ $t('clusterState.bookingList') }}:</span>
+                  <span v-for="u in row.bookingUsers" :key="u.user_id" class="booking-user">
+                    {{ u.user_id }}
+                    <el-button
+                      v-if="canAdjustOccupancy && bot.status === 'running'"
+                      text
+                      size="small"
+                      @click.stop="openDurationDialog(row.nodeName, u, 'book')"
+                    >
+                      <el-icon><Edit /></el-icon>
+                    </el-button>
+                  </span>
                 </div>
               </div>
             </div>
@@ -408,12 +433,35 @@
       </el-card>
 
       <!-- Logs -->
-      <el-card style="margin-bottom: 20px">
+    <el-card style="margin-bottom: 20px">
         <template #header
           ><span>{{ $t('botDetail.logs') }}</span></template
         >
         <LogViewer :bot-id="bot.id" />
-      </el-card>
+    </el-card>
+
+    <el-dialog v-model="durationDialog.visible" :title="$t('clusterState.adjustDuration')" width="420px">
+      <el-alert
+        :title="durationDialog.kind === 'lock' ? $t('clusterState.remainingDuration') : $t('clusterState.bookingDuration')"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px"
+      />
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 16px">
+        <el-descriptions-item :label="$t('clusterState.nodeName')">{{ durationDialog.nodeKey }}</el-descriptions-item>
+        <el-descriptions-item :label="$t('clusterState.currentUsers')">{{ durationDialog.userId }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form label-position="top">
+        <el-form-item :label="$t('clusterState.durationMinutes')">
+          <el-input-number v-model="durationDialog.minutes" :min="0" :max="10080" :step="10" controls-position="right" style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="durationDialog.visible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="durationDialog.saving" @click="saveDuration">{{ $t('common.save') }}</el-button>
+      </template>
+    </el-dialog>
     </div>
 
     <!-- Transfer Owner Dialog -->
@@ -533,6 +581,15 @@ const viewJson = ref(false)
 const stateText = ref('')
 const stateData = ref(null)
 const stateSaving = ref(false)
+const durationDialog = ref({
+  visible: false,
+  saving: false,
+  nodeKey: '',
+  userId: '',
+  kind: 'lock',
+  devId: null,
+  minutes: 0,
+})
 
 // Secret field visibility
 const showAesKey = ref(false)
@@ -700,6 +757,7 @@ function formatPolicyWeekdays(policy) {
 // - admin: can only VIEW other users' bots, cannot start/stop/edit/delete
 // - user: can only operate own bots, no transfer
 const canEdit = computed(() => authStore.canEditBot(bot.value))
+const canAdjustOccupancy = computed(() => authStore.isAdmin && canEdit.value)
 const canDelete = computed(() => canEdit.value)
 const canOperate = computed(() => authStore.canOperateBot(bot.value))
 const canTransfer = computed(() => authStore.isSuperAdmin)
@@ -781,7 +839,7 @@ const parsedState = computed(() => {
     nodeName,
     status: info.status,
     currentUsers: info.current_users || [],
-    bookingCount: (info.booking_list || []).length,
+    bookingUsers: info.booking_list || [],
   }))
 })
 
@@ -936,6 +994,42 @@ const currentUtilization = computed(() => {
 function startEditState() {
   stateText.value = stateData.value ? JSON.stringify(stateData.value, null, 2) : '{}'
   editingState.value = true
+}
+
+function currentRemainingSeconds(userInfo) {
+  if (!userInfo || typeof userInfo !== 'object') return 0
+  return Math.max(0, Number(userInfo.duration || 0) - Math.max(0, Math.floor(Date.now() / 1000) - Number(userInfo.start_time || 0)))
+}
+
+function openDurationDialog(nodeKey, userInfo, kind, devId = null) {
+  durationDialog.value = {
+    visible: true,
+    saving: false,
+    nodeKey,
+    userId: userInfo.user_id || userInfo.userId || '',
+    kind,
+    devId,
+    minutes: Math.ceil((kind === 'lock' ? currentRemainingSeconds(userInfo) : Number(userInfo.duration || 0)) / 60),
+  }
+}
+
+async function saveDuration() {
+  const dialog = durationDialog.value
+  dialog.saving = true
+  try {
+    await botsStore.adjustOccupancy(route.params.id, {
+      node_key: dialog.nodeKey,
+      user_id: dialog.userId,
+      kind: dialog.kind,
+      dev_id: dialog.devId,
+      duration_seconds: Math.round(dialog.minutes * 60),
+    })
+    ElMessage.success(t('common.success'))
+    dialog.visible = false
+    await fetchState()
+  } finally {
+    dialog.saving = false
+  }
 }
 
 async function saveState() {

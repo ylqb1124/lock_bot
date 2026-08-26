@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -24,7 +25,14 @@ from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.bots.manager import bot_manager
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.bots.schemas import BotCreate, BotDetail, BotOut, BotStatusOut, BotUpdate
+from lockbot.backend.app.bots.schemas import (
+    BotCreate,
+    BotDetail,
+    BotOut,
+    BotStatusOut,
+    BotUpdate,
+    OccupancyAdjust,
+)
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
@@ -1061,6 +1069,92 @@ def update_bot_state(
     )
     db.commit()
     return result
+
+
+@router.patch("/{bot_id}/occupancy")
+def adjust_occupancy(
+    bot_id: int,
+    body: OccupancyAdjust,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Adjust one active lock or booking without replacing the whole state.
+
+    For an active lock, ``duration_seconds`` is the desired remaining time.
+    For a booking, it is the desired lock duration when the booking is promoted.
+    """
+    bot = _get_user_bot(bot_id, user, db)
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot edit another user's bot occupancy")
+    if bot.status != "running":
+        raise HTTPException(status_code=409, detail="Bot must be running to adjust occupancy")
+
+    instance = bot_manager.get_instance(bot_id)
+    if instance is None:
+        raise HTTPException(status_code=409, detail="Bot instance is not running")
+
+    if body.kind == "book" and body.duration_seconds <= 0:
+        raise HTTPException(status_code=422, detail="Booking duration must be positive")
+
+    now = int(time.time())
+    with instance.bot._lock:
+        try:
+            resource = instance.state.bot_state[body.node_key]
+        except (KeyError, TypeError):
+            raise HTTPException(status_code=404, detail="Node not found") from None
+
+        if bot.bot_type == "DEVICE":
+            if body.dev_id is None:
+                raise HTTPException(status_code=422, detail="dev_id is required for DEVICE bots")
+            if not isinstance(resource, list) or body.dev_id >= len(resource):
+                raise HTTPException(status_code=404, detail="Device not found")
+            resource = resource[body.dev_id]
+        elif body.dev_id is not None:
+            raise HTTPException(status_code=422, detail="dev_id is only valid for DEVICE bots")
+
+        field = "current_users" if body.kind == "lock" else "booking_list"
+        users = resource.get(field, []) if isinstance(resource, dict) else []
+        matches = [entry for entry in users if isinstance(entry, dict) and entry.get("user_id") == body.user_id]
+        if not matches:
+            raise HTTPException(status_code=404, detail="User occupancy not found")
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail="User has multiple matching occupancies")
+
+        entry = matches[0]
+        old_duration = int(entry.get("duration", 0))
+        start_time = int(entry.get("start_time", now))
+        elapsed = max(now - start_time, 0)
+        old_remaining = max(old_duration - elapsed, 0)
+        if body.kind == "lock":
+            # The state stores total lifetime, while the operator edits time left.
+            entry["duration"] = elapsed + body.duration_seconds
+        else:
+            entry["duration"] = body.duration_seconds
+
+        instance.bot._save_and_notify()
+
+    write_audit_log(
+        db,
+        user,
+        "bot.adjust_occupancy",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        detail={
+            "node_key": body.node_key,
+            "user_id": body.user_id,
+            "kind": body.kind,
+            "dev_id": body.dev_id,
+            "old_remaining_seconds": old_remaining,
+            "old_duration_seconds": old_duration,
+            "new_duration_seconds": entry["duration"],
+            "new_remaining_seconds": body.duration_seconds if body.kind == "lock" else None,
+        },
+        ip=request.client.host if request.client else None,
+    )
+    db.commit()
+    return {"message": "Occupancy updated", "duration_seconds": entry["duration"]}
 
 
 # ── Logs endpoints ─────────────────────────────────────────

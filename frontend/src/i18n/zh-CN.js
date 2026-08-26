@@ -378,6 +378,10 @@ export default {
     visualView: '可视化',
     importConfirm: '导入将覆盖当前集群状态，确认继续？',
     validationWarning: '发现 {count} 个问题，保存后将自动修正：',
+    adjustDuration: '调整占用时长',
+    remainingDuration: '请输入该用户剩余的 lock 时长（分钟）',
+    bookingDuration: '请输入该用户被提升后的占用时长（分钟）',
+    durationMinutes: '时长（分钟）',
   },
 
   // === Bot Form ===

@@ -126,6 +126,11 @@ export const useBotsStore = defineStore('bots', () => {
     return res.data
   }
 
+  async function adjustOccupancy(id, data) {
+    const res = await api.patch(`/bots/${id}/occupancy`, data)
+    return res.data
+  }
+
   async function transferOwner(id, username) {
     const res = await api.put(`/bots/${id}/owner`, { username })
     return res.data
@@ -158,6 +163,7 @@ export const useBotsStore = defineStore('bots', () => {
     restartBot,
     getBotState,
     updateBotState,
+    adjustOccupancy,
     transferOwner,
     getBotLogs,
     setBotLanguage,
