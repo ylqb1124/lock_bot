@@ -505,4 +505,21 @@ export default {
     evalQueue: '排队机器人',
     sharedNodes: '共享节点',
   },
+
+  publicReport: {
+    unavailable: '报告暂不可用',
+    loadFailed: '无法加载机器状态报告',
+    updatedAt: '数据更新时间：',
+    cached: '1 分钟缓存',
+    refreshNow: '立即刷新',
+    total: '资源总数',
+    unlocked: '未锁定资源',
+    gpuFree: '显存空闲资源',
+    refreshHint: '后台每 5 分钟刷新；手动刷新在 {seconds} 秒内复用最近查询结果。',
+    node: '节点',
+    lockedBy: '占用人',
+    booking: '排队用户',
+    remaining: '剩余时间',
+    container: '容器名',
+  },
 }

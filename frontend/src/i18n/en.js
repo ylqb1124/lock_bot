@@ -516,4 +516,21 @@ export default {
     evalQueue: 'Queue Bot',
     sharedNodes: 'Shared Nodes',
   },
+
+  publicReport: {
+    unavailable: 'Report unavailable',
+    loadFailed: 'Unable to load the machine status report',
+    updatedAt: 'Updated:',
+    cached: '1-minute cache',
+    refreshNow: 'Refresh now',
+    total: 'Total resources',
+    unlocked: 'Unlocked resources',
+    gpuFree: 'GPU-memory-free resources',
+    refreshHint: 'The server refreshes every 5 minutes; manual refresh reuses data queried within {seconds} seconds.',
+    node: 'Node',
+    lockedBy: 'Locked by',
+    booking: 'Booking users',
+    remaining: 'Remaining',
+    container: 'Container',
+  },
 }

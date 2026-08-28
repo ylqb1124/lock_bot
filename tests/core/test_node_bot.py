@@ -67,6 +67,15 @@ def test_query(bot):
     assert "test" in result["message"]["body"][0]["content"], "query info missing node name"
 
 
+def test_bare_query_returns_public_report_link_when_configured(bot):
+    bot.config.set_val("PUBLIC_BASE_URL", "https://lockbot.example.com/")
+    result = bot.query("user1")
+    body = result["message"]["body"]
+
+    assert "机器状态报告已生成" in body[0]["content"]
+    assert body[2] == {"type": "LINK", "href": "https://lockbot.example.com/#/report/test_node_bot"}
+
+
 def test_query_collects_usage(bot, monkeypatch):
     """NODE query collects GPU memory via SSH (node_filter passed through)."""
     import lockbot.core.node_bot as node_bot_mod

@@ -104,7 +104,18 @@ class BotManager:
         # Wire callbacks before scheduling the first immediate check.  The
         # scheduler may release already-expired locks as soon as it runs, and
         # those releases must have occupancy recording wired up.
-        instance.bot._on_state_changed = lambda: self._scheduler.reschedule_soon(bot_id)
+        def _on_state_changed() -> None:
+            self._scheduler.reschedule_soon(bot_id)
+            # Public reports retain a short-lived snapshot; invalidate it as
+            # soon as a lock changes so the next page request sees the change.
+            try:
+                from lockbot.backend.app.reports.service import report_snapshot_service
+
+                report_snapshot_service.invalidate(bot_id)
+            except Exception:
+                logger.exception("Failed to invalidate public report for bot %d", bot_id)
+
+        instance.bot._on_state_changed = _on_state_changed
         instance.bot._on_occupancy_flush = _make_occupancy_flush_handler(bot_id)
         # Flush events recovered from a previous process before scheduling.
         instance.bot._persist_state()

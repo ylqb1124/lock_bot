@@ -177,6 +177,10 @@ class DeviceBot(BaseLockBot):
         """
         query current usage
         """
+        if node_key is None and not invalid_query_nodes:
+            report_reply = self._public_report_reply(user_id)
+            if report_reply is not None:
+                return report_reply
         # Collect GPU usage (blocking SSH on cache miss) OUTSIDE the lock so it
         # does not stall user commands or the scheduler's _check_and_notify, which
         # contend on the same self._lock. node_ips is read under the lock since it

@@ -49,6 +49,11 @@ _CONFIG_SCHEMA = {
         "description": "Bot type: NODE / DEVICE / QUEUE",
         "env": True,
     },
+    "PUBLIC_BASE_URL": {
+        "default": "",
+        "description": "Public LockBot web origin used for machine status report links",
+        "env": True,
+    },
     "DEVICE_ALLOW_NODE_LOCK": {
         "default": False,
         "description": "DEVICE only: allow lock/slock without a dev selector to lock all cards on a node",

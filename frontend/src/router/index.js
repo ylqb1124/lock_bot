@@ -12,9 +12,16 @@ import AuditLogsView from '../views/admin/AuditLogsView.vue'
 import ProfileSettings from '../views/ProfileSettings.vue'
 import ForceChangePassword from '../views/ForceChangePassword.vue'
 import NotFound from '../views/NotFound.vue'
+import PublicReport from '../views/PublicReport.vue'
 import { isDemoMode, LS_KEYS } from '../utils/demoMode'
 
 const routes = [
+  {
+    path: '/report/:botId',
+    name: 'PublicReport',
+    component: PublicReport,
+    props: true,
+  },
   {
     path: '/login',
     name: 'Login',

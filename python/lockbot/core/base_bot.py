@@ -121,6 +121,27 @@ class BaseLockBot:
         if self._on_state_changed is not None:
             self._on_state_changed()
 
+    def _public_report_reply(self, user_id):
+        """Build the short public report reply when this bot has a public web origin.
+
+        Returning ``None`` keeps standalone/legacy installations working until
+        ``PUBLIC_BASE_URL`` is configured.  Deployed platform bots receive the
+        value through ``_build_config_dict``.
+        """
+        base_url = str(self.config.get_val("PUBLIC_BASE_URL", "") or "").rstrip("/")
+        bot_id = self.config.get_val("BOT_ID")
+        if not base_url or bot_id in (None, ""):
+            return None
+        url = f"{base_url}/#/report/{bot_id}"
+        content = [
+            t("query.public_report_link", config=self.config),
+            (t("query.public_report_open", config=self.config), url),
+        ]
+        return self.adapter.build_reply(
+            content,
+            [user_id],
+        )
+
     def _policy_duration_text(self, duration: int) -> str:
         if duration < 0:
             return t("help.unlimited", config=self.config)

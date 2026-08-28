@@ -10,6 +10,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
+# Public origin used in group messages that link to the read-only machine report.
+# Keep it empty by default so a local/dev server never sends an unusable URL.
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+
 # Database
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",

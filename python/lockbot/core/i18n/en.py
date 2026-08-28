@@ -76,6 +76,8 @@ MESSAGES = {
     "alert.auto_released_list_header": "Released resources:\n",
     # ── Query ──
     "query.cluster_usage_title": "ℹ️ Cluster Usage Details\n",
+    "query.public_report_link": "The machine status report is available on the web.",
+    "query.public_report_open": "Open machine status report",
     "query.invalid_nodes": "⚠️ Unrecognized nodes: {node_keys}; showing valid node results below.\n",
     "query.idle_summary_node": (
         '<font color="blue">**Unlocked nodes: {unlocked_nodes}; Current FREE nodes: {free_nodes}**</font>\n'

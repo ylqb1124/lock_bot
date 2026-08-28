@@ -24,6 +24,8 @@ from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.bots.router import router as bots_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
 from lockbot.backend.app.process_lock import ProcessLock
+from lockbot.backend.app.reports.router import router as reports_router
+from lockbot.backend.app.reports.service import report_snapshot_service
 from lockbot.backend.app.settings.router import router as settings_router
 
 # Configure lockbot loggers to output alongside uvicorn logs
@@ -299,9 +301,11 @@ async def lifespan(app: FastAPI):
         _seed_dev_users()
         bot_manager.start_scheduler()
         _reset_running_bots()
+        report_snapshot_service.start()
         yield
     finally:
         # Shutdown: stop scheduler and clean up all bots.
+        report_snapshot_service.stop()
         logger.info("Shutting down all bots…")
         bot_manager.shutdown_all()
         process_lock.release()
@@ -393,6 +397,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(settings_router)
     app.include_router(audit_router)
+    app.include_router(reports_router)
 
     # Serve frontend static files (built by vite)
     # In Docker: /app/frontend/dist — locally: project_root/frontend/dist

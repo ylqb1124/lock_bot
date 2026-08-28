@@ -40,6 +40,10 @@ class QueueBot(NodeBot):
 
     def query(self, user_id, node_key=None, invalid_query_nodes=None):
         """Query usage; always uses memory_based=False so the booking column is shown."""
+        if node_key is None and not invalid_query_nodes:
+            report_reply = self._public_report_reply(user_id)
+            if report_reply is not None:
+                return report_reply
         xpu_usage = None
         if self._collect_xpu_on_query:
             with self._lock:

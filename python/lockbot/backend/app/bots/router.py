@@ -34,6 +34,7 @@ from lockbot.backend.app.bots.schemas import (
     OccupancyAdjust,
 )
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
+from lockbot.backend.app.config import PUBLIC_BASE_URL
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.core.config import Config
@@ -179,6 +180,8 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         "GROUP_ID": bot.group_id or "",
         "CLUSTER_CONFIGS": _normalize_cluster_configs(json.loads(bot.cluster_configs)),
     }
+    if PUBLIC_BASE_URL:
+        config["PUBLIC_BASE_URL"] = PUBLIC_BASE_URL
     # Resolve owner username for help text display
     if db:
         owner = db.get(User, bot.user_id)

@@ -61,6 +61,15 @@ def _setup_db(tmp_path, monkeypatch):
     _mock.stop_bot.return_value = None
     _mock.restart_bot.return_value = 9999
 
+    # Public-report scheduling opens its own production DB session.  Backend
+    # tests use a dependency-overridden in-memory session instead, so disable
+    # only the background lifecycle thread here; individual API tests mock or
+    # exercise the report service directly.
+    _report_start_patcher = patch("lockbot.backend.app.reports.service.report_snapshot_service.start")
+    _report_stop_patcher = patch("lockbot.backend.app.reports.service.report_snapshot_service.stop")
+    _report_start_patcher.start()
+    _report_stop_patcher.start()
+
     # Redirect bot logs to a temp directory so tests don't pollute /data
     log_base = str(tmp_path / "bots")
     original_get_log_dir = None
@@ -78,6 +87,8 @@ def _setup_db(tmp_path, monkeypatch):
     yield
     _limiter_patcher.stop()
     _patcher.stop()
+    _report_start_patcher.stop()
+    _report_stop_patcher.stop()
     Base.metadata.drop_all(bind=_engine)
 
     if original_get_log_dir is not None:
