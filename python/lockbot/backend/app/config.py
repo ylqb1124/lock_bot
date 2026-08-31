@@ -43,3 +43,6 @@ DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
 DEV_ADMIN_USERNAME = os.environ.get("DEV_ADMIN_USERNAME", "admin")
 DEV_ADMIN_EMAIL = os.environ.get("DEV_ADMIN_EMAIL", "admin@lockbot.dev")
 DEV_ADMIN_PASSWORD = os.environ.get("DEV_ADMIN_PASSWORD", "admin123")
+
+# Test-only public report overlay. It never changes bot state or scheduling.
+REPORT_TEST_OCCUPANCY = os.environ.get("REPORT_TEST_OCCUPANCY", "false").lower() in ("true", "1", "yes")

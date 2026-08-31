@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import random
 import threading
 import time
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from typing import Any
 
 from lockbot.backend.app.bots.manager import bot_manager
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.config import REPORT_TEST_OCCUPANCY
 from lockbot.core.query_render import _get_ip
 from lockbot.core.xpu_collector import collect_node_usage
 
@@ -18,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 REPORT_REFRESH_SECONDS = 5 * 60
 REPORT_CACHE_SECONDS = 60
+_TEST_REPORT_USERNAMES = ("test-alex", "test-blake", "test-casey", "test-devon", "test-erin", "test-frankie")
+_TEST_OCCUPANCY_MIN_SECONDS = 60 * 60
+_TEST_OCCUPANCY_MAX_SECONDS = 8 * 60 * 60
 
 
 class ReportUnavailableError(RuntimeError):
@@ -89,14 +94,23 @@ class ReportSnapshotService:
         with runtime_bot._lock:
             state = copy.deepcopy(runtime_bot.state.bot_state)
             cluster_configs = copy.deepcopy(runtime_bot.config.get_val("CLUSTER_CONFIGS") or {})
-            threshold = runtime_bot.config.get_val("MEM_BUSY_THRESHOLD", 10)
+            memory_threshold = runtime_bot.config.get_val("MEM_BUSY_THRESHOLD", 10)
+            utilization_threshold = runtime_bot.config.get_val("UTILIZATION_BUSY_THRESHOLD", 10)
             config = runtime_bot.config
 
         node_ips = {node_name: _get_ip(cluster_configs, node_name) for node_name in state}
         node_ips = {node_name: ip for node_name, ip in node_ips.items() if ip}
         xpu_usage = collect_node_usage(node_ips, config) if node_ips else {}
         generated_at = datetime.now(timezone.utc)
-        return _build_snapshot(bot, state, cluster_configs, xpu_usage, threshold, generated_at)
+        return _build_snapshot(
+            bot,
+            state,
+            cluster_configs,
+            xpu_usage,
+            memory_threshold,
+            utilization_threshold,
+            generated_at,
+        )
 
     def _run(self) -> None:
         # Collect straight away after startup; subsequent passes are five minutes apart.
@@ -129,12 +143,15 @@ def _build_snapshot(
     state: dict[str, Any],
     cluster_configs: dict[str, Any],
     xpu_usage: dict[str, Any],
-    threshold: float,
+    memory_threshold: float,
+    utilization_threshold: float,
     generated_at: datetime,
 ) -> dict[str, Any]:
     now = time.time()
     nodes = []
     unlocked_resources = 0
+    available_resources = 0
+    occupied_resources = 0
     free_resources = 0
     total_resources = 0
 
@@ -146,17 +163,31 @@ def _build_snapshot(
             for index, device in enumerate(node_state if isinstance(node_state, list) else []):
                 card_usage = per_card[index] if index < len(per_card) else None
                 users = _users(device.get("current_users", []), now)
-                is_idle = device.get("status") == "idle"
+                lock_status = device.get("status", "idle")
+                if REPORT_TEST_OCCUPANCY and lock_status == "idle" and not users and _has_observed_usage(card_usage):
+                    lock_status = "exclusive"
+                    users = [_test_report_user()]
+                is_idle = lock_status == "idle"
+                is_occupied = not is_idle
                 total_resources += 1
                 unlocked_resources += int(is_idle)
-                gpu_status = _gpu_status(getattr(card_usage, "mem", None), threshold)
+                available_resources += int(not is_occupied)
+                occupied_resources += int(is_occupied)
+                gpu_status = _gpu_status(getattr(card_usage, "mem", None), memory_threshold)
+                usage_status = _usage_status(
+                    getattr(card_usage, "util", None),
+                    getattr(card_usage, "mem", None),
+                    utilization_threshold,
+                    memory_threshold,
+                )
                 free_resources += int(gpu_status == "free")
                 devices.append(
                     {
                         "id": device.get("dev_id", index),
                         "model": device.get("dev_model", ""),
-                        "lock_status": device.get("status", "idle"),
+                        "lock_status": lock_status,
                         "gpu_status": gpu_status,
+                        "usage_status": usage_status,
                         "users": users,
                         "remaining_seconds": _remaining_seconds(users),
                         "util": getattr(card_usage, "util", None),
@@ -164,13 +195,15 @@ def _build_snapshot(
                         "container": getattr(card_usage, "container", ""),
                     }
                 )
-            node_gpu_status = _node_gpu_status(per_card, threshold)
+            node_gpu_status = _node_gpu_status(per_card, memory_threshold)
+            node_usage_status = _node_usage_status(per_card, utilization_threshold, memory_threshold)
             nodes.append(
                 {
                     "name": node_name,
                     "ip": _get_ip(cluster_configs, node_name),
                     "lock_status": _device_node_status(devices),
                     "gpu_status": node_gpu_status,
+                    "usage_status": node_usage_status,
                     "util": getattr(usage, "util", None),
                     "mem": getattr(usage, "mem", None),
                     "container": getattr(usage, "container", ""),
@@ -183,10 +216,25 @@ def _build_snapshot(
 
         node = node_state if isinstance(node_state, dict) else {}
         users = _users(node.get("current_users", []), now)
+        bookings = _users(node.get("booking_list", []), now)
         lock_status = node.get("status", "idle")
+        if REPORT_TEST_OCCUPANCY and lock_status == "idle" and not users and _has_observed_usage(usage):
+            lock_status = "exclusive"
+            users = [_test_report_user()]
+            if bot.bot_type == "QUEUE" and not bookings:
+                bookings = [_test_report_user()]
+        is_occupied = lock_status != "idle" or bool(bookings)
         total_resources += 1
         unlocked_resources += int(lock_status == "idle")
-        gpu_status = _gpu_status(getattr(usage, "mem", None), threshold)
+        available_resources += int(not is_occupied)
+        occupied_resources += int(is_occupied)
+        gpu_status = _gpu_status(getattr(usage, "mem", None), memory_threshold)
+        usage_status = _usage_status(
+            getattr(usage, "util", None),
+            getattr(usage, "mem", None),
+            utilization_threshold,
+            memory_threshold,
+        )
         free_resources += int(gpu_status == "free")
         nodes.append(
             {
@@ -194,23 +242,35 @@ def _build_snapshot(
                 "ip": _get_ip(cluster_configs, node_name),
                 "lock_status": lock_status,
                 "gpu_status": gpu_status,
+                "usage_status": usage_status,
                 "util": getattr(usage, "util", None),
                 "mem": getattr(usage, "mem", None),
                 "container": getattr(usage, "container", ""),
                 "devices": [],
                 "users": users,
-                "bookings": _users(node.get("booking_list", []), now),
+                "bookings": bookings,
             }
         )
 
     nodes.sort(key=lambda row: _natural_node_key(row["name"]))
+    in_use_resources = sum(
+        1
+        for node in nodes
+        for resource in (node["devices"] if bot.bot_type == "DEVICE" else [node])
+        if resource["usage_status"] == "in_use"
+    )
     return {
         "bot": {"id": bot.id, "name": bot.name, "type": bot.bot_type, "status": bot.status},
         "generated_at": generated_at.isoformat(),
         "summary": {
             "total_resources": total_resources,
             "unlocked_resources": unlocked_resources,
+            "available_resources": available_resources,
+            "occupied_resources": occupied_resources,
             "free_resources": free_resources,
+            "in_use_resources": in_use_resources,
+            "utilization_threshold": utilization_threshold,
+            "memory_threshold": memory_threshold,
         },
         "nodes": nodes,
     }
@@ -241,10 +301,34 @@ def _remaining_seconds(users: list[dict[str, Any]]) -> int | None:
     return min(values) if values else None
 
 
+def _has_observed_usage(usage: Any) -> bool:
+    """Return whether xpu-smi observed any non-zero XPU or memory utilization."""
+    for value in (getattr(usage, "util", None), getattr(usage, "mem", None)):
+        if isinstance(value, (int, float)) and value > 0:
+            return True
+    return False
+
+
+def _test_report_user() -> dict[str, Any]:
+    """Build report-only test data; this is never written back to bot state."""
+    return {
+        "id": random.choice(_TEST_REPORT_USERNAMES),
+        "remaining_seconds": random.randint(_TEST_OCCUPANCY_MIN_SECONDS, _TEST_OCCUPANCY_MAX_SECONDS),
+    }
+
+
 def _gpu_status(mem: float | None, threshold: float) -> str:
     if mem is None:
         return "na"
     return "busy" if mem > threshold else "free"
+
+
+def _usage_status(util: float | None, mem: float | None, utilization_threshold: float, memory_threshold: float) -> str:
+    if util is None and mem is None:
+        return "na"
+    if (util is not None and util > utilization_threshold) or (mem is not None and mem > memory_threshold):
+        return "in_use"
+    return "idle"
 
 
 def _node_gpu_status(per_card: list[Any], threshold: float) -> str:
@@ -256,6 +340,21 @@ def _node_gpu_status(per_card: list[Any], threshold: float) -> str:
         return "free"
     if all(value == "busy" for value in statuses):
         return "busy"
+    return "partial"
+
+
+def _node_usage_status(per_card: list[Any], utilization_threshold: float, memory_threshold: float) -> str:
+    statuses = [
+        _usage_status(getattr(card, "util", None), getattr(card, "mem", None), utilization_threshold, memory_threshold)
+        for card in per_card
+    ]
+    statuses = [value for value in statuses if value != "na"]
+    if not statuses:
+        return "na"
+    if all(value == "idle" for value in statuses):
+        return "idle"
+    if all(value == "in_use" for value in statuses):
+        return "in_use"
     return "partial"
 
 

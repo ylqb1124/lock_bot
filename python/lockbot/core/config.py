@@ -160,6 +160,11 @@ _CONFIG_SCHEMA = {
         "description": "GPU memory utilization %% above which a node/device is shown BUSY",
         "env": True,
     },
+    "UTILIZATION_BUSY_THRESHOLD": {
+        "default": 10,
+        "description": "XPU utilization %% above which a node/device is shown in use in public reports",
+        "env": True,
+    },
     "CONTAINER_MIN_MEM_PCT": {
         "default": 0.02,
         "description": (
